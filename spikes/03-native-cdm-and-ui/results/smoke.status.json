@@ -1,0 +1,44 @@
+{
+  "audioStreamCreated": true,
+  "clearSamples": 563,
+  "decodeErrClear": 0,
+  "decodeErrDecrypted": 0,
+  "decodedClearFrames": 576512,
+  "decodedDecryptedFrames": 704512,
+  "decodedDecryptedSeconds": 14.677333333333333,
+  "decryptFail": {},
+  "decryptOk": 688,
+  "encryptedSamples": 688,
+  "extra": {
+    "asc": "119056e500",
+    "cdmVersion": "4.10.3112.0",
+    "hostVersionRequested": 10,
+    "iface": 10,
+    "kid": "26470f4296d45d04a9babb442e169800",
+    "lic": "https://cwip-shaka-proxy.appspot.com/no_auth",
+    "licenseChallengeBytes": 1822,
+    "licenseHttpStatus": 200,
+    "licenseResponseBytes": 1229,
+    "mpd": "https://storage.googleapis.com/shaka-demo-assets/sintel-widevine/dash.mpd",
+    "segmentCount": 223
+  },
+  "initialized": true,
+  "keys": {
+    "26470f4296d45d04a9babb442e169800": 0,
+    "4d4b0ca25ac158f0b9c1983c517ee2b5": 0,
+    "517453862d4256fd8bad4f58422004d7": 0,
+    "902a051a6b3656aeac1926fc0f5d9232": 0,
+    "f0937e9a77c855f0a6d43864c5d9f365": 0
+  },
+  "phase": "playing",
+  "pid": 847535,
+  "playedSeconds": 25.296,
+  "rejects": [],
+  "segments": 7,
+  "sessionId": "E9D6BF2F84CB2F49D94C2B1CF614CBDD",
+  "shimLogs": [
+    "QueryOutputProtectionStatus requested; answering no display link",
+    "OnExpirationChange 0.000000"
+  ],
+  "usable": true
+}

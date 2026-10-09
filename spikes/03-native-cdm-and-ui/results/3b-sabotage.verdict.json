@@ -1,0 +1,52 @@
+{
+ "name": "3b-sabotage",
+ "verdict": "VOID",
+ "pssMedMiB": 80.1,
+ "pssMaxMiB": 80.1,
+ "rssMedMiB": 84.2,
+ "ussMedMiB": 79.9,
+ "checks": {
+  "c1_keyUsable": false,
+  "c2_decryptedOver30s": false,
+  "c3_pipewireStream": false,
+  "c5_treeWalked": true,
+  "defaultSinkUnchanged": true
+ },
+ "detail": {
+  "phase": "stalled-decrypt-idle",
+  "keys": {},
+  "rejects": [],
+  "clearSamples": 563,
+  "encryptedSamples": 50,
+  "decryptOk": 0,
+  "decryptFail": {
+   "2": 50
+  },
+  "decodedDecryptedSeconds": 0.0,
+  "decodeErrDecrypted": 0,
+  "decodeErrClear": 0,
+  "playedSeconds": 12.010666666666667,
+  "segments": 4,
+  "extra": {
+   "asc": "119056e500",
+   "cdmVersion": "4.10.3112.0",
+   "hostVersionRequested": 10,
+   "iface": 10,
+   "kid": "26470f4296d45d04a9babb442e169800",
+   "lic": "https://cwip-shaka-proxy.appspot.com/no_auth_SABOTAGED",
+   "licenseChallengeBytes": 1822,
+   "licenseHttpStatus": 404,
+   "licenseResponseBytes": 154,
+   "mpd": "https://storage.googleapis.com/shaka-demo-assets/sintel-widevine/dash.mpd",
+   "segmentCount": 223
+  },
+  "shimLogs": [
+   "QueryOutputProtectionStatus requested; answering no display link"
+  ]
+ },
+ "routing": {
+  "pid": 856651,
+  "streams": [],
+  "targets": []
+ }
+}

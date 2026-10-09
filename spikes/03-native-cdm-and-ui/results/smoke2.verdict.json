@@ -1,0 +1,65 @@
+{
+ "name": "smoke2",
+ "verdict": "VOID",
+ "pssMedMiB": 86.6,
+ "pssMaxMiB": 86.7,
+ "rssMedMiB": 90.8,
+ "ussMedMiB": 86.5,
+ "checks": {
+  "c1_keyUsable": true,
+  "c2_decryptedOver30s": false,
+  "c3_pipewireStream": true,
+  "c5_treeWalked": true,
+  "defaultSinkUnchanged": true
+ },
+ "detail": {
+  "phase": "playing",
+  "keys": {
+   "26470f4296d45d04a9babb442e169800": 0,
+   "4d4b0ca25ac158f0b9c1983c517ee2b5": 0,
+   "517453862d4256fd8bad4f58422004d7": 0,
+   "902a051a6b3656aeac1926fc0f5d9232": 0,
+   "f0937e9a77c855f0a6d43864c5d9f365": 0
+  },
+  "rejects": [],
+  "clearSamples": 563,
+  "encryptedSamples": 496,
+  "decryptOk": 496,
+  "decryptFail": {},
+  "decodedDecryptedSeconds": 10.581333333333333,
+  "decodeErrDecrypted": 0,
+  "decodeErrClear": 0,
+  "playedSeconds": 21.2,
+  "segments": 6,
+  "extra": {
+   "asc": "119056e500",
+   "cdmVersion": "4.10.3112.0",
+   "hostVersionRequested": 10,
+   "iface": 10,
+   "kid": "26470f4296d45d04a9babb442e169800",
+   "lic": "https://cwip-shaka-proxy.appspot.com/no_auth",
+   "licenseChallengeBytes": 1822,
+   "licenseHttpStatus": 200,
+   "licenseResponseBytes": 1229,
+   "mpd": "https://storage.googleapis.com/shaka-demo-assets/sintel-widevine/dash.mpd",
+   "segmentCount": 223
+  },
+  "shimLogs": [
+   "QueryOutputProtectionStatus requested; answering no display link",
+   "OnExpirationChange 0.000000"
+  ]
+ },
+ "routing": {
+  "pid": 853547,
+  "streams": [
+   {
+    "id": 71,
+    "name": "spike3-cdm-host",
+    "app": "spike3-cdm-host"
+   }
+  ],
+  "targets": [
+   "spike3-null"
+  ]
+ }
+}

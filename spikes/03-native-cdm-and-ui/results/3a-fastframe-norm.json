@@ -1,0 +1,131 @@
+{
+ "name": "3a-fastframe-norm",
+ "cmd": [
+  "/home/norm/projects/Personal/apple-music-client/spikes/03-native-cdm-and-ui/ui-baseline/target/release/fastframe"
+ ],
+ "exitedEarly": null,
+ "samples": 15,
+ "pssMedMiB": 107.2,
+ "pssMaxMiB": 107.2,
+ "rssMedMiB": 135.3,
+ "rssMaxMiB": 135.3,
+ "ussMedMiB": 83.8,
+ "ussMaxMiB": 83.8,
+ "procCountMin": 1,
+ "lastPer": [
+  {
+   "pid": 920677,
+   "comm": "fastframe",
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808
+  }
+ ],
+ "samplesRaw": [
+  {
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808,
+   "count": 1,
+   "t": 5.03
+  },
+  {
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808,
+   "count": 1,
+   "t": 7.06
+  },
+  {
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808,
+   "count": 1,
+   "t": 9.09
+  },
+  {
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808,
+   "count": 1,
+   "t": 11.11
+  },
+  {
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808,
+   "count": 1,
+   "t": 13.14
+  },
+  {
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808,
+   "count": 1,
+   "t": 15.17
+  },
+  {
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808,
+   "count": 1,
+   "t": 17.2
+  },
+  {
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808,
+   "count": 1,
+   "t": 19.24
+  },
+  {
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808,
+   "count": 1,
+   "t": 21.26
+  },
+  {
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808,
+   "count": 1,
+   "t": 23.3
+  },
+  {
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808,
+   "count": 1,
+   "t": 25.33
+  },
+  {
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808,
+   "count": 1,
+   "t": 27.37
+  },
+  {
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808,
+   "count": 1,
+   "t": 29.41
+  },
+  {
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808,
+   "count": 1,
+   "t": 31.45
+  },
+  {
+   "pssKiB": 109779,
+   "rssKiB": 138596,
+   "ussKiB": 85808,
+   "count": 1,
+   "t": 33.49
+  }
+ ]
+}

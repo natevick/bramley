@@ -1,0 +1,102 @@
+{
+ "name": "smoke",
+ "cmd": [
+  "/home/norm/projects/Personal/apple-music-client/spikes/03-native-cdm-and-ui/cdm-host/target/release/cdm-host-spike",
+  "--status",
+  "/home/norm/projects/Personal/apple-music-client/spikes/03-native-cdm-and-ui/results/smoke.status.json",
+  "--sink",
+  "spike3-null",
+  "--play-seconds",
+  "100000"
+ ],
+ "exitedEarly": null,
+ "samples": 10,
+ "pssMedMiB": 86.8,
+ "pssMaxMiB": 86.8,
+ "rssMedMiB": 90.9,
+ "rssMaxMiB": 90.9,
+ "ussMedMiB": 86.6,
+ "ussMaxMiB": 86.6,
+ "procCountMin": 1,
+ "lastPer": [
+  {
+   "pid": 847535,
+   "comm": "cdm-host-spike",
+   "pssKiB": 88907,
+   "rssKiB": 93092,
+   "ussKiB": 88676
+  }
+ ],
+ "samplesRaw": [
+  {
+   "pssKiB": 88847,
+   "rssKiB": 93032,
+   "ussKiB": 88616,
+   "count": 1,
+   "t": 5.03
+  },
+  {
+   "pssKiB": 88851,
+   "rssKiB": 93036,
+   "ussKiB": 88620,
+   "count": 1,
+   "t": 7.06
+  },
+  {
+   "pssKiB": 88851,
+   "rssKiB": 93036,
+   "ussKiB": 88620,
+   "count": 1,
+   "t": 9.09
+  },
+  {
+   "pssKiB": 88879,
+   "rssKiB": 93064,
+   "ussKiB": 88648,
+   "count": 1,
+   "t": 11.12
+  },
+  {
+   "pssKiB": 88879,
+   "rssKiB": 93064,
+   "ussKiB": 88648,
+   "count": 1,
+   "t": 13.14
+  },
+  {
+   "pssKiB": 88903,
+   "rssKiB": 93088,
+   "ussKiB": 88672,
+   "count": 1,
+   "t": 15.17
+  },
+  {
+   "pssKiB": 88887,
+   "rssKiB": 93072,
+   "ussKiB": 88656,
+   "count": 1,
+   "t": 17.2
+  },
+  {
+   "pssKiB": 88895,
+   "rssKiB": 93080,
+   "ussKiB": 88664,
+   "count": 1,
+   "t": 19.23
+  },
+  {
+   "pssKiB": 88894,
+   "rssKiB": 93080,
+   "ussKiB": 88664,
+   "count": 1,
+   "t": 21.27
+  },
+  {
+   "pssKiB": 88907,
+   "rssKiB": 93092,
+   "ussKiB": 88676,
+   "count": 1,
+   "t": 23.3
+  }
+ ]
+}

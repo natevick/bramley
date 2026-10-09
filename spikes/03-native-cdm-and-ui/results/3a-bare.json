@@ -1,0 +1,131 @@
+{
+ "name": "3a-bare",
+ "cmd": [
+  "/home/norm/projects/Personal/apple-music-client/spikes/03-native-cdm-and-ui/ui-baseline/target/release/bare"
+ ],
+ "exitedEarly": null,
+ "samples": 15,
+ "pssMedMiB": 85.8,
+ "pssMaxMiB": 86.7,
+ "rssMedMiB": 113.0,
+ "rssMaxMiB": 114.0,
+ "ussMedMiB": 63.0,
+ "ussMaxMiB": 64.0,
+ "procCountMin": 1,
+ "lastPer": [
+  {
+   "pid": 778164,
+   "comm": "bare",
+   "pssKiB": 87844,
+   "rssKiB": 115736,
+   "ussKiB": 64524
+  }
+ ],
+ "samplesRaw": [
+  {
+   "pssKiB": 88268,
+   "rssKiB": 116780,
+   "ussKiB": 65096,
+   "count": 1,
+   "t": 5.03
+  },
+  {
+   "pssKiB": 88268,
+   "rssKiB": 116780,
+   "ussKiB": 65096,
+   "count": 1,
+   "t": 7.06
+  },
+  {
+   "pssKiB": 88268,
+   "rssKiB": 116780,
+   "ussKiB": 65096,
+   "count": 1,
+   "t": 9.09
+  },
+  {
+   "pssKiB": 88775,
+   "rssKiB": 116780,
+   "ussKiB": 65520,
+   "count": 1,
+   "t": 11.11
+  },
+  {
+   "pssKiB": 88443,
+   "rssKiB": 116424,
+   "ussKiB": 65212,
+   "count": 1,
+   "t": 13.14
+  },
+  {
+   "pssKiB": 87754,
+   "rssKiB": 115736,
+   "ussKiB": 64524,
+   "count": 1,
+   "t": 15.17
+  },
+  {
+   "pssKiB": 87732,
+   "rssKiB": 115736,
+   "ussKiB": 64524,
+   "count": 1,
+   "t": 17.21
+  },
+  {
+   "pssKiB": 87791,
+   "rssKiB": 115736,
+   "ussKiB": 64524,
+   "count": 1,
+   "t": 19.24
+  },
+  {
+   "pssKiB": 87791,
+   "rssKiB": 115736,
+   "ussKiB": 64524,
+   "count": 1,
+   "t": 21.27
+  },
+  {
+   "pssKiB": 87792,
+   "rssKiB": 115736,
+   "ussKiB": 64524,
+   "count": 1,
+   "t": 23.31
+  },
+  {
+   "pssKiB": 87844,
+   "rssKiB": 115736,
+   "ussKiB": 64524,
+   "count": 1,
+   "t": 25.35
+  },
+  {
+   "pssKiB": 87844,
+   "rssKiB": 115736,
+   "ussKiB": 64524,
+   "count": 1,
+   "t": 27.38
+  },
+  {
+   "pssKiB": 87844,
+   "rssKiB": 115736,
+   "ussKiB": 64524,
+   "count": 1,
+   "t": 29.42
+  },
+  {
+   "pssKiB": 87844,
+   "rssKiB": 115736,
+   "ussKiB": 64524,
+   "count": 1,
+   "t": 31.46
+  },
+  {
+   "pssKiB": 87844,
+   "rssKiB": 115736,
+   "ussKiB": 64524,
+   "count": 1,
+   "t": 33.5
+  }
+ ]
+}

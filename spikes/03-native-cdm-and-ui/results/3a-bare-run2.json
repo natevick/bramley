@@ -1,0 +1,131 @@
+{
+ "name": "3a-bare-run2",
+ "cmd": [
+  "/home/norm/projects/Personal/apple-music-client/spikes/03-native-cdm-and-ui/ui-baseline/target/release/bare"
+ ],
+ "exitedEarly": null,
+ "samples": 15,
+ "pssMedMiB": 82.0,
+ "pssMaxMiB": 82.0,
+ "rssMedMiB": 108.3,
+ "rssMaxMiB": 108.3,
+ "ussMedMiB": 60.1,
+ "ussMaxMiB": 60.1,
+ "procCountMin": 1,
+ "lastPer": [
+  {
+   "pid": 887737,
+   "comm": "bare",
+   "pssKiB": 83918,
+   "rssKiB": 110896,
+   "ussKiB": 61532
+  }
+ ],
+ "samplesRaw": [
+  {
+   "pssKiB": 83920,
+   "rssKiB": 110896,
+   "ussKiB": 61532,
+   "count": 1,
+   "t": 5.03
+  },
+  {
+   "pssKiB": 83920,
+   "rssKiB": 110896,
+   "ussKiB": 61532,
+   "count": 1,
+   "t": 7.05
+  },
+  {
+   "pssKiB": 83920,
+   "rssKiB": 110896,
+   "ussKiB": 61532,
+   "count": 1,
+   "t": 9.08
+  },
+  {
+   "pssKiB": 83920,
+   "rssKiB": 110896,
+   "ussKiB": 61532,
+   "count": 1,
+   "t": 11.11
+  },
+  {
+   "pssKiB": 83920,
+   "rssKiB": 110896,
+   "ussKiB": 61532,
+   "count": 1,
+   "t": 13.13
+  },
+  {
+   "pssKiB": 83920,
+   "rssKiB": 110896,
+   "ussKiB": 61532,
+   "count": 1,
+   "t": 15.17
+  },
+  {
+   "pssKiB": 83920,
+   "rssKiB": 110896,
+   "ussKiB": 61532,
+   "count": 1,
+   "t": 17.2
+  },
+  {
+   "pssKiB": 83920,
+   "rssKiB": 110896,
+   "ussKiB": 61532,
+   "count": 1,
+   "t": 19.24
+  },
+  {
+   "pssKiB": 83920,
+   "rssKiB": 110896,
+   "ussKiB": 61532,
+   "count": 1,
+   "t": 21.28
+  },
+  {
+   "pssKiB": 83920,
+   "rssKiB": 110896,
+   "ussKiB": 61532,
+   "count": 1,
+   "t": 23.31
+  },
+  {
+   "pssKiB": 83919,
+   "rssKiB": 110896,
+   "ussKiB": 61532,
+   "count": 1,
+   "t": 25.34
+  },
+  {
+   "pssKiB": 83918,
+   "rssKiB": 110896,
+   "ussKiB": 61532,
+   "count": 1,
+   "t": 27.38
+  },
+  {
+   "pssKiB": 83918,
+   "rssKiB": 110896,
+   "ussKiB": 61532,
+   "count": 1,
+   "t": 29.42
+  },
+  {
+   "pssKiB": 83918,
+   "rssKiB": 110896,
+   "ussKiB": 61532,
+   "count": 1,
+   "t": 31.45
+  },
+  {
+   "pssKiB": 83918,
+   "rssKiB": 110896,
+   "ussKiB": 61532,
+   "count": 1,
+   "t": 33.49
+  }
+ ]
+}

@@ -7,3 +7,4 @@ spikes/*/results/*.raw
 .env
 .env.*
 spikes/*/results/*.log
+spikes/*/syslibs/
