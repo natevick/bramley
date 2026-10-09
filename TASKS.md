@@ -8,7 +8,15 @@
 - [x] Spike 4 (2026-10-09, reproduced by Norm): QuickJS-NG 8.5 MiB / V8 32-33 MiB PSS idle with musickit.js configured; sabotage VOID. Pick QuickJS; V8 is the fallback and API-contract recorder. Idle only: playback memory with hls.js is unmeasured.
 - [x] Spike 5 (2026-10-09, reproduced by Norm): hls.js in QuickJS, through native MSE/EME host objects, into the CDM: PASS at 96.7 MiB, one process (bar 105); sabotage VOID. Not yet covered: pause, volume, eviction, musickit.js, Apple license server.
 - [ ] Real-GPU UI measurement: this box gives no render-node access (norm is not in the `render` group). Needs Nate: add the group, or measure on his Linux machine.
-- [ ] Engine crate, branch `natevick/engine-crate` at 01915a4. Norm reproduced it 2026-10-09: 97.6 MiB PASS, sabotage VOID, pause/seek PASS (with sabotage FAIL), 34 tests plus the e2e passing. MERGE GATE: the reviewer report at `scratch/review-engine-crate.md`. Fix any blocker or major finding on the branch and re-run `scripts/measure-playback.sh` plus the scenario, then fast-forward main.
+- [x] Engine crate (2026-10-09). Merged to main after the review-fix round. Norm verified: 10/10 key fixes fail on base and pass on HEAD; measure 97.2 MiB PASS; sabotage VOID; scenario PASS (skip-pause FAIL); 56 tests; cbcs e2e passes.
 - [ ] Thinnest end-to-end slice: MusicKit JS in engine, then shims, then CDM, then Apple license, then audible sound. Do this before any UI work.
-- [ ] Name (Nate 2026-10-09: "Orchard" dropped because The Orchard is a music distributor). A research agent is checking candidates in `scratch/naming/names.md`; propose 3–4 to Nate.
-- [ ] License and open source (Nate 2026-10-09): MIT, the same as Spotifast, with everything public in one repo. After the engine merge: add LICENSE (MIT, Nate Vick), rename crates and the directory to the chosen name, and ask Nate before creating the public GitHub repo.
+- [x] Name: **Bramley** (Nate, 2026-10-09). Tagline "Bramley for Apple Music"; no real apple image in the icon.
+- [x] MIT LICENSE, README and rename done (2026-10-09). Repo is now `~/projects/Personal/bramley`.
+- [ ] Public GitHub repo: ASK NATE before creating it (natevick/bramley?).
+- [ ] Reserve the `bramley` crate name on crates.io: needs Nate's OK plus a crates.io token in broker `personal`.
+- [ ] Engine follow-ups from the fix round:
+  - Untested paths: m2 aliasing, m6 FileIO, the m5 stale-chunk race, M7's JS error relay, m7's getrandom throw path.
+  - The ten-track check can't see M6 leaks (0.3 MiB per CDM). Pre-register a "live CDMs ≤ 1" assertion.
+  - Tests ran about 48% over the line budget. Consolidate the duplicate `engine`/`run` helpers in `element.rs` and `eme.rs`.
+  - Windows and macOS have never been compiled.
+  - The cbcs test uses a hand-built HLS playlist over Google's DASH sample.
