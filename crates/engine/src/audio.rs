@@ -5,6 +5,9 @@ pub trait AudioSink {
     fn flush(&mut self);
     fn set_paused(&mut self, paused: bool);
     fn set_gain(&mut self, gain: f32);
+    fn drain(&mut self);
+    fn drained(&self) -> bool;
+    fn failed(&self) -> bool;
 }
 
 pub fn apply_gain(pcm_le: &mut [u8], gain: f32) {
@@ -27,15 +30,16 @@ mod pulse {
     use std::ffi::CString;
     use std::io::BufReader;
     use std::os::unix::net::UnixStream;
-    use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
-    use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
+    use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering::SeqCst};
+    use std::sync::mpsc::{Receiver, Sender, channel};
     use std::sync::{Arc, Mutex};
-    use std::time::Duration;
 
-    use anyhow::{Context, Result, bail};
+    use anyhow::{Context, Result, anyhow};
     use pulseaudio::protocol::{self, Command};
 
     use super::{AudioSink, apply_gain};
+
+    pub type Connect = Box<dyn FnOnce() -> Result<UnixStream> + Send>;
 
     struct Pcm {
         generation: u64,
@@ -45,63 +49,58 @@ mod pulse {
         samples: Vec<i16>,
     }
 
-    struct Control {
-        sock: UnixStream,
-        channel: u32,
-        version: u16,
-        seq: u32,
+    enum Msg {
+        Pcm(Pcm),
+        Flush,
+        Cork(bool),
+        Drain(u64),
+        Requested(usize),
+        Replied(u32),
+        ServerGone(String),
+        Stop,
     }
 
-    impl Control {
-        fn send(&mut self, cmd: &Command) {
-            self.seq += 1;
-            if let Err(e) =
-                protocol::write_command_message(&mut self.sock, self.seq, cmd, self.version)
-            {
-                eprintln!("ENGINE audio control write failed: {e}");
-            }
-        }
-    }
-
+    #[derive(Default)]
     struct Shared {
         generation: AtomicU64,
         played: AtomicU64,
         position_us: AtomicI64,
         gain: AtomicU32,
-        paused: AtomicBool,
-        control: Mutex<Option<Control>>,
-    }
-
-    impl Shared {
-        fn control(&self, f: impl FnOnce(&mut Control)) {
-            if let Some(c) = self.control.lock().unwrap().as_mut() {
-                f(c);
-            }
-        }
+        drained_generation: AtomicU64,
+        failed: AtomicBool,
+        sock: Mutex<Option<UnixStream>>,
     }
 
     pub struct PulseSink {
-        tx: SyncSender<Pcm>,
+        tx: Sender<Msg>,
         shared: Arc<Shared>,
     }
 
     impl PulseSink {
         pub fn start(app_name: String, device: Option<String>) -> PulseSink {
-            let (tx, rx) = sync_channel::<Pcm>(256);
+            let connect: Connect = Box::new(|| {
+                let path =
+                    pulseaudio::socket_path_from_env().context("PulseAudio socket not found")?;
+                Ok(UnixStream::connect(path)?)
+            });
+            Self::start_with(app_name, device, connect)
+        }
+
+        pub fn start_with(app_name: String, device: Option<String>, connect: Connect) -> PulseSink {
+            let (tx, rx) = channel();
             let shared = Arc::new(Shared {
-                generation: AtomicU64::new(0),
-                played: AtomicU64::new(0),
                 position_us: AtomicI64::new(i64::MIN),
                 gain: AtomicU32::new(1f32.to_bits()),
-                paused: AtomicBool::new(false),
-                control: Mutex::new(None),
+                drained_generation: AtomicU64::new(u64::MAX),
+                ..Default::default()
             });
-            let s = shared.clone();
+            let (s, server_tx) = (shared.clone(), tx.clone());
             std::thread::Builder::new()
                 .name("audio-out".into())
                 .spawn(move || {
-                    if let Err(e) = run(app_name, device, rx, s) {
+                    if let Err(e) = run(app_name, device, connect, rx, server_tx, &s) {
                         eprintln!("ENGINE audio thread error: {e:#}");
+                        s.failed.store(true, SeqCst);
                     }
                 })
                 .expect("spawn audio thread");
@@ -109,43 +108,172 @@ mod pulse {
         }
     }
 
+    impl Drop for PulseSink {
+        fn drop(&mut self) {
+            let _ = self.tx.send(Msg::Stop);
+            if let Some(sock) = self.shared.sock.lock().unwrap().take() {
+                let _ = sock.shutdown(std::net::Shutdown::Both);
+            }
+        }
+    }
+
     impl AudioSink for PulseSink {
         fn write(&mut self, pts_us: i64, rate: u32, channels: u16, samples: Vec<i16>) {
-            let generation = self.shared.generation.load(Ordering::SeqCst);
-            let _ = self.tx.send(Pcm {
+            let generation = self.shared.generation.load(SeqCst);
+            let _ = self.tx.send(Msg::Pcm(Pcm {
                 generation,
                 pts_us,
                 rate,
                 channels,
                 samples,
-            });
+            }));
         }
         fn played_frames(&self) -> u64 {
-            self.shared.played.load(Ordering::SeqCst)
+            self.shared.played.load(SeqCst)
         }
         fn output_position_us(&self) -> Option<i64> {
-            Some(self.shared.position_us.load(Ordering::SeqCst)).filter(|p| *p != i64::MIN)
+            Some(self.shared.position_us.load(SeqCst)).filter(|p| *p != i64::MIN)
         }
         fn flush(&mut self) {
-            self.shared.generation.fetch_add(1, Ordering::SeqCst);
-            self.shared.control(|c| {
-                let channel = c.channel;
-                c.send(&Command::FlushPlaybackStream(channel))
-            });
+            self.shared.generation.fetch_add(1, SeqCst);
+            let _ = self.tx.send(Msg::Flush);
         }
         fn set_paused(&mut self, paused: bool) {
-            self.shared.paused.store(paused, Ordering::SeqCst);
-            self.shared.control(|c| {
-                let channel = c.channel;
-                c.send(&Command::CorkPlaybackStream(protocol::CorkStreamParams {
-                    channel,
-                    cork: paused,
-                }))
-            });
+            let _ = self.tx.send(Msg::Cork(paused));
         }
         fn set_gain(&mut self, gain: f32) {
-            self.shared.gain.store(gain.to_bits(), Ordering::SeqCst);
+            self.shared.gain.store(gain.to_bits(), SeqCst);
         }
+        fn drain(&mut self) {
+            let _ = self
+                .tx
+                .send(Msg::Drain(self.shared.generation.load(SeqCst)));
+        }
+        fn drained(&self) -> bool {
+            self.shared.drained_generation.load(SeqCst) == self.shared.generation.load(SeqCst)
+        }
+        fn failed(&self) -> bool {
+            self.shared.failed.load(SeqCst)
+        }
+    }
+
+    struct Stream {
+        sock: UnixStream,
+        channel: u32,
+        version: u16,
+        seq: u32,
+        rate: u32,
+        frame_bytes: usize,
+    }
+
+    impl Stream {
+        fn send(&mut self, cmd: &Command) -> Result<u32> {
+            self.seq += 1;
+            protocol::write_command_message(&mut self.sock, self.seq, cmd, self.version)?;
+            Ok(self.seq)
+        }
+        fn cork(&mut self, cork: bool) -> Result<u32> {
+            let channel = self.channel;
+            self.send(&Command::CorkPlaybackStream(protocol::CorkStreamParams {
+                channel,
+                cork,
+            }))
+        }
+    }
+
+    fn open(
+        app_name: String,
+        device: Option<String>,
+        connect: Connect,
+        first: &Pcm,
+        server_tx: Sender<Msg>,
+        shared: &Shared,
+    ) -> Result<(Stream, usize)> {
+        let (rate, channels) = (first.rate, first.channels);
+        let sock = connect()?;
+        *shared.sock.lock().unwrap() = Some(sock.try_clone()?);
+        let mut reader = BufReader::new(sock.try_clone()?);
+        let mut stream = Stream {
+            sock,
+            channel: 0,
+            version: protocol::MAX_VERSION,
+            seq: 0,
+            rate,
+            frame_bytes: channels as usize * 2,
+        };
+        let cookie = pulseaudio::cookie_path_from_env()
+            .and_then(|p| std::fs::read(p).ok())
+            .unwrap_or_default();
+        stream.send(&Command::Auth(protocol::AuthParams {
+            version: protocol::MAX_VERSION,
+            supports_shm: false,
+            supports_memfd: false,
+            cookie,
+        }))?;
+        let (_, auth) =
+            protocol::read_reply_message::<protocol::AuthReply>(&mut reader, stream.version)?;
+        stream.version = std::cmp::min(protocol::MAX_VERSION, auth.version);
+        let mut props = protocol::Props::new();
+        props.set(protocol::Prop::ApplicationName, CString::new(app_name)?);
+        props.set(
+            protocol::Prop::ApplicationProcessId,
+            CString::new(std::process::id().to_string())?,
+        );
+        stream.send(&Command::SetClientName(props))?;
+        protocol::read_reply_message::<protocol::SetClientNameReply>(&mut reader, stream.version)?;
+        let bytes_per_sec = rate * channels as u32 * 2;
+        stream.send(&Command::CreatePlaybackStream(
+            protocol::PlaybackStreamParams {
+                sample_spec: protocol::SampleSpec {
+                    format: protocol::SampleFormat::S16Le,
+                    channels: channels as u8,
+                    sample_rate: rate,
+                },
+                channel_map: if channels == 1 {
+                    protocol::ChannelMap::mono()
+                } else {
+                    protocol::ChannelMap::stereo()
+                },
+                cvolume: Some(protocol::ChannelVolume::norm(channels as u8)),
+                sink_name: device.map(CString::new).transpose()?,
+                buffer_attr: protocol::stream::BufferAttr {
+                    max_length: u32::MAX,
+                    target_length: bytes_per_sec / 5,
+                    pre_buffering: u32::MAX,
+                    minimum_request_length: u32::MAX,
+                    fragment_size: u32::MAX,
+                },
+                ..Default::default()
+            },
+        ))?;
+        let (_, info) = protocol::read_reply_message::<protocol::CreatePlaybackStreamReply>(
+            &mut reader,
+            stream.version,
+        )?;
+        eprintln!(
+            "ENGINE audio stream created rate={rate} channels={channels} channel={} sink_index={}",
+            info.channel, info.sink_index
+        );
+        stream.channel = info.channel;
+        let version = stream.version;
+        std::thread::Builder::new()
+            .name("audio-in".into())
+            .spawn(move || {
+                loop {
+                    let msg = match protocol::read_command_message(&mut reader, version) {
+                        Ok((_, Command::Request(r))) => Msg::Requested(r.length as usize),
+                        Ok((seq, Command::Reply)) => Msg::Replied(seq),
+                        Ok((_, Command::Error(e))) => Msg::ServerGone(format!("{e:?}")),
+                        Ok(_) => continue,
+                        Err(e) => Msg::ServerGone(e.to_string()),
+                    };
+                    let gone = matches!(msg, Msg::ServerGone(_));
+                    if server_tx.send(msg).is_err() || gone {
+                        return;
+                    }
+                }
+            })?;
+        Ok((stream, info.requested_bytes as usize))
     }
 
     struct Pending {
@@ -157,177 +285,91 @@ mod pulse {
     fn run(
         app_name: String,
         device: Option<String>,
-        rx: Receiver<Pcm>,
-        shared: Arc<Shared>,
+        connect: Connect,
+        rx: Receiver<Msg>,
+        server_tx: Sender<Msg>,
+        shared: &Shared,
     ) -> Result<()> {
-        let first = loop {
-            let pcm = rx
-                .recv()
-                .context("audio channel closed before first chunk")?;
-            if pcm.generation == shared.generation.load(Ordering::SeqCst) {
-                break pcm;
-            }
-        };
-        let (rate, channels) = (first.rate, first.channels);
-        let socket_path =
-            pulseaudio::socket_path_from_env().context("PulseAudio socket not found")?;
-        let mut sock = BufReader::new(UnixStream::connect(socket_path)?);
-        let cookie = pulseaudio::cookie_path_from_env()
-            .and_then(|p| std::fs::read(p).ok())
-            .unwrap_or_default();
-        protocol::write_command_message(
-            sock.get_mut(),
-            0,
-            &Command::Auth(protocol::AuthParams {
-                version: protocol::MAX_VERSION,
-                supports_shm: false,
-                supports_memfd: false,
-                cookie,
-            }),
-            protocol::MAX_VERSION,
-        )?;
-        let (_, auth) =
-            protocol::read_reply_message::<protocol::AuthReply>(&mut sock, protocol::MAX_VERSION)?;
-        let version = std::cmp::min(protocol::MAX_VERSION, auth.version);
-        let mut props = protocol::Props::new();
-        props.set(protocol::Prop::ApplicationName, CString::new(app_name)?);
-        props.set(
-            protocol::Prop::ApplicationProcessId,
-            CString::new(std::process::id().to_string())?,
-        );
-        protocol::write_command_message(
-            sock.get_mut(),
-            1,
-            &Command::SetClientName(props),
-            version,
-        )?;
-        let _ = protocol::read_reply_message::<protocol::SetClientNameReply>(&mut sock, version)?;
-        let bytes_per_sec = rate * channels as u32 * 2;
-        let channel_map = if channels == 1 {
-            protocol::ChannelMap::mono()
-        } else {
-            protocol::ChannelMap::stereo()
-        };
-        let params = protocol::PlaybackStreamParams {
-            sample_spec: protocol::SampleSpec {
-                format: protocol::SampleFormat::S16Le,
-                channels: channels as u8,
-                sample_rate: rate,
-            },
-            channel_map,
-            cvolume: Some(protocol::ChannelVolume::norm(channels as u8)),
-            sink_name: device.map(CString::new).transpose()?,
-            buffer_attr: protocol::stream::BufferAttr {
-                max_length: u32::MAX,
-                target_length: bytes_per_sec / 5,
-                pre_buffering: u32::MAX,
-                minimum_request_length: u32::MAX,
-                fragment_size: u32::MAX,
-            },
-            ..Default::default()
-        };
-        protocol::write_command_message(
-            sock.get_mut(),
-            2,
-            &Command::CreatePlaybackStream(params),
-            version,
-        )?;
-        let (_, info) = protocol::read_reply_message::<protocol::CreatePlaybackStreamReply>(
-            &mut sock, version,
-        )?;
-        eprintln!(
-            "ENGINE audio stream created rate={rate} channels={channels} channel={} sink_index={}",
-            info.channel, info.sink_index
-        );
-        *shared.control.lock().unwrap() = Some(Control {
-            sock: sock.get_ref().try_clone()?,
-            channel: info.channel,
-            version,
-            seq: 2,
-        });
-        if shared.paused.load(Ordering::SeqCst) {
-            shared.control(|c| {
-                c.send(&Command::CorkPlaybackStream(protocol::CorkStreamParams {
-                    channel: info.channel,
-                    cork: true,
-                }))
-            });
-        }
-        let frame_bytes = channels as usize * 2;
+        let mut setup = Some((app_name, device, connect, server_tx));
+        let mut stream: Option<Stream> = None;
         let mut pending = Pending {
             bytes: Vec::new(),
-            generation: first.generation,
-            head_pts_us: first.pts_us,
+            generation: 0,
+            head_pts_us: 0,
         };
-        pending
-            .bytes
-            .extend(first.samples.iter().flat_map(|s| s.to_le_bytes()));
-        let fill = |want: usize, p: &mut Pending| -> Option<(Vec<u8>, u64, i64)> {
-            loop {
-                let current = shared.generation.load(Ordering::SeqCst);
-                if p.generation != current {
-                    p.bytes.clear();
-                    p.generation = current;
-                }
-                if p.bytes.len() >= want {
-                    break;
-                }
-                match rx.recv_timeout(Duration::from_millis(40)) {
-                    Ok(chunk) if chunk.generation == shared.generation.load(Ordering::SeqCst) => {
-                        if chunk.generation != p.generation || p.bytes.is_empty() {
-                            p.bytes.clear();
-                            p.generation = chunk.generation;
-                            p.head_pts_us = chunk.pts_us;
-                        }
-                        p.bytes
-                            .extend(chunk.samples.iter().flat_map(|s| s.to_le_bytes()));
-                    }
-                    Ok(_) => {}
-                    Err(RecvTimeoutError::Timeout) if p.bytes.len() >= frame_bytes => break,
-                    Err(RecvTimeoutError::Timeout) => {}
-                    Err(RecvTimeoutError::Disconnected) => break,
-                }
-            }
-            if p.bytes.is_empty() {
-                return None;
-            }
-            let n = want.min(p.bytes.len());
-            let n = n - n % frame_bytes;
-            let start_pts = p.head_pts_us;
-            p.head_pts_us += (n / frame_bytes) as i64 * 1_000_000 / rate as i64;
-            Some((p.bytes.drain(..n).collect(), p.generation, start_pts))
-        };
-        let write = |(mut buf, generation, start_pts): (Vec<u8>, u64, i64)| -> Result<()> {
-            apply_gain(&mut buf, f32::from_bits(shared.gain.load(Ordering::SeqCst)));
-            let frames = (buf.len() / frame_bytes) as u64;
-            let mut guard = shared.control.lock().unwrap();
-            let c = guard.as_mut().context("audio control missing")?;
-            protocol::write_memblock(&mut c.sock, c.channel, &buf, 0)?;
-            if generation == shared.generation.load(Ordering::SeqCst) {
-                shared.played.fetch_add(frames, Ordering::SeqCst);
-                shared.position_us.store(
-                    start_pts + frames as i64 * 1_000_000 / rate as i64,
-                    Ordering::SeqCst,
-                );
-            }
-            Ok(())
-        };
-        if let Some(chunk) = fill(info.requested_bytes as usize, &mut pending) {
-            write(chunk)?;
-        }
+        let (mut owed, mut corked) = (0usize, false);
+        let mut drain_wanted: Option<u64> = None;
+        let mut drain_reply: Option<(u32, u64)> = None;
         loop {
-            let (_, msg) = protocol::read_command_message(&mut sock, version)?;
-            match msg {
-                Command::Request(protocol::Request { channel, length })
-                    if channel == info.channel =>
-                {
-                    match fill(length as usize, &mut pending) {
-                        Some(chunk) => write(chunk)?,
-                        None => return Ok(()),
+            match rx.recv()? {
+                Msg::Stop => return Ok(()),
+                Msg::Pcm(p) if p.generation == shared.generation.load(SeqCst) => {
+                    if let Some((app_name, device, connect, server_tx)) = setup.take() {
+                        let (mut s, requested) =
+                            open(app_name, device, connect, &p, server_tx, shared)?;
+                        if corked {
+                            s.cork(true)?;
+                        }
+                        owed = requested;
+                        stream = Some(s);
+                    }
+                    if p.generation != pending.generation || pending.bytes.is_empty() {
+                        pending.bytes.clear();
+                        pending.generation = p.generation;
+                        pending.head_pts_us = p.pts_us;
+                    }
+                    pending
+                        .bytes
+                        .extend(p.samples.iter().flat_map(|s| s.to_le_bytes()));
+                }
+                Msg::Pcm(_) => {}
+                Msg::Flush => {
+                    pending.bytes.clear();
+                    drain_wanted = None;
+                    drain_reply = None;
+                    if let Some(s) = stream.as_mut() {
+                        let channel = s.channel;
+                        s.send(&Command::FlushPlaybackStream(channel))?;
                     }
                 }
-                Command::Error(e) => bail!("pulse error {e:?}"),
-                _ => {}
+                Msg::Cork(c) => {
+                    corked = c;
+                    if let Some(s) = stream.as_mut() {
+                        s.cork(c)?;
+                    }
+                }
+                Msg::Drain(generation) => drain_wanted = Some(generation),
+                Msg::Requested(n) => owed += n,
+                Msg::Replied(seq) => {
+                    if let Some((_, generation)) = drain_reply.filter(|(s, _)| *s == seq) {
+                        shared.drained_generation.store(generation, SeqCst);
+                        drain_reply = None;
+                    }
+                }
+                Msg::ServerGone(e) => return Err(anyhow!("pulse connection lost: {e}")),
+            }
+            let Some(s) = stream.as_mut() else { continue };
+            if pending.generation != shared.generation.load(SeqCst) {
+                pending.bytes.clear();
+            }
+            let n = owed.min(pending.bytes.len());
+            let n = n - n % s.frame_bytes;
+            if n > 0 {
+                let mut buf: Vec<u8> = pending.bytes.drain(..n).collect();
+                apply_gain(&mut buf, f32::from_bits(shared.gain.load(SeqCst)));
+                protocol::write_memblock(&mut s.sock, s.channel, &buf, 0)?;
+                owed -= n;
+                let frames = (n / s.frame_bytes) as u64;
+                pending.head_pts_us += frames as i64 * 1_000_000 / s.rate as i64;
+                shared.played.fetch_add(frames, SeqCst);
+                shared.position_us.store(pending.head_pts_us, SeqCst);
+            }
+            if pending.bytes.is_empty()
+                && let Some(generation) = drain_wanted.take()
+                && generation == shared.generation.load(SeqCst)
+            {
+                let channel = s.channel;
+                drain_reply = Some((s.send(&Command::DrainPlaybackStream(channel))?, generation));
             }
         }
     }
@@ -361,4 +403,11 @@ impl AudioSink for NullSink {
     fn flush(&mut self) {}
     fn set_paused(&mut self, _paused: bool) {}
     fn set_gain(&mut self, _gain: f32) {}
+    fn drain(&mut self) {}
+    fn drained(&self) -> bool {
+        true
+    }
+    fn failed(&self) -> bool {
+        false
+    }
 }

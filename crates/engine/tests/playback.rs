@@ -117,7 +117,7 @@ fn plays_widevine_hls_end_to_end_into_a_null_sink() {
             SINK,
             "--no-loop",
             "--max-seconds",
-            "45",
+            "70",
             "--status",
         ])
         .arg(&status)
@@ -173,5 +173,11 @@ fn plays_widevine_hls_end_to_end_into_a_null_sink() {
         ),
         (Some(0), Some(0)),
         "{media}"
+    );
+    assert_eq!(s["app"]["mediaEvents"]["ended"], 1, "{}", s["app"]);
+    assert_eq!(
+        (media["drainsAcked"].as_u64(), media["drainTimeouts"].as_u64()),
+        (Some(1), Some(0)),
+        "ended must wait for PipeWire's drain ack: {media}"
     );
 }

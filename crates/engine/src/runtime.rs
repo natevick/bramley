@@ -691,6 +691,7 @@ impl Engine {
                     "decryptFail": c.decrypt_fail.iter().map(|(k, v)| (k.to_string(), json!(v))).collect::<serde_json::Map<_, _>>(),
                     "decodedClearSeconds": c.decoded_clear_frames as f64 / rate, "decodedDecryptedSeconds": c.decoded_decrypted_frames as f64 / rate,
                     "decodeErr": c.decode_err, "keyWaits": c.key_waits, "underruns": c.underruns, "seeks": c.seeks, "loops": c.loops,
+                    "drainsAcked": c.drains_acked, "drainTimeouts": c.drain_timeouts, "sinkRestarts": c.sink_restarts,
                 });
                 (id.to_string(), v)
             })

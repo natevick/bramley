@@ -26,6 +26,16 @@ const FUTURE_AHEAD_US: i64 = 100_000;
 const GAP_US: i64 = 50_000;
 const END_SLACK_US: i64 = 250_000;
 const TIMEUPDATE_INTERVAL: Duration = Duration::from_millis(250);
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+
+struct Chunk {
+    pts_us: i64,
+    rate: u32,
+    channels: u16,
+    frames: usize,
+    samples: Vec<i16>,
+    encrypted: bool,
+}
 
 #[derive(Default, Clone)]
 pub struct Counters {
@@ -40,6 +50,9 @@ pub struct Counters {
     pub underruns: u64,
     pub seeks: u64,
     pub loops: u64,
+    pub drains_acked: u64,
+    pub drain_timeouts: u64,
+    pub sink_restarts: u64,
 }
 
 pub struct MediaEngine {
@@ -65,6 +78,10 @@ pub struct MediaEngine {
     skip_until_us: i64,
     decoder: Option<(Vec<u8>, Box<dyn Decoder>)>,
     sink: Option<Box<dyn AudioSink>>,
+    sink_format: Option<(u32, u16)>,
+    held: Option<Chunk>,
+    drain_started: Option<Instant>,
+    output_failed: bool,
     sink_factory: SinkFactory,
     gain: f32,
     last_timeupdate: Option<Instant>,
@@ -101,6 +118,10 @@ impl MediaEngine {
             skip_until_us: i64::MIN,
             decoder: None,
             sink: None,
+            sink_format: None,
+            held: None,
+            drain_started: None,
+            output_failed: false,
             sink_factory,
             gain: 1.0,
             last_timeupdate: None,
@@ -147,6 +168,8 @@ impl MediaEngine {
     }
 
     fn discard_output(&mut self) {
+        self.held = None;
+        self.drain_started = None;
         if let Some(s) = self.sink.as_mut() {
             s.flush();
         }
@@ -157,6 +180,7 @@ impl MediaEngine {
 
     pub fn attach(&mut self, ms_id: u32) {
         self.events.clear();
+        self.output_failed = false;
         self.ms_id = Some(ms_id);
         self.ready_state = HAVE_NOTHING;
         self.ended = false;
@@ -220,11 +244,47 @@ impl MediaEngine {
         }
         self.position_us = self.current_time_us();
         self.paused = true;
+        self.drain_started = None;
         if let Some(s) = self.sink.as_mut() {
             s.set_paused(true);
         }
         self.emit("timeupdate");
         self.emit("pause");
+    }
+
+    fn sink_drained(&mut self, now: Instant) -> bool {
+        let Some(s) = self.sink.as_mut() else {
+            return true;
+        };
+        let started = *self.drain_started.get_or_insert_with(|| {
+            s.drain();
+            now
+        });
+        if s.drained() {
+            self.counters.drains_acked += 1;
+        } else if now.duration_since(started) >= DRAIN_TIMEOUT {
+            self.counters.drain_timeouts += 1;
+        } else {
+            return false;
+        }
+        self.drain_started = None;
+        true
+    }
+
+    fn restart_output(&mut self) {
+        let position = self.current_time_us();
+        let ever_played = self.played() > 0;
+        self.discard_output();
+        self.sink = None;
+        self.sink_format = None;
+        self.cursor_us = position;
+        self.skip_until_us = position;
+        self.anchor(position, false);
+        self.counters.sink_restarts += 1;
+        if !ever_played {
+            self.output_failed = true;
+            self.emit("error");
+        }
     }
 
     pub fn seek(&mut self, target_us: i64) {
@@ -440,17 +500,16 @@ impl MediaEngine {
         &mut self,
         sb: &SourceBufferNative,
         cdms: &mut HashMap<u32, Box<dyn CdmBackend>>,
+        now: Instant,
     ) {
         let Some(init) = sb.init.as_ref() else { return };
-        if self.ensure_decoder(init).is_err() {
+        if self.output_failed || self.ensure_decoder(init).is_err() {
             return;
         }
-        if self.sink.is_none() {
-            let mut s = (self.sink_factory)();
-            s.set_gain(self.gain);
-            self.sink = Some(s);
+        if let Some(c) = self.held.take() {
+            self.send(c, now);
         }
-        while self.sent_end_us - self.current_time_us() < DECODE_AHEAD_US {
+        while self.held.is_none() && self.sent_end_us - self.current_time_us() < DECODE_AHEAD_US {
             let Some(frame) = sb
                 .frames
                 .range(self.cursor_us - 2_000..)
@@ -503,14 +562,16 @@ impl MediaEngine {
                         (frame.dur_us as i128 * spec.rate as i128 + 500_000).div_euclid(1_000_000)
                             as usize,
                     );
-                    self.send(
-                        frame.pts_us,
-                        spec.rate,
-                        spec.channels.count() as u16,
+                    let channels = spec.channels.count();
+                    let chunk = Chunk {
+                        pts_us: frame.pts_us,
+                        rate: spec.rate,
+                        channels: channels as u16,
                         frames,
-                        pcm.samples(),
+                        samples: pcm.samples()[..frames * channels].to_vec(),
                         encrypted,
-                    )
+                    };
+                    self.send(chunk, now)
                 }
                 Some(Err(e)) => {
                     self.counters.decode_err += 1;
@@ -523,21 +584,36 @@ impl MediaEngine {
         }
     }
 
-    fn send(
-        &mut self,
-        pts_us: i64,
-        rate: u32,
-        channels: u16,
-        frames: usize,
-        samples: &[i16],
-        encrypted: bool,
-    ) {
-        self.rate = rate;
-        self.channels = channels;
-        let end_us = pts_us + frames_to_us(frames as u64, rate);
+    fn send(&mut self, c: Chunk, now: Instant) {
+        let end_us = c.pts_us + frames_to_us(c.frames as u64, c.rate);
         if end_us <= self.skip_until_us {
             return;
         }
+        if self.sink.is_some() && self.sink_format != Some((c.rate, c.channels)) {
+            if self.sent_since_anchor && !self.sink_drained(now) {
+                self.held = Some(c);
+                return;
+            }
+            let position = self.current_time_us();
+            self.sink = None;
+            self.anchor(position, false);
+        }
+        if self.sink.is_none() {
+            let mut s = (self.sink_factory)();
+            s.set_gain(self.gain);
+            self.sink = Some(s);
+            self.sink_format = Some((c.rate, c.channels));
+        }
+        let Chunk {
+            pts_us,
+            rate,
+            channels,
+            frames,
+            mut samples,
+            encrypted,
+        } = c;
+        self.rate = rate;
+        self.channels = channels;
         let skip = if self.skip_until_us > pts_us {
             ((self.skip_until_us - pts_us) as i128 * rate as i128 / 1_000_000) as usize
         } else {
@@ -558,13 +634,9 @@ impl MediaEngine {
         }
         self.sent_since_anchor = true;
         self.sent_end_us = end_us;
+        samples.drain(..skip * channels as usize);
         if let Some(s) = self.sink.as_mut() {
-            s.write(
-                start_us,
-                rate,
-                channels,
-                samples[skip * channels as usize..frames * channels as usize].to_vec(),
-            );
+            s.write(start_us, rate, channels, samples);
         }
     }
 
@@ -578,6 +650,9 @@ impl MediaEngine {
         let Some(ms) = self.ms_id.and_then(|id| mses.get(&id)) else {
             return;
         };
+        if self.sink.as_ref().is_some_and(|s| s.failed()) {
+            self.restart_output();
+        }
         let sb = ms.sbs.first().and_then(|id| sbs.get(id));
         if let Some(sb) = sb {
             if ms.ended
@@ -586,7 +661,9 @@ impl MediaEngine {
                 && self.ready_state >= HAVE_CURRENT_DATA
                 && self.at_stream_end(sb)
             {
-                self.reach_end();
+                if self.sink_drained(now) {
+                    self.reach_end();
+                }
                 return;
             }
             if self.seeking {
@@ -603,7 +680,7 @@ impl MediaEngine {
         {
             return;
         }
-        self.decode_ahead(sb, cdms);
+        self.decode_ahead(sb, cdms, now);
         self.max_current_time_us = self.max_current_time_us.max(self.current_time_us());
         if self
             .last_timeupdate

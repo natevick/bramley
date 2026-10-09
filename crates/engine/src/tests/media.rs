@@ -353,3 +353,184 @@ fn cdm_status_two_is_no_key_and_other_failures_are_distinct() {
         ]
     );
 }
+
+#[test]
+fn ended_waits_until_the_output_has_drained_the_last_frame() {
+    let mut r = Rig::new(5, true);
+    r.sink.0.borrow_mut().latency = 9_600;
+    r.m.play();
+    assert!(r.play_for(6.0).contains(&"ended"));
+    let end = r.sbs[&SB].end_us().unwrap();
+    let corked_at = r.sink.state().cork_positions.last().copied().flatten();
+    assert!(
+        corked_at.is_some_and(|p| (end - p).abs() < 1_000),
+        "corked at {corked_at:?}, media ends at {end}"
+    );
+    assert_eq!(
+        (r.m.counters.drains_acked, r.m.counters.drain_timeouts),
+        (1, 0)
+    );
+}
+
+type Sinks = Rc<std::cell::RefCell<Vec<FakeSink>>>;
+
+fn engine_with_fresh_sinks() -> (MediaEngine, Sinks) {
+    let sinks: Sinks = Rc::default();
+    let made = sinks.clone();
+    let m = MediaEngine::new(Rc::new(move || {
+        let s = FakeSink::default();
+        made.borrow_mut().push(s.clone());
+        Box::new(s)
+    }));
+    (m, sinks)
+}
+
+fn init_at_44k(init: &[u8]) -> Vec<u8> {
+    let moov = crate::mp4::boxes(init, 0, init.len())
+        .into_iter()
+        .find(|b| b.is("moov"))
+        .unwrap();
+    let asc = crate::mp4::parse_init(init, &moov).unwrap().asc;
+    let at = init
+        .windows(asc.len())
+        .position(|w| w == asc.as_slice())
+        .unwrap();
+    let mut out = init.to_vec();
+    let v = u16::from_be_bytes([asc[0], asc[1]]) & !(0xf << 7) | (4 << 7);
+    out[at..at + 2].copy_from_slice(&v.to_be_bytes());
+    out
+}
+
+fn step(
+    m: &mut MediaEngine,
+    sinks: &Sinks,
+    sbs: &HashMap<u32, SourceBufferNative>,
+    now: &mut Instant,
+) {
+    let mses = HashMap::from([(
+        MS,
+        MediaSourceNative {
+            duration: f64::NAN,
+            ended: false,
+            sbs: vec![SB],
+        },
+    )]);
+    *now += STEP;
+    m.pump(*now, sbs, &mses, &mut HashMap::new());
+    if let Some(s) = sinks.borrow().last() {
+        s.advance(480);
+    }
+}
+
+#[test]
+fn a_rate_change_mid_stream_drains_the_old_output_then_opens_one_at_the_new_rate() {
+    let (init, media) = fixture_segments();
+    let (mut m, sinks) = engine_with_fresh_sinks();
+    let mut sb = SourceBufferNative::new("audio/mp4".into(), usize::MAX);
+    sb.append(&init, 0.0).unwrap();
+    for seg in &media[..3] {
+        sb.append(seg, 0.0).unwrap();
+    }
+    let mut sbs = HashMap::from([(SB, sb)]);
+    let mut now = Instant::now();
+    m.attach(MS);
+    m.play();
+    let mut times = Vec::new();
+    for i in 0..300 {
+        if i == 50 {
+            let sb = sbs.get_mut(&SB).unwrap();
+            sb.append(&init_at_44k(&init), 0.0).unwrap();
+            for seg in &media[3..] {
+                sb.append(seg, 0.0).unwrap();
+            }
+        }
+        step(&mut m, &sinks, &sbs, &mut now);
+        times.push(m.current_time_us());
+    }
+    let sinks = sinks.borrow();
+    let rates: Vec<u32> = sinks.iter().map(|s| s.state().rate).collect();
+    assert_eq!(rates, [48_000, 44_100]);
+    let (old, new) = (sinks[0].state(), sinks[1].state());
+    assert!(old.drain_requested && old.queue.is_empty());
+    assert_eq!(
+        old.position,
+        Some(new.writes[0].0),
+        "gap or overlap at the switch"
+    );
+    assert!(
+        times
+            .windows(2)
+            .all(|w| w[1] >= w[0] && w[1] - w[0] <= 25_000),
+        "{times:?}"
+    );
+}
+
+#[test]
+fn a_new_load_at_another_rate_gets_its_own_output() {
+    let (init, media) = fixture_segments();
+    let (mut m, sinks) = engine_with_fresh_sinks();
+    let mut now = Instant::now();
+    for (i, init) in [init.clone(), init_at_44k(&init)].iter().enumerate() {
+        let mut sb = SourceBufferNative::new("audio/mp4".into(), usize::MAX);
+        sb.append(init, 0.0).unwrap();
+        for seg in &media {
+            sb.append(seg, 0.0).unwrap();
+        }
+        let sbs = HashMap::from([(SB, sb)]);
+        m.detach();
+        m.attach(MS);
+        m.play();
+        for _ in 0..30 {
+            step(&mut m, &sinks, &sbs, &mut now);
+        }
+        assert_eq!(sinks.borrow().len(), i + 1);
+    }
+    let rates: Vec<u32> = sinks.borrow().iter().map(|s| s.state().rate).collect();
+    assert_eq!(rates, [48_000, 44_100]);
+}
+
+#[test]
+fn a_failed_output_reopens_where_it_left_off_and_a_dead_one_is_an_error() {
+    let (init, media) = fixture_segments();
+    let (mut m, sinks) = engine_with_fresh_sinks();
+    let mut sb = SourceBufferNative::new("audio/mp4".into(), usize::MAX);
+    sb.append(&init, 0.0).unwrap();
+    for seg in &media {
+        sb.append(seg, 0.0).unwrap();
+    }
+    let sbs = HashMap::from([(SB, sb)]);
+    let mut now = Instant::now();
+    m.attach(MS);
+    m.play();
+    for _ in 0..100 {
+        step(&mut m, &sinks, &sbs, &mut now);
+    }
+    let at = m.current_time_us();
+    sinks.borrow()[0].0.borrow_mut().failed = true;
+    for _ in 0..50 {
+        step(&mut m, &sinks, &sbs, &mut now);
+    }
+    assert_eq!(sinks.borrow().len(), 2);
+    let resumed_at = sinks.borrow()[1].state().writes[0].0;
+    assert!((resumed_at - at).abs() <= 25_000, "{resumed_at} vs {at}");
+    assert!((m.current_time_us() - at - 500_000).abs() <= 30_000);
+    m.events.clear();
+    sinks.borrow()[1].0.borrow_mut().failed = true;
+    let mut now2 = now;
+    let mses = HashMap::from([(
+        MS,
+        MediaSourceNative {
+            duration: f64::NAN,
+            ended: false,
+            sbs: vec![SB],
+        },
+    )]);
+    now2 += STEP;
+    m.pump(now2, &sbs, &mses, &mut HashMap::new());
+    sinks.borrow()[2].0.borrow_mut().failed = true;
+    for _ in 0..20 {
+        step(&mut m, &sinks, &sbs, &mut now2);
+    }
+    assert_eq!(sinks.borrow().len(), 3);
+    assert!(m.events.contains(&"error"), "{:?}", m.events);
+}

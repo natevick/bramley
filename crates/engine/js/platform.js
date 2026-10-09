@@ -698,6 +698,7 @@
     Object.assign(el._st, p.state);
     for (const type of p.events) {
       hc("event:" + type);
+      if (type === "error") el._error = new MediaError(MediaError.MEDIA_ERR_DECODE, "Audio output failed");
       fire(el, type);
       if (type === "playing") el._settlePlay(null);
       else if (type === "pause") el._settlePlay(new DOMException("The play() request was interrupted by a call to pause().", "AbortError"));

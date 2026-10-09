@@ -1,3 +1,5 @@
+#[cfg(unix)]
+mod audio;
 mod buffer;
 mod cdm;
 mod element;
@@ -27,6 +29,11 @@ pub struct SinkState {
     pub flushes: u32,
     pub position: Option<i64>,
     pub rate: u32,
+    pub written: u64,
+    pub latency: u64,
+    pub drain_requested: bool,
+    pub failed: bool,
+    pub cork_positions: Vec<Option<i64>>,
 }
 
 #[derive(Clone, Default)]
@@ -68,9 +75,11 @@ impl AudioSink for FakeSink {
         s.rate = rate;
         s.writes.push((pts_us, frames));
         s.queue.push_back((pts_us, frames));
+        s.written += frames;
     }
     fn played_frames(&self) -> u64 {
-        self.0.borrow().played
+        let s = self.0.borrow();
+        s.written.min(s.played + s.latency)
     }
     fn output_position_us(&self) -> Option<i64> {
         self.0.borrow().position
@@ -79,9 +88,26 @@ impl AudioSink for FakeSink {
         let mut s = self.0.borrow_mut();
         s.queue.clear();
         s.flushes += 1;
+        s.written = s.played;
+        s.drain_requested = false;
     }
     fn set_paused(&mut self, paused: bool) {
-        self.0.borrow_mut().paused = paused;
+        let mut s = self.0.borrow_mut();
+        if paused && !s.paused {
+            let position = s.position;
+            s.cork_positions.push(position);
+        }
+        s.paused = paused;
+    }
+    fn drain(&mut self) {
+        self.0.borrow_mut().drain_requested = true;
+    }
+    fn drained(&self) -> bool {
+        let s = self.0.borrow();
+        s.drain_requested && s.queue.is_empty()
+    }
+    fn failed(&self) -> bool {
+        self.0.borrow().failed
     }
     fn set_gain(&mut self, gain: f32) {
         self.0.borrow_mut().gain = gain;
