@@ -10,3 +10,5 @@ The target is ≤ 200 MiB PSS for the whole app tree while playing, measured wit
 | **Total** | **≤ 200** | |
 
 These are targets, not a commitment. If a slice is measured over its target, the split may be rebalanced only if the measured total still fits; the 200 total does not move. For reference, the Chrome sidecar measured 398 MiB (spike 1, FAIL).
+
+Engine crate (2026-10-09): `crates/engine` playing Angel One through hls.js, the native media/MSE/EME layer, the Widevine CDM and PulseAudio in one process measured 97.6 and 97.7 MiB PSS median (the JS runtime slice plus the CDM slice together; musickit.js not loaded). See `engine-crate-playback-RESULTS.md`.
