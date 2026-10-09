@@ -156,6 +156,7 @@ impl MediaEngine {
     }
 
     pub fn attach(&mut self, ms_id: u32) {
+        self.events.clear();
         self.ms_id = Some(ms_id);
         self.ready_state = HAVE_NOTHING;
         self.ended = false;
@@ -167,9 +168,17 @@ impl MediaEngine {
     }
 
     pub fn detach(&mut self) {
+        self.events.clear();
         self.ms_id = None;
         self.ready_state = HAVE_NOTHING;
+        self.paused = true;
+        if let Some(s) = self.sink.as_mut() {
+            s.set_paused(true);
+        }
+        self.ended = false;
+        self.seeking = false;
         self.discard_output();
+        self.anchor(0, false);
         self.decoder = None;
     }
 

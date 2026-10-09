@@ -557,6 +557,7 @@
       this._defaultRate = 1;
       this._mediaKeys = null;
       this._playPromises = [];
+      this._loadGen = 0;
       this._error = null;
       this._autoplay = false;
       this._textTracks = new TextTrackList();
@@ -577,12 +578,14 @@
     removeAttribute(n) { hc("HTMLMediaElement.removeAttribute"); super.removeAttribute(n); if (String(n).toLowerCase() === "src") this._src = ""; }
     load() { hc("HTMLMediaElement.load"); this._loadResource(); }
     _loadResource() {
-      if (this._ms) { const old = this._ms; this._ms = null; OP.media_detach(this._native()); old._detach(); }
+      this._loadGen++;
+      OP.media_detach(this._native());
+      if (this._ms) { const old = this._ms; this._ms = null; old._detach(); }
       const hadData = this._st.readyState > 0;
-      this._st.readyState = 0; this._st.currentTime = 0; this._st.ended = false; this._st.seeking = false;
+      this._error = null;
+      this._st.readyState = 0; this._st.currentTime = 0; this._st.ended = false; this._st.seeking = false; this._st.paused = true;
       this._settlePlay(new DOMException("The play() request was interrupted by a new load request.", "AbortError"));
       if (hadData) queueTask(() => fire(this, "emptied"));
-      if (!this._st.paused) { this._st.paused = true; OP.media_pause(this._native()); }
       let src = this._src;
       if (!src) { const s = this.querySelector("source"); if (s) src = s.src; }
       if (!src) { this._networkState = 3; return; }
@@ -650,12 +653,23 @@
       if (this._error && this._error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) return Promise.reject(new DOMException("The element has no supported sources.", "NotSupportedError"));
       const p = new Promise((res, rej) => this._playPromises.push({ res, rej }));
       const st = this._refresh();
-      if (!st.paused && st.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && !st.seeking) queueTask(() => this._settlePlay(null));
+      if (!st.paused && st.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && !st.seeking) { const gen = this._loadGen; queueTask(() => { if (gen === this._loadGen) this._settlePlay(null); }); }
       st.paused = false;
       OP.media_play(this._native());
       return p;
     }
     pause() { hc("HTMLMediaElement.pause"); this._st.paused = true; if (this._id) OP.media_pause(this._id); }
+    _mediaError(code) {
+      if (this._refresh().readyState === HTMLMediaElement.HAVE_NOTHING) {
+        this._error = new MediaError(MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED, "The media resource could not be decoded");
+        this._networkState = HTMLMediaElement.NETWORK_NO_SOURCE;
+        this._settlePlay(new DOMException("The element has no supported sources.", "NotSupportedError"));
+      } else {
+        this._error = new MediaError(code, code === MediaError.MEDIA_ERR_DECODE ? "The media data is corrupted" : "The media data could not be fetched");
+        this._networkState = HTMLMediaElement.NETWORK_IDLE;
+      }
+      queueTask(() => fire(this, "error"));
+    }
     get mediaKeys() { return this._mediaKeys; }
     setMediaKeys(mk) {
       hc("HTMLMediaElement.setMediaKeys");
@@ -717,6 +731,7 @@
       super();
       this._ms = ms; this._id = id; this._type = type;
       this._updating = false;
+      this._gen = 0;
       this.mode = "segments";
       this.timestampOffset = 0;
       this.appendWindowStart = 0;
@@ -734,8 +749,10 @@
       const ab = toAB(data);
       if (!OP.sb_prepare_append(this._id, ab.byteLength)) throw new DOMException("The SourceBuffer is full and cannot free space to append additional buffers.", "QuotaExceededError");
       this._updating = true;
+      const gen = ++this._gen;
+      queueTask(() => fire(this, "updatestart"));
       queueTask(() => {
-        fire(this, "updatestart");
+        if (gen !== this._gen) return;
         const r = JSON.parse(OP.sb_append(this._id, ab, this.timestampOffset));
         if (r.error) {
           OP.print("warn", "appendBuffer error: " + r.error);
@@ -774,8 +791,9 @@
     }
     abort() {
       hc("SourceBuffer.abort");
+      this._gen++;
       OP.sb_abort(this._id);
-      if (this._updating) { this._updating = false; fire(this, "abort"); fire(this, "updateend"); }
+      if (this._updating) { this._updating = false; queueTask(() => fire(this, "abort")); queueTask(() => fire(this, "updateend")); }
       this.appendWindowStart = 0; this.appendWindowEnd = Infinity;
     }
     changeType(type) {
@@ -834,11 +852,13 @@
     }
     endOfStream(err) {
       hc("MediaSource.endOfStream");
+      if (err !== undefined && err !== "network" && err !== "decode") throw new TypeError("Invalid endOfStream error " + err);
       if (this._readyState !== "open") throw new DOMException("MediaSource not open", "InvalidStateError");
       if (this._sbl._l.some(s => s._updating)) throw new DOMException("SourceBuffer updating", "InvalidStateError");
       this._readyState = "ended";
-      OP.ms_end(this._id, true);
-      if (!err) {
+      if (err) { if (this._media) this._media._mediaError(err === "decode" ? MediaError.MEDIA_ERR_DECODE : MediaError.MEDIA_ERR_NETWORK); }
+      else {
+        OP.ms_end(this._id, true);
         let maxEnd = 0;
         for (const sb of this._sbl._l) { const r = JSON.parse(OP.sb_buffered(sb._id)); if (r.length) maxEnd = Math.max(maxEnd, r[r.length - 1][1]); }
         if (maxEnd > 0 && (!(this._duration >= maxEnd) || Math.abs(this._duration - maxEnd) > 0.001)) { this._duration = maxEnd; OP.ms_set_duration(this._id, maxEnd); if (this._media) { const m = this._media; queueTask(() => fire(m, "durationchange")); } }
