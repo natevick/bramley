@@ -33,3 +33,6 @@ impl Default for EngineConfig {
         EngineConfig { cdm_path: Self::default_cdm_path(), audio_sink_name: "engine".into(), output_device: None }
     }
 }
+
+#[cfg(test)]
+mod tests;
