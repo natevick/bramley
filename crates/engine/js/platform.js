@@ -359,15 +359,15 @@
     _sync() { const s = this._sp.toString(); this.search = s ? "?" + s : ""; }
     toString() { return this.href; }
     toJSON() { return this.href; }
-    static createObjectURL(obj) { hc("URL.createObjectURL"); const u = "blob:app://spike5/" + (blobSeq++); blobRegistry.set(u, obj); return u; }
+    static createObjectURL(obj) { hc("URL.createObjectURL"); const u = "blob:app://engine/" + (blobSeq++); blobRegistry.set(u, obj); return u; }
     static revokeObjectURL(u) { hc("URL.revokeObjectURL"); blobRegistry.delete(u); }
     static canParse(u, b) { try { new URL(u, b); return true; } catch (e) { return false; } }
   }
   G.URL = URL;
 
-  const LOCATION_HREF = "app://spike5/index.html";
+  const LOCATION_HREF = "app://engine/index.html";
   G.location = {
-    get href() { return LOCATION_HREF; }, protocol: "app:", host: "spike5", hostname: "spike5", port: "", pathname: "/index.html", search: "", hash: "", origin: "app://spike5",
+    get href() { return LOCATION_HREF; }, protocol: "app:", host: "engine", hostname: "engine", port: "", pathname: "/index.html", search: "", hash: "", origin: "app://engine",
     assign() {}, replace() {}, reload() {}, toString() { return LOCATION_HREF; }
   };
 
@@ -556,6 +556,7 @@
       this._rate = 1;
       this._defaultRate = 1;
       this._mediaKeys = null;
+      this._playPromises = [];
       this._error = null;
       this._autoplay = false;
       this._textTracks = new TextTrackList();
@@ -567,6 +568,8 @@
       this.preservesPitch = true;
     }
     _native() { if (!this._id) { this._id = OP.media_create(); mediaById.set(this._id, this); OP.media_set_loop(this._id, this._loop); } return this._id; }
+    _settlePlay(err) { const ps = this._playPromises; this._playPromises = []; for (const p of ps) err ? p.rej(err) : p.res(); }
+    _applyGain() { OP.media_set_gain(this._native(), this._muted ? 0 : this._volume); }
     _refresh() { if (this._id) { try { Object.assign(this._st, JSON.parse(OP.media_state(this._id))); } catch (e) {} } return this._st; }
     get src() { return this._src; }
     set src(v) { hc("HTMLMediaElement.src="); this._src = String(v); this.setAttribute("src", this._src); this._loadResource(); }
@@ -577,6 +580,7 @@
       if (this._ms) { const old = this._ms; this._ms = null; OP.media_detach(this._native()); old._detach(); }
       const hadData = this._st.readyState > 0;
       this._st.readyState = 0; this._st.currentTime = 0; this._st.ended = false; this._st.seeking = false;
+      this._settlePlay(new DOMException("The play() request was interrupted by a new load request.", "AbortError"));
       if (hadData) queueTask(() => fire(this, "emptied"));
       if (!this._st.paused) { this._st.paused = true; OP.media_pause(this._native()); }
       let src = this._src;
@@ -595,7 +599,16 @@
       }
     }
     get currentTime() { hc("HTMLMediaElement.currentTime"); return this._refresh().currentTime; }
-    set currentTime(t) { hc("HTMLMediaElement.currentTime="); t = Number(t); if (!isFinite(t)) throw new TypeError("non-finite currentTime"); this._st.currentTime = t; this._st.seeking = true; OP.media_seek(this._native(), t); }
+    set currentTime(t) {
+      hc("HTMLMediaElement.currentTime=");
+      t = Number(t);
+      if (!isFinite(t)) throw new TypeError("non-finite currentTime");
+      const d = this.duration;
+      t = Math.max(0, isFinite(d) ? Math.min(t, d) : t);
+      this._st.currentTime = t;
+      if (this._refresh().readyState > 0) this._st.seeking = true;
+      OP.media_seek(this._native(), t);
+    }
     fastSeek(t) { this.currentTime = t; }
     get duration() { return this._ms ? this._ms._duration : NaN; }
     get paused() { return this._refresh().paused; }
@@ -612,9 +625,17 @@
     get autoplay() { return this._autoplay; }
     set autoplay(v) { this._autoplay = !!v; }
     get volume() { return this._volume; }
-    set volume(v) { this._volume = Number(v); queueTask(() => fire(this, "volumechange")); }
+    set volume(v) {
+      v = Number(v);
+      if (!isFinite(v)) throw new TypeError("non-finite volume");
+      if (v < 0 || v > 1) throw new DOMException("The volume provided is outside the range [0, 1].", "IndexSizeError");
+      if (v === this._volume) return;
+      this._volume = v;
+      this._applyGain();
+      queueTask(() => fire(this, "volumechange"));
+    }
     get muted() { return this._muted; }
-    set muted(v) { this._muted = !!v; queueTask(() => fire(this, "volumechange")); }
+    set muted(v) { v = !!v; if (v === this._muted) return; this._muted = v; this._applyGain(); queueTask(() => fire(this, "volumechange")); }
     get playbackRate() { return this._rate; }
     set playbackRate(v) { this._rate = Number(v); queueTask(() => fire(this, "ratechange")); }
     get defaultPlaybackRate() { return this._defaultRate; }
@@ -626,9 +647,13 @@
     canPlayType(t) { hc("HTMLMediaElement.canPlayType"); return mimeSupported(String(t)) ? "probably" : ""; }
     play() {
       hc("HTMLMediaElement.play");
-      this._st.paused = false;
+      if (this._error && this._error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) return Promise.reject(new DOMException("The element has no supported sources.", "NotSupportedError"));
+      const p = new Promise((res, rej) => this._playPromises.push({ res, rej }));
+      const st = this._refresh();
+      if (!st.paused && st.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA && !st.seeking) queueTask(() => this._settlePlay(null));
+      st.paused = false;
       OP.media_play(this._native());
-      return new Promise(res => queueTask(res));
+      return p;
     }
     pause() { hc("HTMLMediaElement.pause"); this._st.paused = true; if (this._id) OP.media_pause(this._id); }
     get mediaKeys() { return this._mediaKeys; }
@@ -660,6 +685,8 @@
     for (const type of p.events) {
       hc("event:" + type);
       fire(el, type);
+      if (type === "playing") el._settlePlay(null);
+      else if (type === "pause") el._settlePlay(new DOMException("The play() request was interrupted by a call to pause().", "AbortError"));
     }
   }
 
@@ -705,6 +732,7 @@
       if (!this._ms || this._ms._readyState === "closed") throw new DOMException("MediaSource is closed", "InvalidStateError");
       this._ms._reopen();
       const ab = toAB(data);
+      if (!OP.sb_prepare_append(this._id, ab.byteLength)) throw new DOMException("The SourceBuffer is full and cannot free space to append additional buffers.", "QuotaExceededError");
       this._updating = true;
       queueTask(() => {
         fire(this, "updatestart");
@@ -729,12 +757,16 @@
     }
     remove(start, end) {
       hc("SourceBuffer.remove");
+      if (!this._ms) throw new DOMException("SourceBuffer has been removed", "InvalidStateError");
       if (this._updating) throw new DOMException("SourceBuffer is updating", "InvalidStateError");
+      start = Number(start); end = Number(end);
+      const d = this._ms._duration;
+      if (isNaN(d) || !(start >= 0) || start > d || !(end > start)) throw new TypeError("Invalid remove range");
       this._ms._reopen();
       this._updating = true;
       queueTask(() => {
         fire(this, "updatestart");
-        OP.sb_remove(this._id, Number(start), Number(end));
+        OP.sb_remove(this._id, start, end);
         this._updating = false;
         fire(this, "update");
         fire(this, "updateend");
@@ -894,7 +926,7 @@
       this.sessionId = "";
       this.expiration = NaN;
       this._ks = new MediaKeyStatusMap();
-      this._pendingMessages = [];
+      this._state = "new";
       this.closed = new Promise(r => { this._closedResolve = r; });
       this.onmessage = null; this.onkeystatuseschange = null;
     }
@@ -902,27 +934,33 @@
     generateRequest(initDataType, initData) {
       hc("MediaKeySession.generateRequest");
       const t = { cenc: 0, keyids: 1, webm: 2 }[initDataType];
+      if (this._state !== "new") return Promise.reject(new DOMException("The session is already initialized or closed.", "InvalidStateError"));
       if (t === undefined) return Promise.reject(new DOMException("Unsupported initDataType " + initDataType, "NotSupportedError"));
-      if (this.sessionId) return Promise.reject(new DOMException("already initialized", "InvalidStateError"));
+      this._state = "pending";
       return new Promise((res, rej) => {
         const pid = promiseSeq++;
-        promises.set(pid, { res, rej, session: this, kind: "generate" });
+        promises.set(pid, { res, rej: e => { this._state = "new"; rej(e); }, session: this });
         OP.cdm_generate(this._keys._id, pid, t, toAB(initData));
       });
     }
     load() { return Promise.reject(new DOMException("persistent sessions unsupported", "NotSupportedError")); }
     update(response) {
       hc("MediaKeySession.update");
+      if (this._state !== "open") return Promise.reject(new DOMException("The session is not callable.", "InvalidStateError"));
+      if (!response || toU8(response).length === 0) return Promise.reject(new TypeError("The response is empty."));
       eme.updates++;
       return new Promise((res, rej) => { const pid = promiseSeq++; promises.set(pid, { res: () => res(), rej }); OP.cdm_update(this._keys._id, pid, this.sessionId, toAB(response)); });
     }
     close() {
       hc("MediaKeySession.close");
-      if (!this.sessionId) { this._closedResolve(); return Promise.resolve(); }
+      if (this._state === "closing" || this._state === "closed") return Promise.resolve();
+      if (this._state !== "open") return Promise.reject(new DOMException("The session is not callable.", "InvalidStateError"));
+      this._state = "closing";
       return new Promise((res, rej) => { const pid = promiseSeq++; promises.set(pid, { res: () => res(), rej }); OP.cdm_close(this._keys._id, pid, this.sessionId); });
     }
     remove() {
       hc("MediaKeySession.remove");
+      if (this._state !== "open") return Promise.reject(new DOMException("The session is not callable.", "InvalidStateError"));
       return new Promise((res, rej) => { const pid = promiseSeq++; promises.set(pid, { res: () => res(), rej }); OP.cdm_remove(this._keys._id, pid, this.sessionId); });
     }
   }
@@ -948,6 +986,7 @@
         promises.delete(m.promise);
         if (p && p.session) {
           p.session.sessionId = m.sid;
+          p.session._state = "open";
           keys._sessions.set(m.sid, p.session);
           p.res();
           const pend = pendingBySid.get(m.sid) || [];
@@ -986,7 +1025,16 @@
         break;
       }
       case "expiration": { const s = keys && keys._sessions.get(m.sid); if (s) s.expiration = m.expiry > 0 ? m.expiry * 1000 : NaN; break; }
-      case "closed": { const s = keys && keys._sessions.get(m.sid); if (s) s._closedResolve(); break; }
+      case "closed": {
+        const s = keys && keys._sessions.get(m.sid);
+        if (!s || s._state === "closed") break;
+        s._state = "closed";
+        keys._sessions.delete(m.sid);
+        if (s._ks._m.size) { s._ks._m.clear(); queueTask(() => fire(s, "keystatuseschange")); }
+        s.expiration = NaN;
+        s._closedResolve();
+        break;
+      }
     }
   }
 
@@ -1171,8 +1219,8 @@
   }
 
   G.navigator = {
-    userAgent: "spike5-engine/0.0 (X11; Linux x86_64) QuickJS",
-    appName: "spike5", appVersion: "0.0", vendor: "", platform: "Linux x86_64", product: "spike5",
+    userAgent: "engine/0.1 (X11; Linux x86_64) QuickJS",
+    appName: "engine", appVersion: "0.1", vendor: "", platform: "Linux x86_64", product: "engine",
     language: "en-US", languages: ["en-US", "en"], onLine: true, cookieEnabled: false, hardwareConcurrency: 4, maxTouchPoints: 0,
     requestMediaKeySystemAccess(keySystem, configs) {
       hc("navigator.requestMediaKeySystemAccess");
@@ -1245,7 +1293,7 @@
   G.matchMedia = function (q) { return { matches: false, media: q, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} }; };
   G.getComputedStyle = function () { return {}; };
   G.isSecureContext = true;
-  G.origin = "app://spike5";
+  G.origin = "app://engine";
   G.name = "";
 
   function statusJson() {

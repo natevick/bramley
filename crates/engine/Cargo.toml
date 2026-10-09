@@ -4,10 +4,6 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
-[[bin]]
-name = "engine-play"
-path = "src/main.rs"
-
 [dependencies]
 anyhow = "1"
 pulseaudio = "0.3.1"
