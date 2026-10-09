@@ -22,7 +22,7 @@ use crate::net::{self, Completion, HttpRequest};
 
 const PLATFORM: &str = include_str!("../js/platform.js");
 
-pub type CdmFactory = Box<dyn Fn() -> Result<Box<dyn CdmBackend>>>;
+pub type CdmFactory = Box<dyn Fn(bool) -> Result<Box<dyn CdmBackend>>>;
 
 struct Native {
     start: Instant,
@@ -381,22 +381,25 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
         r.map(|x| x.to_string()).unwrap_or_default()
     });
     let s = n.clone();
-    op!("__op_cdm_create", move || -> i32 {
-        let mut st = s.borrow_mut();
-        st.count("cdm_create");
-        match (st.cdm_factory)() {
-            Ok(c) => {
-                let id = st.id();
-                st.cdms.insert(id, c);
-                id as i32
-            }
-            Err(e) => {
-                eprintln!("ENGINE cdm create failed: {e:#}");
-                st.cdm_error = Some(format!("{e:#}"));
-                -1
+    op!(
+        "__op_cdm_create",
+        move |allow_persistent_state: bool| -> i32 {
+            let mut st = s.borrow_mut();
+            st.count("cdm_create");
+            match (st.cdm_factory)(allow_persistent_state) {
+                Ok(c) => {
+                    let id = st.id();
+                    st.cdms.insert(id, c);
+                    id as i32
+                }
+                Err(e) => {
+                    eprintln!("ENGINE cdm create failed: {e:#}");
+                    st.cdm_error = Some(format!("{e:#}"));
+                    -1
+                }
             }
         }
-    });
+    );
     with_cdm!(
         "__op_cdm_set_cert",
         "cdm_set_cert",
@@ -547,7 +550,7 @@ impl Engine {
             audio_sink_name,
             output_device,
         } = config;
-        let cdm: CdmFactory = Box::new(move || Widevine::create(&cdm_path));
+        let cdm: CdmFactory = Box::new(move |persistent| Widevine::create(&cdm_path, persistent));
         let sink: SinkFactory = Rc::new(move || {
             Box::new(PulseSink::start(
                 audio_sink_name.clone(),

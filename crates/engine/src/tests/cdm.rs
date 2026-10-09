@@ -7,7 +7,7 @@ fn retrying_a_library_without_cdm_exports_fails_cleanly_every_time() {
     let test = "tests::cdm::retrying_a_library_without_cdm_exports_fails_cleanly_every_time";
     let child = in_child(test, &[], || {
         for attempt in 0..3 {
-            let err = Widevine::create("libm.so.6".as_ref())
+            let err = Widevine::create("libm.so.6".as_ref(), false)
                 .err()
                 .map(|e| e.to_string());
             assert!(
@@ -27,7 +27,7 @@ fn retrying_a_library_without_cdm_exports_fails_cleanly_every_time() {
 #[ignore = "needs the Chrome Widevine CDM installed"]
 fn real_cdm_initializes_and_answers_a_license_request_on_the_creating_thread() {
     use crate::cdm::CdmEvent;
-    let mut cdm = Widevine::create(&crate::EngineConfig::default_cdm_path()).unwrap();
+    let mut cdm = Widevine::create(&crate::EngineConfig::default_cdm_path(), false).unwrap();
     let pssh: Vec<u8> = "000000327073736800000000edef8ba979d64acea3c827dcd51d21ed000000121210\
         67b30c86756f57c5a0a38a23ac8c9178"
         .as_bytes()

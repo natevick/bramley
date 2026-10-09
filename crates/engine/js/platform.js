@@ -916,7 +916,7 @@
     createMediaKeys() {
       hc("MediaKeySystemAccess.createMediaKeys");
       return new Promise((res, rej) => {
-        const id = OP.cdm_create();
+        const id = OP.cdm_create(this._cfg.persistentState === "required");
         if (id < 0) { rej(new DOMException("CDM unavailable", "InvalidStateError")); return; }
         pendingCdmInit.set(id, { res: () => res(new MediaKeys(id)), rej });
       });
@@ -935,7 +935,14 @@
     }
     setServerCertificate(cert) {
       hc("MediaKeys.setServerCertificate");
-      return new Promise((res, rej) => { const pid = promiseSeq++; promises.set(pid, { res: () => res(true), rej }); OP.cdm_set_cert(this._id, pid, toAB(cert)); });
+      return new Promise((res, rej) => {
+        if (!(cert instanceof ArrayBuffer || ArrayBuffer.isView(cert))) throw new TypeError("The serverCertificate is not a BufferSource.");
+        const bytes = toAB(cert);
+        if (bytes.byteLength === 0) throw new TypeError("The serverCertificate is empty.");
+        const pid = promiseSeq++;
+        promises.set(pid, { res: () => res(true), rej });
+        OP.cdm_set_cert(this._id, pid, bytes);
+      });
     }
     getStatusForPolicy() { return Promise.reject(new DOMException("not supported", "NotSupportedError")); }
   }

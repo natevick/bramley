@@ -76,7 +76,10 @@ pub struct Widevine;
 
 #[cfg(not(unix))]
 impl Widevine {
-    pub fn create(_path: &std::path::Path) -> anyhow::Result<Box<dyn CdmBackend>> {
+    pub fn create(
+        _path: &std::path::Path,
+        _allow_persistent_state: bool,
+    ) -> anyhow::Result<Box<dyn CdmBackend>> {
         anyhow::bail!("the Widevine CDM host is only built for unix targets")
     }
 }
@@ -112,7 +115,7 @@ mod widevine {
         fn shim_cdm_version() -> *const c_char;
         fn shim_requested_host_version() -> i32;
         fn shim_create(interface_version: i32, callbacks: *const ShimCallbacks) -> *mut c_void;
-        fn shim_initialize(handle: *mut c_void);
+        fn shim_initialize(handle: *mut c_void, allow_persistent_state: bool);
         fn shim_set_server_certificate(
             handle: *mut c_void,
             promise_id: u32,
@@ -303,7 +306,7 @@ mod widevine {
     }
 
     impl Widevine {
-        pub fn create(path: &Path) -> Result<Box<dyn CdmBackend>> {
+        pub fn create(path: &Path, allow_persistent_state: bool) -> Result<Box<dyn CdmBackend>> {
             let lib = CString::new(path.as_os_str().as_encoded_bytes())?;
             let mut err = vec![0 as c_char; 512];
             let rc = unsafe { shim_load(lib.as_ptr(), err.as_mut_ptr(), err.len() as u32) };
@@ -337,7 +340,7 @@ mod widevine {
                 drop(unsafe { Box::from_raw(sink) });
                 bail!("CreateCdmInstance returned null (host version requested {host_version})");
             }
-            unsafe { shim_initialize(handle) };
+            unsafe { shim_initialize(handle, allow_persistent_state) };
             Ok(Box::new(Widevine {
                 handle,
                 sink,

@@ -313,9 +313,9 @@ void* shim_create(int interface_version, const ShimCallbacks* callbacks) {
   return host;
 }
 
-void shim_initialize(void* handle) {
+void shim_initialize(void* handle, bool allow_persistent_state) {
   auto* host = static_cast<Host*>(handle);
-  host->cdm->Initialize(false, false, false);
+  host->cdm->Initialize(false, allow_persistent_state, false);
 }
 
 void shim_set_server_certificate(void* handle, uint32_t promise_id, const uint8_t* data, uint32_t size) {

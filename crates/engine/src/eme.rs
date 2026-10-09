@@ -20,18 +20,22 @@ pub fn eme_check(key_system: &str, configs: &str) -> Option<J> {
         } else {
             init_types
                 .iter()
-                .filter(|t| *t == "cenc" || *t == "webm")
+                .filter(|t| matches!(t.as_str(), "cenc" | "keyids" | "webm"))
                 .cloned()
                 .collect()
         };
         if !init_types.is_empty() && supported_init.is_empty() {
             continue;
         }
-        if c.get("distinctiveIdentifier").and_then(|x| x.as_str()) == Some("required")
-            || c.get("persistentState").and_then(|x| x.as_str()) == Some("required")
-        {
+        if c.get("distinctiveIdentifier").and_then(|x| x.as_str()) == Some("required") {
             continue;
         }
+        let persistent_state =
+            if c.get("persistentState").and_then(|x| x.as_str()) == Some("required") {
+                "required"
+            } else {
+                "not-allowed"
+            };
         let session_types: Vec<String> = c
             .get("sessionTypes")
             .and_then(|x| x.as_array())
@@ -84,7 +88,7 @@ pub fn eme_check(key_system: &str, configs: &str) -> Option<J> {
             "audioCapabilities": audio,
             "videoCapabilities": [],
             "distinctiveIdentifier": "not-allowed",
-            "persistentState": "not-allowed",
+            "persistentState": persistent_state,
             "sessionTypes": ["temporary"],
         }));
     }

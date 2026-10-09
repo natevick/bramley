@@ -16,17 +16,25 @@ globalThis.later = ms => new Promise(r => setTimeout(r, ms));
 "#;
 
 fn engine(message_first: bool) -> (Engine, FakeSink) {
+    let (e, sink, _) = engine_with_cdm(message_first);
+    (e, sink)
+}
+
+fn engine_with_cdm(message_first: bool) -> (Engine, FakeSink, FakeCdm) {
     let cdm = FakeCdm::default();
     cdm.0.borrow_mut().message_first = message_first;
     let sink = FakeSink::default();
     let s = sink.clone();
-    let factory = move || {
-        cdm.0.borrow_mut().events.push(CdmEvent::Initialized(true));
-        Ok(Box::new(cdm.clone()) as Box<dyn CdmBackend>)
+    let c = cdm.clone();
+    let factory = move |persistent| {
+        let mut st = c.0.borrow_mut();
+        st.allow_persistent_state = Some(persistent);
+        st.events.push(CdmEvent::Initialized(true));
+        Ok(Box::new(c.clone()) as Box<dyn CdmBackend>)
     };
     let e = Engine::with_backends(Box::new(factory), Rc::new(move || Box::new(s.clone()))).unwrap();
     e.eval_script("prelude.js", PRELUDE).unwrap();
-    (e, sink)
+    (e, sink, cdm)
 }
 
 fn run(e: &mut Engine, script: &str) -> Value {
@@ -132,7 +140,6 @@ fn key_system_access_grants_only_audio_widevine_temporary_sessions() {
         eme_check("com.widevine.alpha", r#"[{"videoCapabilities":[{"contentType":"video/mp4; codecs=\"avc1.42E01E\""}],"audioCapabilities":[{"contentType":"audio/mp4; codecs=\"mp4a.40.2\""}]}]"#)
             .is_none()
     );
-    assert!(eme_check("com.widevine.alpha", r#"[{"persistentState":"required","audioCapabilities":[{"contentType":"audio/mp4; codecs=\"mp4a.40.2\""}]}]"#).is_none());
     assert!(eme_check("com.widevine.alpha", r#"[{"audioCapabilities":[{"contentType":"audio/mp4; codecs=\"mp4a.40.2\"","robustness":"HW_SECURE_ALL"}]}]"#).is_none());
     for he_aac in ["mp4a.40.5", "mp4a.40.29"] {
         let caps = format!(
@@ -140,6 +147,79 @@ fn key_system_access_grants_only_audio_widevine_temporary_sessions() {
         );
         assert!(eme_check("com.widevine.alpha", &caps).is_none(), "{he_aac}");
     }
+}
+
+const AUDIO_PERSISTENT: &str = r#"[{"initDataTypes":["cenc","keyids"],"audioCapabilities":[{"contentType":"audio/mp4;codecs=\"mp4a.40.2\""}],"distinctiveIdentifier":"optional","persistentState":"required"}]"#;
+
+#[test]
+fn eme_check_grants_required_persistent_state_and_keyids_but_not_unsupported_video() {
+    let granted = eme_check("com.widevine.alpha", AUDIO_PERSISTENT).unwrap();
+    assert_eq!(
+        (
+            &granted["persistentState"],
+            &granted["distinctiveIdentifier"],
+            &granted["initDataTypes"]
+        ),
+        (
+            &json!("required"),
+            &json!("not-allowed"),
+            &json!(["cenc", "keyids"])
+        )
+    );
+    let with_video = AUDIO_PERSISTENT.replace(
+        r#""audioCapabilities""#,
+        r#""videoCapabilities":[{"contentType":"video/mp4;codecs=\"avc1.42E01E\"","robustness":"SW_SECURE_CRYPTO"}],"audioCapabilities""#,
+    );
+    assert!(eme_check("com.widevine.alpha", &with_video).is_none());
+    let two_configs = format!(
+        "[{},{}]",
+        &with_video[1..with_video.len() - 1],
+        &AUDIO_PERSISTENT[1..AUDIO_PERSISTENT.len() - 1]
+    );
+    assert_eq!(eme_check("com.widevine.alpha", &two_configs), Some(granted));
+    let distinctive = AUDIO_PERSISTENT.replace(r#""optional""#, r#""required""#);
+    assert!(eme_check("com.widevine.alpha", &distinctive).is_none());
+}
+
+#[test]
+fn persistent_state_access_lets_the_cdm_persist_and_temporary_access_does_not() {
+    for (config, expected) in [
+        (AUDIO_PERSISTENT, true),
+        (
+            r#"[{"audioCapabilities":[{"contentType":"audio/mp4;codecs=\"mp4a.40.2\""}]}]"#,
+            false,
+        ),
+    ] {
+        let (mut e, _, cdm) = engine_with_cdm(false);
+        let log = run(
+            &mut e,
+            &format!(
+                r#"const a = await navigator.requestMediaKeySystemAccess("com.widevine.alpha", {config}); await a.createMediaKeys(); L(a.getConfiguration().persistentState);"#
+            ),
+        );
+        let state = if expected { "required" } else { "not-allowed" };
+        assert_eq!(log, json!([state]));
+        assert_eq!(cdm.0.borrow().allow_persistent_state, Some(expected));
+    }
+}
+
+#[test]
+fn set_server_certificate_reaches_the_cdm_and_rejects_an_empty_one() {
+    let (mut e, _, cdm) = engine_with_cdm(false);
+    let log = run(
+        &mut e,
+        r#"
+        const mk = await keys();
+        L("set:" + await mk.setServerCertificate(new Uint8Array([1, 2, 3])));
+        await outcome("empty", mk.setServerCertificate(new Uint8Array(0)));
+        await outcome("not-a-buffer", mk.setServerCertificate("nope"));
+    "#,
+    );
+    assert_eq!(
+        log,
+        json!(["set:true", "empty:TypeError", "not-a-buffer:TypeError"])
+    );
+    assert_eq!(cdm.0.borrow().certificate, [1, 2, 3]);
 }
 
 fn media_script(body: &str) -> String {

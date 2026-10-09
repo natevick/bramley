@@ -120,6 +120,8 @@ pub struct CdmState {
     pub has_key: bool,
     pub events: Vec<CdmEvent>,
     pub decrypts: u64,
+    pub certificate: Vec<u8>,
+    pub allow_persistent_state: Option<bool>,
 }
 
 #[derive(Clone, Default)]
@@ -128,8 +130,10 @@ pub struct FakeCdm(pub Rc<RefCell<CdmState>>);
 pub const KID: [u8; 16] = [7; 16];
 
 impl CdmBackend for FakeCdm {
-    fn set_server_certificate(&mut self, promise: u32, _cert: &[u8]) {
-        self.0.borrow_mut().events.push(CdmEvent::Resolve(promise));
+    fn set_server_certificate(&mut self, promise: u32, cert: &[u8]) {
+        let mut s = self.0.borrow_mut();
+        s.certificate = cert.to_vec();
+        s.events.push(CdmEvent::Resolve(promise));
     }
     fn create_session(&mut self, promise: u32, _init_data_type: u32, _init: &[u8]) {
         let mut s = self.0.borrow_mut();

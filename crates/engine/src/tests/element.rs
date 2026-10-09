@@ -16,7 +16,7 @@ globalThis.later = ms => new Promise(r => setTimeout(r, ms));
 pub fn engine() -> (Engine, FakeSink) {
     let sink = FakeSink::default();
     let s = sink.clone();
-    let factory = || {
+    let factory = |_| {
         let cdm = FakeCdm::default();
         cdm.0.borrow_mut().events.push(CdmEvent::Initialized(true));
         Ok(Box::new(cdm) as Box<dyn CdmBackend>)
