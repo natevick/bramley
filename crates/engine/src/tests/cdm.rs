@@ -28,23 +28,12 @@ fn retrying_a_library_without_cdm_exports_fails_cleanly_every_time() {
 fn real_cdm_initializes_and_answers_a_license_request_on_the_creating_thread() {
     use crate::cdm::CdmEvent;
     let mut cdm = Widevine::create(&crate::EngineConfig::default_cdm_path()).unwrap();
-    let kid = [
-        0x67, 0xb3, 0x0c, 0x86, 0x75, 0x6f, 0x57, 0xc5, 0xa0, 0xa3, 0x8a, 0x23, 0xac, 0x8c, 0x91,
-        0x78,
-    ];
-    let system_id = [
-        0xed, 0xef, 0x8b, 0xa9, 0x79, 0xd6, 0x4a, 0xce, 0xa3, 0xc8, 0x27, 0xdc, 0xd5, 0x1d, 0x21,
-        0xed,
-    ];
-    let data = [&[0x12u8, 0x10][..], &kid].concat();
-    let body = [
-        &[0u8; 4][..],
-        &system_id,
-        &(data.len() as u32).to_be_bytes(),
-        &data,
-    ]
-    .concat();
-    let pssh = [&((body.len() + 8) as u32).to_be_bytes()[..], b"pssh", &body].concat();
+    let pssh: Vec<u8> = "000000327073736800000000edef8ba979d64acea3c827dcd51d21ed000000121210\
+        67b30c86756f57c5a0a38a23ac8c9178"
+        .as_bytes()
+        .chunks(2)
+        .map(|h| u8::from_str_radix(std::str::from_utf8(h).unwrap(), 16).unwrap())
+        .collect();
     let mut events = Vec::new();
     let pump = |cdm: &mut Box<dyn crate::cdm::CdmBackend>, events: &mut Vec<CdmEvent>| {
         for _ in 0..100 {

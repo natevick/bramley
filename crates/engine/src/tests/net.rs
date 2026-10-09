@@ -6,34 +6,11 @@ use crate::net::forbidden_request_header;
 
 #[test]
 fn forbidden_request_headers_match_the_fetch_spec_list_plus_user_agent() {
-    for name in [
-        "Origin",
-        "User-Agent",
-        "Referer",
-        "Cookie",
-        "Host",
-        "accept-charset",
-        "Accept-Encoding",
-        "Access-Control-Request-Headers",
-        "Access-Control-Request-Method",
-        "Access-Control-Request-Private-Network",
-        "Connection",
-        "Content-Length",
-        "Cookie2",
-        "Date",
-        "DNT",
-        "Expect",
-        "Keep-Alive",
-        "Set-Cookie",
-        "TE",
-        "Trailer",
-        "Transfer-Encoding",
-        "Upgrade",
-        "Via",
-        "Proxy-Authorization",
-        "Sec-Fetch-Mode",
-        " origin ",
-    ] {
+    let forbidden = "Origin User-Agent Referer Cookie Host accept-charset Accept-Encoding \
+        Access-Control-Request-Headers Access-Control-Request-Method Access-Control-Request-Private-Network \
+        Connection Content-Length Cookie2 Date DNT Expect Keep-Alive Set-Cookie TE Trailer \
+        Transfer-Encoding Upgrade Via Proxy-Authorization Sec-Fetch-Mode";
+    for name in forbidden.split_whitespace().chain([" origin "]) {
         assert!(forbidden_request_header(name, "x"), "{name}");
     }
     assert!(forbidden_request_header(

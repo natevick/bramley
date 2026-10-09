@@ -30,6 +30,7 @@ Steps, with JS `currentTime` / native output position in seconds:
 
 **What was checked:**
 - **Agreement:** JS `currentTime` and the native output position differ by at most 0.0003 s at every step that rendered audio.
+  - This check has a named false positive: both sides are updated in the same write, so it cannot see output latency or a lost tail. It passed while the last ~200 ms of every track was being cut (review finding M5, since fixed).
 - **Pause:** it held 20.00 s with 0.0 drift on both measures.
 - **Seek:** it landed exactly on 40.
 - **Resume:** the advance matched wall time within 0.025 s.
@@ -48,6 +49,24 @@ Steps, with JS `currentTime` / native output position in seconds:
 - `scen1` read PASS without ever calling `remove()`. hls.js won't flush the back buffer of an ended SourceBuffer, and the 60 s stream was fully buffered.
 - `scen2` capped `maxBufferLength` alone, and hls.js still buffered everything, so it read VOID under the new check.
 - See the addendum in the pre-registration.
+
+## Re-run after the review fixes (2026-10-09)
+
+Same scripts and thresholds, on the branch with the review findings fixed.
+
+| Run | Verdict | Key numbers |
+|---|---|---|
+| `fix-run1` | **PASS** | PSS median 98.2 MiB; every did-it-run check passed |
+| `fix-sabotage-license` | VOID, as required | 90.4 MiB; no usable key, nothing decrypted |
+| `fix-scen` | **PASS** | max \|currentTime − output\| 0.0003 s; pause drift 0.0; seek 40.000; PSS growth 0.35 MiB; drain acked 1, timeouts 0 |
+| `fix-scen-skip-pause` | FAIL, as required | 19.97 s drift across the "pause"; checks 2 and 5 failed |
+| ten tracks (PREREG addendum) | **PASS** | PSS 102.4 → 99.3 MiB over ten fresh loads; live CDMs 0 at the end |
+
+The ten-track check cannot see M6 at its 8 MiB bar: on 344e38e it also passed (+2.7 MiB), because each leaked Widevine instance costs about 0.3 MiB. The unit test on live native object counts is the evidence for M6.
+
+**Left as they are:**
+- m4 (process-global `g_lib`): the engine runs one Engine on one thread with one CDM path, and the Widevine module itself is initialised once per process.
+- m8 (`status()` holds the borrow across `statusJson`): still safe because `statusJson` calls no ops; the new live-object counts are computed in Rust, not through an op.
 
 ## Caveats
 - **The content is 60 s.** "Play to the end" finishes about 55 s into the 120 s window, and PSS flatness is shown over that run only. Engine-side quota eviction (4 MiB) never triggers on a 1 MB stream. It is covered only by unit tests, including a 400 s synthetic timeline.
