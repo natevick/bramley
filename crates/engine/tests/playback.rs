@@ -107,12 +107,23 @@ fn engine_play(
     args: &[&str],
     during: impl FnOnce(u32),
 ) -> (std::process::ExitStatus, Value) {
+    let mut all = vec!["--no-loop"];
+    all.extend_from_slice(args);
+    run_with_status(env!("CARGO_BIN_EXE_bramley-play"), name, &all, during)
+}
+
+fn run_with_status(
+    bin: &str,
+    name: &str,
+    args: &[&str],
+    during: impl FnOnce(u32),
+) -> (std::process::ExitStatus, Value) {
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"));
     let status = dir.join(format!("{name}-status.json"));
     let _ = std::fs::remove_file(&status);
     let log = std::fs::File::create(dir.join(format!("{name}-engine.log"))).unwrap();
-    let child = Command::new(env!("CARGO_BIN_EXE_bramley-play"))
-        .args(["--output-device", SINK, "--no-loop", "--status"])
+    let child = Command::new(bin)
+        .args(["--output-device", SINK, "--status"])
         .arg(&status)
         .args(args)
         .env("XDG_RUNTIME_DIR", runtime_dir())
@@ -287,4 +298,62 @@ fn plays_widevine_cbcs_audio_end_to_end_into_a_null_sink() {
         (Some(0), Some(0)),
         "{media}"
     );
+}
+
+#[cfg(bramley_tokens)]
+#[test]
+#[ignore = "plays a full Apple Music song through unmodified musickit.js and the real CDM into a PipeWire null sink"]
+fn plays_a_full_apple_music_song_through_musickit_js() {
+    let _sink = null_sink();
+    let before = default_sink();
+    let mut targets = Vec::new();
+    let args = ["--controls-at", "0", "--max-seconds", "150"];
+    let bin = env!("CARGO_BIN_EXE_bramley-musickit");
+    let (finished, s) = run_with_status(bin, "musickit", &args, |pid| {
+        std::thread::sleep(Duration::from_secs(30));
+        targets = linked_targets(pid);
+        targets.dedup();
+    });
+    assert!(
+        finished.success(),
+        "bramley-musickit exited with {finished}"
+    );
+    let script = &s["scripts"][1];
+    assert_eq!(script["phase"], "evaluated", "{script}");
+    assert_eq!(script["fetchedSha256"], script["evaluatedSha256"]);
+    let before_controls = &s["controls"]["beforeControls"];
+    let player = &s["controls"]["steps"][0]["js"];
+    assert_eq!(
+        (&player["isAuthorized"], &player["storefrontId"]),
+        (&Value::Bool(true), &Value::from("us")),
+        "{}",
+        s["player"]
+    );
+    assert!(
+        player["currentPlaybackTime"].as_f64() > Some(35.0),
+        "{player}"
+    );
+    let media = before_controls["medias"]
+        .as_object()
+        .and_then(|m| m.values().max_by_key(|m| m["decryptOk"].as_u64()))
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        media["decodedDecryptedSeconds"].as_f64() > Some(35.0),
+        "{media}"
+    );
+    assert_eq!(before_controls["platform"]["eme"]["usableSeen"], true);
+    assert_eq!(targets, [SINK], "our stream must reach the null sink only");
+    assert_eq!(default_sink(), before, "the default sink must not change");
+    let steps = s["controls"]["steps"].as_array().unwrap();
+    let cpt = |i: usize| {
+        steps[i]["js"]["currentPlaybackTime"]
+            .as_f64()
+            .unwrap_or(-1.0)
+    };
+    assert_eq!(s["controls"]["done"], true, "{steps:?}");
+    assert!((cpt(1) - cpt(0)).abs() <= 0.5, "pause drifted: {steps:?}");
+    assert!((cpt(2) - 120.0).abs() <= 0.5, "seek missed 120: {steps:?}");
+    assert!(cpt(3) > 120.0, "resume did not advance: {steps:?}");
+    assert_eq!(steps[5]["js"]["item"]["id"], "6781079518", "{steps:?}");
 }
