@@ -8,5 +8,6 @@
 - [x] Spike 4 (2026-10-09, reproduced by Norm): QuickJS-NG 8.5 MiB / V8 32-33 MiB PSS idle with musickit.js configured; sabotage VOID. Pick QuickJS; V8 is the fallback and API-contract recorder. Idle only: playback memory with hls.js is unmeasured.
 - [x] Spike 5 (2026-10-09, reproduced by Norm): hls.js in QuickJS, through native MSE/EME host objects, into the CDM: PASS at 96.7 MiB, one process (bar 105); sabotage VOID. Not yet covered: pause, volume, eviction, musickit.js, Apple license server.
 - [ ] Real-GPU UI measurement: this box gives no render-node access (norm is not in the `render` group). Needs Nate: add the group, or measure on his Linux machine.
+- [ ] Engine crate (developer agent, branch `natevick/engine-crate`): graduate spike 5 into `crates/engine` with pause, seek, volume and eviction, plus tests. When it reports, Norm re-runs `scripts/measure-playback.sh`, the sabotage run and the pause/seek scenario before merging locally.
 - [ ] Thinnest end-to-end slice: MusicKit JS in engine, then shims, then CDM, then Apple license, then audible sound. Do this before any UI work.
 - [ ] Name: read the Apple Music Identity Guidelines, then propose names to Nate.
