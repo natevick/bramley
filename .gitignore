@@ -8,3 +8,4 @@ spikes/*/results/*.raw
 .env.*
 spikes/*/results/*.log
 spikes/*/syslibs/
+spikes/*/research/

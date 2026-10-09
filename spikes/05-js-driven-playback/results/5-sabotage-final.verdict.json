@@ -1,0 +1,169 @@
+{
+ "name": "5-sabotage-final",
+ "verdict": "VOID",
+ "pssMedMiB": 89.2,
+ "pssMaxMiB": 89.3,
+ "rssMedMiB": 93.3,
+ "ussMedMiB": 88.9,
+ "procCountMin": 1,
+ "checks": {
+  "c1_jsSawUsableKey": false,
+  "c2_jsCurrentTimeOver30s": false,
+  "c2_nativeDecryptedOver30s": false,
+  "c3_pipewireStream": true,
+  "c5_treeWalked": true,
+  "defaultSinkUnchanged": true
+ },
+ "detail": {
+  "appPhase": "fatal:keySystemLicenseRequestFailed",
+  "hlsVersion": "1.7.3",
+  "appErrors": [
+   {
+    "code": 404,
+    "details": "keySystemLicenseRequestFailed",
+    "fatal": true,
+    "reason": "License Request XHR failed (https://cwip-shaka-proxy.appspot.com/no_auth_SABOTAGED). Status: 404 (Not Found)",
+    "type": "keySystemError"
+   },
+   {
+    "code": null,
+    "details": "aborted",
+    "fatal": false,
+    "reason": "Aborted",
+    "type": "networkError"
+   },
+   {
+    "code": null,
+    "details": "bufferStalledError",
+    "fatal": false,
+    "reason": "Playback stalling at @8.021333 due to low buffer ({\"len\":0,\"start\":8.021333,\"end\":8.021333,\"buffered\":[{\"start\":0,\"end\":8.021333}],\"bufferedIndex\":0})",
+    "type": "mediaError"
+   }
+  ],
+  "maxCurrentTime": 7.794666,
+  "keyLoaded": 0,
+  "firstAudioMs": 443.3932099999999,
+  "firstKeyLoadedMs": null,
+  "mediaEvents": {
+   "canplay": 1,
+   "canplaythrough": 1,
+   "durationchange": 1,
+   "encrypted": 1,
+   "loadeddata": 1,
+   "loadedmetadata": 1,
+   "loadstart": 1,
+   "play": 1,
+   "playing": 1,
+   "waiting": 2
+  },
+  "eme": {
+   "accessGranted": 1,
+   "accessRequests": 1,
+   "keyStatusEvents": [],
+   "messages": 1,
+   "rejects": [],
+   "sessions": 1,
+   "updates": 0,
+   "usableSeen": false
+  },
+  "uncaught": [],
+  "xhr": {
+   "completed": 6,
+   "errors": 0,
+   "opened": 7,
+   "posts": 1,
+   "statuses": {
+    "200": 5,
+    "404": 1
+   }
+  },
+  "native": {
+   "clearSamples": 376,
+   "encryptedSamples": 0,
+   "decryptOk": 0,
+   "decryptFail": {},
+   "decodedClearSeconds": 8.021333333333333,
+   "decodedDecryptedSeconds": 0.0,
+   "decodeErr": 0,
+   "keyWaits": 0,
+   "underruns": 1,
+   "seeks": 0,
+   "loops": 0,
+   "rate": 48000,
+   "channels": 2
+  },
+  "cdm": {
+   "hostVersionRequested": 10,
+   "interface": 10,
+   "version": "4.10.3112.0"
+  },
+  "cdmLogs": [
+   "QueryOutputProtectionStatus requested; answering no display link"
+  ],
+  "emeGranted": [
+   {
+    "audioCapabilities": [
+     {
+      "contentType": "audio/mp4; codecs=mp4a.40.2",
+      "encryptionScheme": null,
+      "robustness": ""
+     }
+    ],
+    "distinctiveIdentifier": "not-allowed",
+    "initDataTypes": [
+     "cenc"
+    ],
+    "label": "",
+    "persistentState": "not-allowed",
+    "sessionTypes": [
+     "temporary"
+    ],
+    "videoCapabilities": []
+   }
+  ],
+  "scripts": [
+   {
+    "id": 1,
+    "phase": "fetching",
+    "url": "https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js"
+   },
+   {
+    "bytes": 619692,
+    "evalMs": 62.221385999999995,
+    "id": 1,
+    "phase": "evaluated",
+    "url": "https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js"
+   }
+  ],
+  "opCounts": {
+   "cdm_close": 1,
+   "cdm_create": 1,
+   "cdm_generate": 1,
+   "eme_check": 1,
+   "http": 6,
+   "http_abort": 1,
+   "load_script": 1,
+   "media_attach": 1,
+   "media_create": 1,
+   "media_play": 2,
+   "media_set_keys": 1,
+   "ms_create": 1,
+   "ms_set_duration": 1,
+   "sb_add": 1,
+   "sb_append": 3
+  }
+ },
+ "routing": {
+  "pid": 1130495,
+  "streams": [
+   {
+    "id": 72,
+    "name": "spike5-engine",
+    "app": "spike5-engine"
+   }
+  ],
+  "targets": [
+   "spike5-null"
+  ]
+ }
+}

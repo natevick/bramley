@@ -1,0 +1,156 @@
+{
+ "name": "5-norm-verify",
+ "verdict": "PASS",
+ "pssMedMiB": 96.7,
+ "pssMaxMiB": 97.1,
+ "rssMedMiB": 101.2,
+ "ussMedMiB": 96.4,
+ "procCountMin": 1,
+ "checks": {
+  "c1_jsSawUsableKey": true,
+  "c2_jsCurrentTimeOver30s": true,
+  "c2_nativeDecryptedOver30s": true,
+  "c3_pipewireStream": true,
+  "c5_treeWalked": true,
+  "defaultSinkUnchanged": true
+ },
+ "detail": {
+  "appPhase": "playing",
+  "hlsVersion": "1.7.3",
+  "appErrors": [],
+  "maxCurrentTime": 59.976,
+  "keyLoaded": 13,
+  "firstAudioMs": 747.237253,
+  "firstKeyLoadedMs": 1087.1895840000002,
+  "mediaEvents": {
+   "canplay": 1,
+   "canplaythrough": 1,
+   "durationchange": 2,
+   "encrypted": 2,
+   "loadeddata": 1,
+   "loadedmetadata": 1,
+   "loadstart": 1,
+   "play": 1,
+   "playing": 2,
+   "seeked": 1,
+   "seeking": 1,
+   "waiting": 1
+  },
+  "eme": {
+   "accessGranted": 1,
+   "accessRequests": 1,
+   "keyStatusEvents": [
+    [
+     "4d97930a:usable",
+     "67b30c86:usable",
+     "6f172907:usable",
+     "800aacaa:usable",
+     "d21373c0:usable"
+    ]
+   ],
+   "messages": 1,
+   "rejects": [],
+   "sessions": 1,
+   "updates": 1,
+   "usableSeen": true
+  },
+  "uncaught": [],
+  "xhr": {
+   "completed": 19,
+   "errors": 0,
+   "opened": 19,
+   "posts": 1,
+   "statuses": {
+    "200": 19
+   }
+  },
+  "native": {
+   "clearSamples": 752,
+   "encryptedSamples": 2833,
+   "decryptOk": 2833,
+   "decryptFail": {},
+   "decodedClearSeconds": 16.042666666666666,
+   "decodedDecryptedSeconds": 60.437333333333335,
+   "decodeErr": 0,
+   "keyWaits": 0,
+   "underruns": 0,
+   "seeks": 1,
+   "loops": 1,
+   "rate": 48000,
+   "channels": 2
+  },
+  "cdm": {
+   "hostVersionRequested": 10,
+   "interface": 10,
+   "version": "4.10.3112.0"
+  },
+  "cdmLogs": [
+   "QueryOutputProtectionStatus requested; answering no display link"
+  ],
+  "emeGranted": [
+   {
+    "audioCapabilities": [
+     {
+      "contentType": "audio/mp4; codecs=mp4a.40.2",
+      "encryptionScheme": null,
+      "robustness": ""
+     }
+    ],
+    "distinctiveIdentifier": "not-allowed",
+    "initDataTypes": [
+     "cenc"
+    ],
+    "label": "",
+    "persistentState": "not-allowed",
+    "sessionTypes": [
+     "temporary"
+    ],
+    "videoCapabilities": []
+   }
+  ],
+  "scripts": [
+   {
+    "id": 1,
+    "phase": "fetching",
+    "url": "https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js"
+   },
+   {
+    "bytes": 619692,
+    "evalMs": 66.76902899999999,
+    "id": 1,
+    "phase": "evaluated",
+    "url": "https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js"
+   }
+  ],
+  "opCounts": {
+   "cdm_create": 1,
+   "cdm_generate": 1,
+   "cdm_update": 1,
+   "eme_check": 1,
+   "http": 18,
+   "load_script": 1,
+   "media_attach": 1,
+   "media_create": 1,
+   "media_play": 2,
+   "media_set_keys": 1,
+   "ms_create": 1,
+   "ms_end": 1,
+   "ms_set_duration": 2,
+   "sb_add": 1,
+   "sb_append": 17
+  }
+ },
+ "routing": {
+  "pid": 1145790,
+  "streams": [
+   {
+    "id": 72,
+    "name": "spike5-engine",
+    "app": "spike5-engine"
+   }
+  ],
+  "targets": [
+   "spike5-null"
+  ]
+ }
+}

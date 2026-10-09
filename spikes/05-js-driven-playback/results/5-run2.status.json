@@ -1,0 +1,265 @@
+{
+  "app": {
+    "errors": [],
+    "firstAudioMs": 1070.047934,
+    "firstKeyLoadedMs": 1392.90854,
+    "hlsEvents": {
+      "BUFFER_APPENDED": 17,
+      "BUFFER_CREATED": 1,
+      "BUFFER_EOS": 2,
+      "FRAG_BUFFERED": 15,
+      "FRAG_LOADED": 15,
+      "FRAG_PARSED": 15,
+      "KEY_LOADED": 13,
+      "KEY_LOADING": 13,
+      "LEVEL_LOADED": 1,
+      "MANIFEST_LOADED": 1,
+      "MANIFEST_PARSED": 1,
+      "MEDIA_ATTACHED": 1
+    },
+    "hlsSupported": true,
+    "hlsUrl": "https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js",
+    "hlsVersion": "1.7.3",
+    "keyLoaded": 13,
+    "lastCurrentTime": 14.378666,
+    "licenseUrl": "https://cwip-shaka-proxy.appspot.com/no_auth",
+    "manifest": "https://storage.googleapis.com/shaka-demo-assets/angel-one-widevine-hls/playlist_a-eng-0128k-aac-2c.mp4.m3u8",
+    "masterPlaylist": "#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-STREAM-INF:BANDWIDTH=140000,CODECS=\"mp4a.40.2\"\nhttps://storage.googleapis.com/shaka-demo-assets/angel-one-widevine-hls/playlist_a-eng-0128k-aac-2c.mp4.m3u8\n",
+    "maxCurrentTime": 60.018666,
+    "mediaEvents": {
+      "canplay": 1,
+      "canplaythrough": 1,
+      "durationchange": 2,
+      "encrypted": 2,
+      "loadeddata": 1,
+      "loadedmetadata": 1,
+      "loadstart": 1,
+      "play": 1,
+      "playing": 2,
+      "seeked": 1,
+      "seeking": 1,
+      "waiting": 1
+    },
+    "phase": "playing",
+    "timeupdates": 296
+  },
+  "cdm": {
+    "hostVersionRequested": 10,
+    "interface": 10,
+    "version": "4.10.3112.0"
+  },
+  "cdmLogs": [
+    "QueryOutputProtectionStatus requested; answering no display link"
+  ],
+  "elapsedSec": 75.183702305,
+  "emeRequests": [
+    {
+      "granted": {
+        "audioCapabilities": [
+          {
+            "contentType": "audio/mp4; codecs=mp4a.40.2",
+            "encryptionScheme": null,
+            "robustness": ""
+          }
+        ],
+        "distinctiveIdentifier": "not-allowed",
+        "initDataTypes": [
+          "cenc"
+        ],
+        "label": "",
+        "persistentState": "not-allowed",
+        "sessionTypes": [
+          "temporary"
+        ],
+        "videoCapabilities": []
+      },
+      "keySystem": "com.widevine.alpha",
+      "requested": [
+        {
+          "audioCapabilities": [
+            {
+              "contentType": "audio/mp4; codecs=mp4a.40.2",
+              "encryptionScheme": null,
+              "robustness": ""
+            }
+          ],
+          "distinctiveIdentifier": "optional",
+          "initDataTypes": [
+            "cenc"
+          ],
+          "persistentState": "optional",
+          "sessionTypes": [
+            "temporary"
+          ],
+          "videoCapabilities": []
+        }
+      ]
+    }
+  ],
+  "http": {
+    "bytes": 988167,
+    "count": 18
+  },
+  "medias": {
+    "2": {
+      "channels": 2,
+      "clearSamples": 752,
+      "currentTime": 14.549333,
+      "decodeErr": 0,
+      "decodedClearSeconds": 16.042666666666666,
+      "decodedDecryptedSeconds": 60.053333333333335,
+      "decryptFail": {},
+      "decryptOk": 2815,
+      "encryptedSamples": 2815,
+      "ended": false,
+      "keyWaits": 0,
+      "keysId": 3,
+      "loops": 1,
+      "maxCurrentTime": 60.032,
+      "paused": false,
+      "rate": 48000,
+      "readyState": 4,
+      "seeking": false,
+      "seeks": 1,
+      "streamCreated": true,
+      "underruns": 0,
+      "waiting": false,
+      "waitingForKey": false
+    }
+  },
+  "opCounts": {
+    "cdm_create": 1,
+    "cdm_generate": 1,
+    "cdm_update": 1,
+    "eme_check": 1,
+    "http": 18,
+    "load_script": 1,
+    "media_attach": 1,
+    "media_create": 1,
+    "media_play": 2,
+    "media_set_keys": 1,
+    "ms_create": 1,
+    "ms_end": 1,
+    "ms_set_duration": 2,
+    "sb_add": 1,
+    "sb_append": 17
+  },
+  "phase": "playing",
+  "pid": 1100531,
+  "platform": {
+    "eme": {
+      "accessGranted": 1,
+      "accessRequests": 1,
+      "keyStatusEvents": [
+        [
+          "4d97930a:usable",
+          "67b30c86:usable",
+          "6f172907:usable",
+          "800aacaa:usable",
+          "d21373c0:usable"
+        ]
+      ],
+      "messages": 1,
+      "rejects": [],
+      "sessions": 1,
+      "updates": 1,
+      "usableSeen": true
+    },
+    "hostCalls": {
+      "HTMLMediaElement.buffered": 849,
+      "HTMLMediaElement.currentTime": 3709,
+      "HTMLMediaElement.play": 2,
+      "HTMLMediaElement.setMediaKeys": 1,
+      "HTMLMediaElement.src=": 1,
+      "HTMLScriptElement.load": 1,
+      "MediaKeySession.generateRequest": 1,
+      "MediaKeySession.update": 1,
+      "MediaKeySystemAccess.createMediaKeys": 1,
+      "MediaKeys.createSession": 1,
+      "MediaSource.addSourceBuffer": 1,
+      "MediaSource.constructor": 1,
+      "MediaSource.duration=": 1,
+      "MediaSource.endOfStream": 1,
+      "MediaSource.isTypeSupported": 15,
+      "Node.appendChild": 4,
+      "SourceBuffer.appendBuffer": 17,
+      "SourceBuffer.buffered": 33,
+      "URL.createObjectURL": 1,
+      "XMLHttpRequest.open": 19,
+      "XMLHttpRequest.send": 19,
+      "XMLHttpRequest:data-url": 1,
+      "clearInterval": 16,
+      "clearTimeout": 119,
+      "document.createElement:audio": 1,
+      "document.createElement:script": 1,
+      "event:canplay": 1,
+      "event:canplaythrough": 1,
+      "event:encrypted": 2,
+      "event:keystatuseschange": 1,
+      "event:loadeddata": 1,
+      "event:loadedmetadata": 1,
+      "event:message": 1,
+      "event:play": 1,
+      "event:playing": 2,
+      "event:seeked": 1,
+      "event:seeking": 1,
+      "event:timeupdate": 296,
+      "event:waiting": 1,
+      "navigator.requestMediaKeySystemAccess": 1,
+      "setInterval": 19,
+      "setTimeout": 37
+    },
+    "pendingHttp": 0,
+    "tasks": 0,
+    "timers": 4,
+    "uncaught": [],
+    "xhr": {
+      "completed": 19,
+      "errors": 0,
+      "opened": 19,
+      "posts": 1,
+      "statuses": {
+        "200": 19
+      }
+    }
+  },
+  "scripts": [
+    {
+      "id": 1,
+      "phase": "fetching",
+      "url": "https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js"
+    },
+    {
+      "bytes": 619692,
+      "evalMs": 67.56891900000001,
+      "id": 1,
+      "phase": "evaluated",
+      "url": "https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js"
+    }
+  ],
+  "sourceBuffers": {
+    "4": {
+      "appendedBytes": 986846,
+      "buffered": [
+        [
+          0.0,
+          60.021332
+        ]
+      ],
+      "frames": 2814,
+      "init": {
+        "channels": 2,
+        "codec": "mp4a.40.2",
+        "protected": {
+          "ivSize": 8,
+          "kid": "67b30c86756f57c5a0a38a23ac8c9178",
+          "scheme": "cenc"
+        },
+        "psshBytes": 62,
+        "sampleRate": 48000,
+        "timescale": 48000
+      },
+      "mime": "audio/mp4;codecs=mp4a.40.2"
+    }
+  }
+}

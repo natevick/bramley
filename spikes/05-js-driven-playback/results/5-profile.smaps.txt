@@ -1,0 +1,15 @@
+total PSS 96.7 MiB
+   61.4 MiB pss     61.4 MiB uss  [anon]
+   19.9 MiB pss     19.9 MiB uss  libwidevinecdm.so
+    7.0 MiB pss      7.0 MiB uss  [heap]
+    3.9 MiB pss      3.9 MiB uss  spike5-engine
+    3.8 MiB pss      3.8 MiB uss  [anon:partition_alloc]
+    0.3 MiB pss      0.3 MiB uss  [stack]
+    0.3 MiB pss      0.1 MiB uss  libstdc++.so.6.0.35
+    0.0 MiB pss      0.0 MiB uss  libc.so.6
+    0.0 MiB pss      0.0 MiB uss  libm.so.6
+    0.0 MiB pss      0.0 MiB uss  ld-linux-x86-64.so.2
+    0.0 MiB pss      0.0 MiB uss  libgcc_s.so.1
+    0.0 MiB pss      0.0 MiB uss  libpthread.so.0
+    0.0 MiB pss      0.0 MiB uss  libdl.so.2
+    0.0 MiB pss      0.0 MiB uss  libnss_mdns4_minimal.so.2

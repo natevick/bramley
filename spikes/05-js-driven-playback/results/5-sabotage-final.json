@@ -1,0 +1,242 @@
+{
+ "name": "5-sabotage-final",
+ "cmd": [
+  "/home/norm/projects/Personal/apple-music-client/spikes/05-js-driven-playback/engine/target/release/spike5-engine",
+  "--status",
+  "/home/norm/projects/Personal/apple-music-client/spikes/05-js-driven-playback/results/5-sabotage-final.status.json",
+  "--sink",
+  "spike5-null",
+  "--lic",
+  "https://cwip-shaka-proxy.appspot.com/no_auth_SABOTAGED"
+ ],
+ "exitedEarly": null,
+ "samples": 30,
+ "pssMedMiB": 89.2,
+ "pssMaxMiB": 89.3,
+ "rssMedMiB": 93.3,
+ "rssMaxMiB": 93.4,
+ "ussMedMiB": 88.9,
+ "ussMaxMiB": 89.1,
+ "procCountMin": 1,
+ "lastPer": [
+  {
+   "pid": 1130495,
+   "comm": "spike5-engine",
+   "pssKiB": 91370,
+   "rssKiB": 95556,
+   "ussKiB": 91084
+  }
+ ],
+ "samplesRaw": [
+  {
+   "pssKiB": 91446,
+   "rssKiB": 95684,
+   "ussKiB": 91212,
+   "count": 1,
+   "t": 15.03
+  },
+  {
+   "pssKiB": 91446,
+   "rssKiB": 95684,
+   "ussKiB": 91212,
+   "count": 1,
+   "t": 17.05
+  },
+  {
+   "pssKiB": 91446,
+   "rssKiB": 95684,
+   "ussKiB": 91212,
+   "count": 1,
+   "t": 19.08
+  },
+  {
+   "pssKiB": 91446,
+   "rssKiB": 95684,
+   "ussKiB": 91212,
+   "count": 1,
+   "t": 21.12
+  },
+  {
+   "pssKiB": 91446,
+   "rssKiB": 95684,
+   "ussKiB": 91212,
+   "count": 1,
+   "t": 23.15
+  },
+  {
+   "pssKiB": 91446,
+   "rssKiB": 95684,
+   "ussKiB": 91212,
+   "count": 1,
+   "t": 25.19
+  },
+  {
+   "pssKiB": 91446,
+   "rssKiB": 95684,
+   "ussKiB": 91212,
+   "count": 1,
+   "t": 27.23
+  },
+  {
+   "pssKiB": 91446,
+   "rssKiB": 95684,
+   "ussKiB": 91212,
+   "count": 1,
+   "t": 29.26
+  },
+  {
+   "pssKiB": 91446,
+   "rssKiB": 95684,
+   "ussKiB": 91212,
+   "count": 1,
+   "t": 31.3
+  },
+  {
+   "pssKiB": 91446,
+   "rssKiB": 95684,
+   "ussKiB": 91212,
+   "count": 1,
+   "t": 33.34
+  },
+  {
+   "pssKiB": 91318,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 35.37
+  },
+  {
+   "pssKiB": 91318,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 37.41
+  },
+  {
+   "pssKiB": 91318,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 39.45
+  },
+  {
+   "pssKiB": 91318,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 41.49
+  },
+  {
+   "pssKiB": 91318,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 43.52
+  },
+  {
+   "pssKiB": 91318,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 45.56
+  },
+  {
+   "pssKiB": 91318,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 47.59
+  },
+  {
+   "pssKiB": 91318,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 49.62
+  },
+  {
+   "pssKiB": 91318,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 51.66
+  },
+  {
+   "pssKiB": 91318,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 53.7
+  },
+  {
+   "pssKiB": 91318,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 55.73
+  },
+  {
+   "pssKiB": 91318,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 57.77
+  },
+  {
+   "pssKiB": 91318,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 59.81
+  },
+  {
+   "pssKiB": 91371,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 61.85
+  },
+  {
+   "pssKiB": 91371,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 63.88
+  },
+  {
+   "pssKiB": 91371,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 65.92
+  },
+  {
+   "pssKiB": 91371,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 67.95
+  },
+  {
+   "pssKiB": 91371,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 69.99
+  },
+  {
+   "pssKiB": 91319,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 72.03
+  },
+  {
+   "pssKiB": 91370,
+   "rssKiB": 95556,
+   "ussKiB": 91084,
+   "count": 1,
+   "t": 74.07
+  }
+ ]
+}

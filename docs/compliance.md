@@ -46,3 +46,12 @@ Header of `https://js-cdn.music.apple.com/musickit/v3/musickit.js` (ETag `"a62a1
  * https://js-cdn.music.apple.com/musickit/v1/acknowledgements.txt
  */
 ```
+
+## Interpretation log
+
+- **2026-10-09, runtime JS layer (Norm's reading; Nate may override).** The web interfaces (media element, MSE, EME, fetch, events) may be written partly in JavaScript on top of native Rust ops, the way Deno implements web APIs and the way browsers implement some built-ins. This counts as host objects under rule 2 only if all of the following hold:
+  - The layer is the runtime's own bootstrap, loaded before any page script, in its own script unit.
+  - It never shares a file or source string with musickit.js.
+  - It never references MusicKit internals.
+  - It behaves like the standard interface, not a MusicKit-specific patch.
+  - Concatenating it with musickit.js or reaching into MusicKit's objects is still forbidden.

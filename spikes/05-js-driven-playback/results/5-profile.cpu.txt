@@ -1,0 +1,2 @@
+cpu_percent_one_core=2.56
+threads=2
