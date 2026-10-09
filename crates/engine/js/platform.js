@@ -17,6 +17,9 @@
     OP.print("error", msg.slice(0, 2000));
   }
   const now = () => OP.now();
+  const ORIGIN = "app://bramley";
+  const LOCATION_HREF = ORIGIN + "/index.html";
+  const USER_AGENT = OP.user_agent();
 
   G.window = G;
   G.self = G;
@@ -359,15 +362,14 @@
     _sync() { const s = this._sp.toString(); this.search = s ? "?" + s : ""; }
     toString() { return this.href; }
     toJSON() { return this.href; }
-    static createObjectURL(obj) { hc("URL.createObjectURL"); const u = "blob:app://engine/" + (blobSeq++); blobRegistry.set(u, obj); return u; }
+    static createObjectURL(obj) { hc("URL.createObjectURL"); const u = "blob:" + ORIGIN + "/" + (blobSeq++); blobRegistry.set(u, obj); return u; }
     static revokeObjectURL(u) { hc("URL.revokeObjectURL"); blobRegistry.delete(u); }
     static canParse(u, b) { try { new URL(u, b); return true; } catch (e) { return false; } }
   }
   G.URL = URL;
 
-  const LOCATION_HREF = "app://engine/index.html";
   G.location = {
-    get href() { return LOCATION_HREF; }, protocol: "app:", host: "engine", hostname: "engine", port: "", pathname: "/index.html", search: "", hash: "", origin: "app://engine",
+    get href() { return LOCATION_HREF; }, protocol: "app:", host: "bramley", hostname: "bramley", port: "", pathname: "/index.html", search: "", hash: "", origin: ORIGIN,
     assign() {}, replace() {}, reload() {}, toString() { return LOCATION_HREF; }
   };
 
@@ -406,16 +408,22 @@
     get parentElement() { return this.parentNode instanceof Element ? this.parentNode : null; }
     get ownerDocument() { return document; }
     get isConnected() { let n = this; while (n) { if (n === document) return true; n = n.parentNode; } return false; }
-    appendChild(c) { hc("Node.appendChild"); if (c.parentNode) c.parentNode.removeChild(c); this.childNodes.push(c); c.parentNode = this; if (c.isConnected) connected(c); return c; }
-    insertBefore(c, ref) { if (!ref) return this.appendChild(c); if (c.parentNode) c.parentNode.removeChild(c); const i = this.childNodes.indexOf(ref); this.childNodes.splice(i < 0 ? this.childNodes.length : i, 0, c); c.parentNode = this; if (c.isConnected) connected(c); return c; }
+    appendChild(c) { hc("Node.appendChild"); if (c instanceof DocumentFragment) { for (const k of c.childNodes.slice()) this.appendChild(k); return c; } if (c.parentNode) c.parentNode.removeChild(c); this.childNodes.push(c); c.parentNode = this; if (c.isConnected) connected(c); return c; }
+    insertBefore(c, ref) { if (!ref || c instanceof DocumentFragment) return this.appendChild(c); if (c.parentNode) c.parentNode.removeChild(c); const i = this.childNodes.indexOf(ref); this.childNodes.splice(i < 0 ? this.childNodes.length : i, 0, c); c.parentNode = this; if (c.isConnected) connected(c); return c; }
     removeChild(c) { const i = this.childNodes.indexOf(c); if (i >= 0) this.childNodes.splice(i, 1); c.parentNode = null; return c; }
     remove() { if (this.parentNode) this.parentNode.removeChild(this); }
     contains(n) { while (n) { if (n === this) return true; n = n.parentNode; } return false; }
     get textContent() { return this._text || this.childNodes.map(c => c.textContent || "").join(""); }
     set textContent(v) { this._text = String(v); this.childNodes = []; }
   }
-  Node.ELEMENT_NODE = 1; Node.TEXT_NODE = 3; Node.DOCUMENT_NODE = 9;
+  Node.ELEMENT_NODE = 1; Node.TEXT_NODE = 3; Node.DOCUMENT_NODE = 9; Node.DOCUMENT_FRAGMENT_NODE = 11;
   G.Node = Node;
+  class DocumentFragment extends Node {
+    get nodeType() { return 11; }
+    querySelector(sel) { const o = []; walk(this, o, sel, true); return o[0] || null; }
+    querySelectorAll(sel) { const o = []; walk(this, o, sel, false); return o; }
+  }
+  G.DocumentFragment = DocumentFragment;
   function matches(el, sel) {
     sel = sel.trim();
     const m = /^([a-zA-Z0-9-]*|\*)?(?:#([\w-]+))?((?:\.[\w-]+)*)((?:\[[^\]]+\])*)$/.exec(sel);
@@ -569,9 +577,19 @@
       this.disableRemotePlayback = false;
       this.preservesPitch = true;
     }
-    _native() { if (!this._id) { this._id = OP.media_create(); mediaById.set(this._id, new WeakRef(this)); nativeReaper.register(this, ["media", this._id]); OP.media_set_loop(this._id, this._loop); } return this._id; }
+    _native() {
+      if (!this._id) {
+        this._id = OP.media_create();
+        mediaById.set(this._id, new WeakRef(this));
+        nativeReaper.register(this, ["media", this._id]);
+        OP.media_set_loop(this._id, this._loop);
+        if (this._muted || this._volume !== 1) this._applyGain();
+        if (this._mediaKeys) OP.media_set_keys(this._id, this._mediaKeys._id);
+      }
+      return this._id;
+    }
     _settlePlay(err) { const ps = this._playPromises; this._playPromises = []; for (const p of ps) err ? p.rej(err) : p.res(); }
-    _applyGain() { OP.media_set_gain(this._native(), this._muted ? 0 : this._volume); }
+    _applyGain() { if (this._id) OP.media_set_gain(this._id, this._muted ? 0 : this._volume); }
     _refresh() { if (this._id) { try { Object.assign(this._st, JSON.parse(OP.media_state(this._id))); } catch (e) {} } return this._st; }
     get src() { return this._src; }
     set src(v) { hc("HTMLMediaElement.src="); this._src = String(v); this.setAttribute("src", this._src); this._loadResource(); }
@@ -580,7 +598,7 @@
     load() { hc("HTMLMediaElement.load"); this._loadResource(); }
     _loadResource() {
       this._loadGen++;
-      OP.media_detach(this._native());
+      if (this._id) OP.media_detach(this._id);
       if (this._ms) { const old = this._ms; this._ms = null; old._detach(); }
       const hadData = this._st.readyState > 0;
       this._error = null;
@@ -598,6 +616,8 @@
         OP.media_attach(this._native(), obj._id);
         obj._attach(this);
       } else {
+        const u = parseUrl(src);
+        hc("HTMLMediaElement.unsupportedSrc:" + (u ? u.protocol + "//" + u.hostname : "?"));
         this._error = new MediaError(4, "Only MediaSource object URLs are supported in this runtime");
         queueTask(() => fire(this, "error"));
       }
@@ -611,7 +631,7 @@
       t = Math.max(0, isFinite(d) ? Math.min(t, d) : t);
       this._st.currentTime = t;
       if (this._refresh().readyState > 0) this._st.seeking = true;
-      OP.media_seek(this._native(), t);
+      if (this._id) OP.media_seek(this._id, t);
     }
     fastSeek(t) { this.currentTime = t; }
     get duration() { return this._ms ? this._ms._duration : NaN; }
@@ -648,7 +668,7 @@
     get audioTracks() { return undefined; }
     get videoTracks() { return undefined; }
     addTextTrack(kind, label, lang) { hc("HTMLMediaElement.addTextTrack"); const t = new TextTrack(kind, label, lang); this._textTracks._t.push(t); queueTask(() => dispatch(this._textTracks, Object.assign(new Event("addtrack"), { track: t }))); return t; }
-    canPlayType(t) { hc("HTMLMediaElement.canPlayType"); return mimeSupported(String(t)) ? "probably" : ""; }
+    canPlayType(t) { hc("HTMLMediaElement.canPlayType:" + String(t).slice(0, 80)); return mimeSupported(String(t)) ? "probably" : ""; }
     play() {
       hc("HTMLMediaElement.play");
       if (this._error && this._error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) return Promise.reject(new DOMException("The element has no supported sources.", "NotSupportedError"));
@@ -677,7 +697,7 @@
       return new Promise((res, rej) => {
         if (mk && !(mk instanceof MediaKeys)) { rej(new TypeError("not MediaKeys")); return; }
         this._mediaKeys = mk || null;
-        OP.media_set_keys(this._native(), mk ? mk._id : 0);
+        if (this._id) OP.media_set_keys(this._id, mk ? mk._id : 0);
         queueTask(res);
       });
     }
@@ -1098,7 +1118,12 @@
 
   const httpPending = new Map();
   let httpSeq = 1;
-  const xhrStats = { opened: 0, completed: 0, errors: 0, posts: 0, statuses: {} };
+  const xhrStats = { opened: 0, completed: 0, errors: 0, posts: 0, statuses: {}, endpoints: {} };
+  function noteEndpoint(method, url) {
+    const u = parseUrl(url);
+    const key = method + " " + (u ? u.protocol + "//" + u.hostname + u.pathname.replace(/[^/]{40,}/g, "…") : "?");
+    if (key in xhrStats.endpoints || Object.keys(xhrStats.endpoints).length < 100) xhrStats.endpoints[key] = (xhrStats.endpoints[key] || 0) + 1;
+  }
   function dataUrl(url) {
     const m = /^data:([^,]*?)(;base64)?,(.*)$/s.exec(url);
     if (!m) return null;
@@ -1189,6 +1214,7 @@
       if (req.signal) req.signal.addEventListener("abort", () => { if (httpPending.has(id)) { httpPending.delete(id); OP.http_abort(id); rej(req.signal.reason); } });
       const headers = []; req.headers.forEach((v, k) => headers.push([k, v]));
       xhrStats.opened++;
+      noteEndpoint(req.method, req.url);
       const d = dataUrl(req.url);
       if (d) { hc("fetch:data-url"); queueTask(() => dispatchHttp(id, JSON.stringify(d.meta), d.body)); return; }
       OP.http(id, req.method, req.url, JSON.stringify(headers), req._body == null ? undefined : toAB(req._body), 0);
@@ -1213,6 +1239,7 @@
       const id = this._id = httpSeq++;
       httpPending.set(id, { kind: "xhr", xhr: this });
       xhrStats.opened++;
+      noteEndpoint(this._method, this._url);
       if (this._method === "POST") xhrStats.posts++;
       if (this.timeout > 0) this._timer = setTimeoutImpl(() => { if (httpPending.has(id)) { httpPending.delete(id); OP.http_abort(id); this.readyState = 4; fire(this, "readystatechange"); dispatch(this, new ProgressEvent("timeout")); dispatch(this, new ProgressEvent("loadend")); } }, this.timeout, [], false);
       const d = dataUrl(this._url);
@@ -1277,8 +1304,8 @@
   }
 
   G.navigator = {
-    userAgent: "engine/0.1 (X11; Linux x86_64) QuickJS",
-    appName: "engine", appVersion: "0.1", vendor: "", platform: "Linux x86_64", product: "engine",
+    userAgent: USER_AGENT,
+    appName: "Bramley", appVersion: USER_AGENT.slice(USER_AGENT.indexOf("/") + 1), vendor: "", platform: "Linux x86_64", product: "Bramley",
     language: "en-US", languages: ["en-US", "en"], onLine: true, cookieEnabled: false, hardwareConcurrency: 4, maxTouchPoints: 0,
     requestMediaKeySystemAccess(keySystem, configs) {
       hc("navigator.requestMediaKeySystemAccess");
@@ -1326,6 +1353,7 @@
       }
     }
     createElementNS(ns, tag) { return this.createElement(tag); }
+    createDocumentFragment() { hc("document.createDocumentFragment"); return new DocumentFragment(); }
     createTextNode(t) { const n = new Node(); n._text = String(t); return n; }
     createEvent(type) { return new Event(""); }
     querySelector(sel) { hc("document.querySelector"); return this._html.querySelector(sel); }
@@ -1351,11 +1379,30 @@
   G.matchMedia = function (q) { return { matches: false, media: q, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} }; };
   G.getComputedStyle = function () { return {}; };
   G.isSecureContext = true;
-  G.origin = "app://engine";
+  G.origin = ORIGIN;
   G.name = "";
 
+  const unknown = Object.create(null);
+  let unknownKeys = 0;
+  const IGNORED_MISSES = new Set(["then", "toJSON", "constructor"]);
+  function missLogger(owner) {
+    const note = (t, k, r) => {
+      if (typeof k !== "string" || IGNORED_MISSES.has(k) || Reflect.has(t, k)) return;
+      const name = (typeof owner === "string" ? owner : (r && r.constructor && r.constructor.name) || "?") + "." + k;
+      if (name in unknown) unknown[name]++;
+      else if (unknownKeys < 400) { unknownKeys++; unknown[name] = 1; }
+    };
+    return new Proxy(Object.prototype, {
+      get(t, k, r) { note(t, k, r); return Reflect.get(t, k, r); },
+      has(t, k) { note(t, k, null); return Reflect.has(t, k); },
+    });
+  }
+  Object.setPrototypeOf(G, missLogger("window"));
+  Object.setPrototypeOf(G.navigator, missLogger("navigator"));
+  Object.setPrototypeOf(EventTarget.prototype, missLogger(null));
+
   function statusJson() {
-    return JSON.stringify({ hostCalls, uncaught, eme, xhr: xhrStats, pendingHttp: httpPending.size, timers: timers.size, tasks: tasks.length });
+    return JSON.stringify({ hostCalls, unknown, uncaught, eme, xhr: xhrStats, pendingHttp: httpPending.size, timers: timers.size, tasks: tasks.length });
   }
 
   Object.defineProperty(G, "__platform", { value: { runTimers, dispatchHttp, dispatchScript, dispatchCdm, dispatchMedia, statusJson }, enumerable: false });

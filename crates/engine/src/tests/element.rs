@@ -367,3 +367,78 @@ fn source_buffer_setters_follow_mse_validation_and_the_window_filters_appends() 
         ]
     );
 }
+
+#[test]
+fn media_elements_get_a_native_player_only_once_a_source_attaches() {
+    let (mut e, sink) = engine();
+    run(
+        &mut e,
+        &sink,
+        &script(
+            r#"
+            globalThis.pool = [];
+            for (let i = 0; i < 50; i++) { const el = document.createElement(i % 2 ? "video" : "audio"); el.load(); el.volume = 0.5; pool.push(el); }
+            L("no-native");
+        "#,
+        ),
+    );
+    assert_eq!(e.status()["live"]["medias"], 0);
+    run(
+        &mut e,
+        &sink,
+        r#"
+        const ms = new MediaSource();
+        pool[0].src = URL.createObjectURL(ms);
+        await new Promise(r => ms.addEventListener("sourceopen", r, { once: true }));
+        L("attached");
+    "#,
+    );
+    assert_eq!(e.status()["live"]["medias"], 1);
+    assert_eq!(e.status()["opCounts"]["media_set_gain"], 1);
+}
+
+#[test]
+fn unknown_globals_and_host_properties_are_logged() {
+    let (mut e, sink) = engine();
+    run(
+        &mut e,
+        &sink,
+        r#"
+        L(typeof NoSuchGlobal + typeof window.AlsoMissing + ("inProbe" in window));
+        L(String(navigator.noSuchProp) + document.createElement("audio").webkitNoSuch + typeof document.body.appendChild);
+    "#,
+    );
+    let unknown = &e.status()["platform"]["unknown"];
+    for key in [
+        "window.NoSuchGlobal",
+        "window.AlsoMissing",
+        "window.inProbe",
+        "navigator.noSuchProp",
+        "HTMLAudioElement.webkitNoSuch",
+    ] {
+        assert_eq!(unknown[key], 1, "{key}: {unknown}");
+    }
+    assert!(
+        unknown.get("HTMLBodyElement.appendChild").is_none(),
+        "{unknown}"
+    );
+}
+
+#[test]
+fn appending_a_document_fragment_moves_its_children() {
+    let (mut e, sink) = engine();
+    let log = run(
+        &mut e,
+        &sink,
+        r#"
+        const f = document.createDocumentFragment();
+        const d = document.createElement("div");
+        d.id = "mk-dialog";
+        f.appendChild(d);
+        f.appendChild(document.createElement("div"));
+        document.body.appendChild(f);
+        L(f.childNodes.length + ":" + document.body.childNodes.length + ":" + (document.querySelector('#mk-dialog') === d) + ":" + f.nodeType);
+    "#,
+    );
+    assert_eq!(log, ["0:2:true:11"]);
+}

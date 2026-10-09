@@ -41,6 +41,8 @@ struct Native {
     script_log: Vec<J>,
     http_count: u64,
     http_bytes: u64,
+    redact: Vec<String>,
+    truncate_scripts: bool,
 }
 
 impl Native {
@@ -128,9 +130,11 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
     op!("__op_now", move || -> f64 {
         s.borrow().start.elapsed().as_secs_f64() * 1000.0
     });
+    let s = n.clone();
     op!("__op_print", move |level: String, msg: String| {
-        eprintln!("JS[{level}] {msg}");
+        eprintln!("JS[{level}] {}", crate::redact(&msg, &s.borrow().redact));
     });
+    op!("__op_user_agent", crate::user_agent);
     op!("__op_random", move |ctx: Ctx<'js>,
                              len: u32|
           -> rquickjs::Result<
@@ -470,6 +474,11 @@ fn buffer_or_null<'js>(ctx: &Ctx<'js>, body: Option<Vec<u8>>) -> Value<'js> {
         .unwrap_or_else(|| Value::new_null(ctx.clone()))
 }
 
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    mp4::hex(&Sha256::digest(bytes))
+}
+
 fn handle_completion(ctx: &Ctx, n: &N, c: Completion) {
     match c {
         Completion::Http(r) => {
@@ -489,26 +498,34 @@ fn handle_completion(ctx: &Ctx, n: &N, c: Completion) {
             );
         }
         Completion::Script { id, url, result } => {
-            let outcome = result.and_then(|bytes| {
-                let len = bytes.len();
+            let mut entry = json!({"id": id, "url": url});
+            let outcome = result.and_then(|mut bytes| {
+                entry["fetchedBytes"] = json!(bytes.len());
+                entry["fetchedSha256"] = json!(sha256_hex(&bytes));
+                if n.borrow().truncate_scripts {
+                    bytes.truncate(bytes.len() / 2);
+                }
+                entry["evaluatedBytes"] = json!(bytes.len());
+                entry["evaluatedSha256"] = json!(sha256_hex(&bytes));
                 let t = Instant::now();
                 ctx.eval_with_options::<(), _>(bytes, opts(&url))
                     .catch(ctx)
-                    .map(|_| (len, t.elapsed()))
+                    .map(|_| t.elapsed())
                     .map_err(|e| e.to_string())
             });
             let (ok, err) = match outcome {
-                Ok((len, took)) => {
-                    n.borrow_mut().script_log.push(json!({"id": id, "url": url, "phase": "evaluated", "bytes": len, "evalMs": took.as_secs_f64() * 1000.0}));
+                Ok(took) => {
+                    entry["phase"] = json!("evaluated");
+                    entry["evalMs"] = json!(took.as_secs_f64() * 1000.0);
                     (true, String::new())
                 }
                 Err(e) => {
-                    n.borrow_mut()
-                        .script_log
-                        .push(json!({"id": id, "url": url, "phase": "error", "error": e}));
+                    entry["phase"] = json!("error");
+                    entry["error"] = json!(e);
                     (false, e)
                 }
             };
+            n.borrow_mut().script_log.push(entry);
             call(ctx, "__platform", "dispatchScript", (id, ok, err));
         }
     }
@@ -559,6 +576,8 @@ impl Engine {
             cdm_path,
             audio_sink_name,
             output_device,
+            redact,
+            truncate_scripts,
         } = config;
         let cdm: CdmFactory = Box::new(move |persistent| Widevine::create(&cdm_path, persistent));
         let sink: SinkFactory = Rc::new(move || {
@@ -567,7 +586,13 @@ impl Engine {
                 output_device.clone(),
             )) as Box<dyn AudioSink>
         });
-        Engine::with_backends(cdm, sink)
+        let engine = Engine::with_backends(cdm, sink)?;
+        {
+            let mut st = engine.n.borrow_mut();
+            st.redact = redact;
+            st.truncate_scripts = truncate_scripts;
+        }
+        Ok(engine)
     }
 
     pub(crate) fn with_backends(
@@ -592,6 +617,8 @@ impl Engine {
             script_log: Vec::new(),
             http_count: 0,
             http_bytes: 0,
+            redact: Vec::new(),
+            truncate_scripts: false,
         }));
         let rt = Runtime::new()?;
         rt.set_max_stack_size(4 * 1024 * 1024);

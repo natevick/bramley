@@ -117,6 +117,7 @@ fn perform(req: &HttpRequest) -> HttpResponse {
     };
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
+        .user_agent(crate::user_agent())
         .timeout_global(Some(Duration::from_millis(req.timeout_ms.max(1000))))
         .build()
         .into();
