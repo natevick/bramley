@@ -61,7 +61,7 @@ The scenario now also passes `maxBufferLength` 10 s, so the track is still loadi
 
 ## Addendum, 2026-10-09: ten back-to-back tracks (review finding M6)
 
-Written before the first run. `cargo test -p engine --test playback ten_back_to_back -- --ignored` runs `engine-play --tracks 10 --track-seconds 12 --no-loop` into a private null sink. Each "track" is a fresh `Hls` instance on the same `<audio>` element: a new MediaSource and `src`, new SourceBuffers and new MediaKeys. The previous instance is destroyed while playing, at `currentTime` ≥ 12 s. At each track boundary the binary runs the JS GC and reads its own PSS from `/proc/self/smaps_rollup` (one process).
+Written before the first run. `cargo test -p engine --test playback ten_back_to_back -- --ignored` runs `engine-play --tracks 10 --track-seconds 20 --no-loop` (12 s in run 1; see the amendment) into a private null sink. Each "track" is a fresh `Hls` instance on the same `<audio>` element: a new MediaSource and `src`, new SourceBuffers and new MediaKeys. The previous instance is destroyed while playing, at `currentTime` ≥ the track length. At each track boundary the binary runs the JS GC and reads its own PSS from `/proc/self/smaps_rollup` (one process).
 
 - **Did-it-run (any failure means VOID):**
   - 10 track boundaries were recorded.
@@ -70,3 +70,5 @@ Written before the first run. `cargo test -p engine --test playback ten_back_to_
   - `cdm_create`, `ms_create` and `sb_add` each ran at least 10 times.
 - **PASS:** PSS at the end of track 10 minus PSS at the end of track 1 ≤ 8 MiB. Otherwise FAIL.
 - **Sabotage:** the same run on 344e38e (the head before the M6 fix), with only the binary's track mode and a `run_gc` seam ported, is expected to read FAIL. If it reads PASS, this check cannot see M6 and is reported as such.
+
+**Amendment after run 1 (VOID):** with 12 s tracks every track decrypted only 5.5–5.7 s, because Angel One opens with about 6.5 s of clear audio. Run 1 is VOID under the 9 s check above and stays on record. The track length moves to 20 s. No threshold moved.
