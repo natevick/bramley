@@ -9,3 +9,10 @@ spikes/*/results/*.raw
 spikes/*/results/*.log
 spikes/*/syslibs/
 spikes/*/research/
+scratch/
+*.key
+*.pem
+*.secret
+__pycache__/
+.DS_Store
+*.log
