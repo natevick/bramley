@@ -36,7 +36,9 @@
       drmSystems: { "com.widevine.alpha": { licenseUrl: C.licenseUrl } },
       debug: C.hlsDebug ? { log: (...a) => console.log(...a), info: (...a) => console.info(...a), warn: (...a) => console.warn(...a), error: (...a) => console.error(...a), debug: (...a) => console.debug(...a), trace: () => {} } : false,
       startPosition: 0,
-      backBufferLength: C.backBufferLength === null ? Infinity : C.backBufferLength
+      backBufferLength: C.backBufferLength === null ? Infinity : C.backBufferLength,
+      maxBufferLength: C.maxBufferLength === null ? 30 : C.maxBufferLength,
+      maxBufferSize: C.maxBufferLength === null ? 60e6 : 0
     });
     const E = Hls.Events;
     for (const k of ["MEDIA_ATTACHED", "MANIFEST_LOADED", "MANIFEST_PARSED", "LEVEL_LOADED", "KEY_LOADING", "KEY_LOADED", "FRAG_LOADED", "FRAG_DECRYPTED", "FRAG_PARSED", "FRAG_BUFFERED", "BUFFER_CREATED", "BUFFER_APPENDED", "BUFFER_EOS", "BUFFER_FLUSHED", "BACK_BUFFER_REACHED"]) {

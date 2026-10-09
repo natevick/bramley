@@ -27,6 +27,7 @@ ran = {
     'defaultSinkUnchanged': before == after,
     'decryptedOver20s': med.get('decodedDecryptedSeconds', 0) > 20,
     'pssSampled': len(samples) > 0 and m.get('exitedEarly') is None,
+    'sourceBufferRemoveRan': (st.get('opCounts') or {}).get('sb_remove', 0) >= 1,
 }
 measured, checks = {}, {}
 if all(ran.values()):

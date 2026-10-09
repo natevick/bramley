@@ -18,6 +18,7 @@ struct Args {
     hls_debug: bool,
     audio_master_codecs: String,
     back_buffer: Option<f64>,
+    max_buffer: Option<f64>,
     scenario: Option<String>,
     skip_pause: bool,
 }
@@ -34,6 +35,7 @@ fn parse_args() -> Result<Args> {
         hls_debug: false,
         audio_master_codecs: "mp4a.40.2".into(),
         back_buffer: None,
+        max_buffer: None,
         scenario: None,
         skip_pause: false,
     };
@@ -52,6 +54,7 @@ fn parse_args() -> Result<Args> {
             "--max-seconds" => a.max_seconds = value()?.parse()?,
             "--audio-master-codecs" => a.audio_master_codecs = value()?,
             "--back-buffer" => a.back_buffer = Some(value()?.parse()?),
+            "--max-buffer" => a.max_buffer = Some(value()?.parse()?),
             "--scenario" => a.scenario = Some(value()?),
             "--scenario-skip-pause" => a.skip_pause = true,
             "--no-loop" => a.looping = false,
@@ -147,7 +150,7 @@ fn main() -> Result<()> {
     println!("PID {}", std::process::id());
     let config = json!({
         "manifest": args.manifest, "licenseUrl": args.license, "hlsUrl": args.hls_url, "loop": args.looping && scenario.is_none(), "hlsDebug": args.hls_debug,
-        "backBufferLength": args.back_buffer, "audioMasterCodecs": Some(&args.audio_master_codecs).filter(|c| !c.is_empty()),
+        "backBufferLength": args.back_buffer, "maxBufferLength": args.max_buffer, "audioMasterCodecs": Some(&args.audio_master_codecs).filter(|c| !c.is_empty()),
     });
     let mut engine = Engine::new(args.config.clone())?;
     engine.eval_script("config.js", &format!("globalThis.__play_config = {config};"))?;

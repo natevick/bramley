@@ -13,7 +13,7 @@ mkdir -p "$RESULTS" "$TMPDIR"
 (cd "$ROOT" && cargo build --release --quiet -p engine --bin engine-play)
 if [ -n "$SCENARIO" ]; then
   WARMUP="${WARMUP:-5}"; SAMPLE="${SAMPLE:-115}"
-  set -- --scenario "$SCENARIO" --no-loop --back-buffer 10 "$@"
+  set -- --scenario "$SCENARIO" --no-loop --back-buffer 10 --max-buffer 10 "$@"
   VERDICT="$ROOT/scripts/playback/scenario_verdict.py"
 else
   WARMUP="${WARMUP:-15}"; SAMPLE="${SAMPLE:-60}"

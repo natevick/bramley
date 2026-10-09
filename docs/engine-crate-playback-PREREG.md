@@ -52,3 +52,9 @@ At each step the engine-play binary records, on the same thread and in the same 
 - A matching output position at `seeked-to-40` is meaningless, because nothing has been rendered while paused. That is why check 1 skips it.
 
 **Sabotage:** `--scenario-skip-pause` records the steps but never calls `pause()`. It must read FAIL, because check 2 trips. It must not read VOID.
+
+## Addendum, 2026-10-09, after the first scenario run (`scen1`)
+
+`scen1` read PASS, but `SourceBuffer.remove()` never ran. hls.js fired `BACK_BUFFER_REACHED` seven times, but it refuses to flush the back buffer once the track's SourceBuffer is in the ended state. The 60 s stream was fully buffered by about 15 s, with the default `maxBufferLength` of 30 s.
+
+The scenario now also passes `maxBufferLength` 10 s, so the track is still loading while the back buffer fills. That flag also sets `maxBufferSize` to 0, because hls.js takes the larger of `maxBufferLength` and 8 × `maxBufferSize` / bitrate. At 140 kbps the default size would allow about an hour of buffer. `scen2` showed this: it set only the length, and remove() still did not run (VOID under the new check). A new did-it-run check requires at least one `sb_remove` op. No threshold moved. `scen1` stays on record as a PASS that did not exercise eviction.
