@@ -1,0 +1,72 @@
+{
+ "name": "sabotage-v8",
+ "engine": "v8",
+ "mode": "plain",
+ "cmd": [
+  "/home/norm/projects/Personal/apple-music-client/spikes/04-js-engine/v8/target/release/spike-v8",
+  "--musickit",
+  "/home/norm/projects/Personal/apple-music-client/spikes/04-js-engine/../02-musickit-surface/vendor-cache/musickit.js",
+  "--mode",
+  "plain",
+  "--hold",
+  "34",
+  "--max-wait",
+  "20",
+  "--truncate",
+  "0.5"
+ ],
+ "musickitSha256": "21908b72bdcdeea3ec91fa40b105d0b9a2ba07c2a3fe32ea77edcd26e735012c",
+ "binaryBytes": 50064456,
+ "verdict": "VOID",
+ "checks": {
+  "mkDefined": false,
+  "configureReached": false,
+  "pointSeen": false,
+  "samplesOk": false
+ },
+ "mk": {
+  "definedAtMs": 19,
+  "typeofMusicKit": "undefined",
+  "version": null,
+  "keys": 0
+ },
+ "timing": {
+  "engineInitMs": 9.54,
+  "preludeMs": 0.93,
+  "mkEvalMs": 7.76,
+  "mkDefinedSinceStartMs": 18.7,
+  "mkEvalError": "Uncaught SyntaxError: Invalid or unexpected token\n    at musickit.js:28:178938"
+ },
+ "point": null,
+ "configure": "not-reached",
+ "apiProbe": null,
+ "refCheck": "ReferenceError",
+ "fetches": [],
+ "scriptLoads": [],
+ "errors": [],
+ "consoleLines": [],
+ "engineOwnHostGlobals": [
+  "console",
+  "queueMicrotask",
+  "Deno",
+  "__bootstrap"
+ ],
+ "summary": {
+  "pssMedMiB": null,
+  "pssMaxMiB": null,
+  "rssMedMiB": null,
+  "rssMaxMiB": null,
+  "ussMedMiB": null,
+  "ussMaxMiB": null,
+  "procs": null,
+  "threads": null,
+  "samples": 0
+ },
+ "samplesRaw": [],
+ "touched": [],
+ "storageKeys": [],
+ "createdTags": [],
+ "unparsedLines": [
+  "NOPOINT"
+ ]
+}

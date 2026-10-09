@@ -1,0 +1,673 @@
+{
+ "name": "v8-logged",
+ "engine": "v8",
+ "mode": "logged",
+ "cmd": [
+  "/home/norm/projects/Personal/apple-music-client/spikes/04-js-engine/v8/target/release/spike-v8",
+  "--musickit",
+  "/home/norm/projects/Personal/apple-music-client/spikes/04-js-engine/../02-musickit-surface/vendor-cache/musickit.js",
+  "--mode",
+  "logged",
+  "--hold",
+  "34",
+  "--max-wait",
+  "20"
+ ],
+ "musickitSha256": "21908b72bdcdeea3ec91fa40b105d0b9a2ba07c2a3fe32ea77edcd26e735012c",
+ "binaryBytes": 50064456,
+ "verdict": "PASS",
+ "checks": {
+  "mkDefined": true,
+  "configureReached": true,
+  "pointSeen": true,
+  "samplesOk": true
+ },
+ "mk": {
+  "definedAtMs": 54,
+  "typeofMusicKit": "object",
+  "version": "3.2526.0-prerelease.x",
+  "keys": 28
+ },
+ "timing": {
+  "engineInitMs": 9.94,
+  "preludeMs": 0.96,
+  "mkEvalMs": 42.79,
+  "mkDefinedSinceStartMs": 65.1,
+  "mkEvalError": null
+ },
+ "point": {
+  "why": "configure-resolved",
+  "at": 64
+ },
+ "configure": "resolved",
+ "apiProbe": "rejected: TypeError: spike: network disabled",
+ "refCheck": "ReferenceError",
+ "fetches": [
+  {
+   "at": 65,
+   "method": "GET",
+   "url": "https://api.music.apple.com/v1/catalog/us/songs/1440833098",
+   "headerNames": [
+    "authorization"
+   ]
+  }
+ ],
+ "scriptLoads": [],
+ "errors": [],
+ "consoleLines": [],
+ "engineOwnHostGlobals": [
+  "console",
+  "queueMicrotask",
+  "Deno",
+  "__bootstrap"
+ ],
+ "summary": {
+  "pssMedMiB": 32.7,
+  "pssMaxMiB": 33.5,
+  "rssMedMiB": 35.3,
+  "rssMaxMiB": 36.0,
+  "ussMedMiB": 32.7,
+  "ussMaxMiB": 33.5,
+  "procs": 1,
+  "threads": 5,
+  "samples": 15
+ },
+ "samplesRaw": [
+  {
+   "pssKb": 32400,
+   "rssKb": 35016,
+   "ussKb": 32380,
+   "procs": 1,
+   "threads": 5
+  },
+  {
+   "pssKb": 32472,
+   "rssKb": 35088,
+   "ussKb": 32452,
+   "procs": 1,
+   "threads": 5
+  },
+  {
+   "pssKb": 32580,
+   "rssKb": 35196,
+   "ussKb": 32560,
+   "procs": 1,
+   "threads": 5
+  },
+  {
+   "pssKb": 33108,
+   "rssKb": 35724,
+   "ussKb": 33088,
+   "procs": 1,
+   "threads": 5
+  },
+  {
+   "pssKb": 33204,
+   "rssKb": 35820,
+   "ussKb": 33184,
+   "procs": 1,
+   "threads": 5
+  },
+  {
+   "pssKb": 33320,
+   "rssKb": 35936,
+   "ussKb": 33300,
+   "procs": 1,
+   "threads": 5
+  },
+  {
+   "pssKb": 33424,
+   "rssKb": 36040,
+   "ussKb": 33404,
+   "procs": 1,
+   "threads": 5
+  },
+  {
+   "pssKb": 33524,
+   "rssKb": 36140,
+   "ussKb": 33504,
+   "procs": 1,
+   "threads": 5
+  },
+  {
+   "pssKb": 33644,
+   "rssKb": 36260,
+   "ussKb": 33624,
+   "procs": 1,
+   "threads": 5
+  },
+  {
+   "pssKb": 33748,
+   "rssKb": 36364,
+   "ussKb": 33728,
+   "procs": 1,
+   "threads": 5
+  },
+  {
+   "pssKb": 33864,
+   "rssKb": 36480,
+   "ussKb": 33844,
+   "procs": 1,
+   "threads": 5
+  },
+  {
+   "pssKb": 33968,
+   "rssKb": 36584,
+   "ussKb": 33948,
+   "procs": 1,
+   "threads": 5
+  },
+  {
+   "pssKb": 34068,
+   "rssKb": 36684,
+   "ussKb": 34048,
+   "procs": 1,
+   "threads": 5
+  },
+  {
+   "pssKb": 34192,
+   "rssKb": 36808,
+   "ussKb": 34172,
+   "procs": 1,
+   "threads": 5
+  },
+  {
+   "pssKb": 34296,
+   "rssKb": 36912,
+   "ussKb": 34276,
+   "procs": 1,
+   "threads": 5
+  }
+ ],
+ "touched": [
+  {
+   "path": "global.exports",
+   "count": 1,
+   "kinds": {
+    "probe-missing": 1
+   }
+  },
+  {
+   "path": "global.define",
+   "count": 1,
+   "kinds": {
+    "probe-missing": 1
+   }
+  },
+  {
+   "path": "global.MusicKit",
+   "count": 17,
+   "kinds": {
+    "set": 1,
+    "has": 8,
+    "get": 8
+   }
+  },
+  {
+   "path": "global.self",
+   "count": 4,
+   "kinds": {
+    "has": 2,
+    "get": 2
+   }
+  },
+  {
+   "path": "global.FastBoot",
+   "count": 16,
+   "kinds": {
+    "probe-missing": 1,
+    "get-missing": 15
+   }
+  },
+  {
+   "path": "global.process",
+   "count": 20,
+   "kinds": {
+    "probe-missing": 2,
+    "get-missing": 18
+   }
+  },
+  {
+   "path": "global.window",
+   "count": 54,
+   "kinds": {
+    "has": 27,
+    "get": 27
+   }
+  },
+  {
+   "path": "global.Buffer",
+   "count": 1,
+   "kinds": {
+    "get-missing": 1
+   }
+  },
+  {
+   "path": "global.Headers",
+   "count": 7,
+   "kinds": {
+    "has": 3,
+    "get": 3,
+    "construct": 1
+   }
+  },
+  {
+   "path": "global.location",
+   "count": 26,
+   "kinds": {
+    "has": 12,
+    "get": 14
+   }
+  },
+  {
+   "path": "global.location.hostname",
+   "count": 9,
+   "kinds": {
+    "get": 9
+   }
+  },
+  {
+   "path": "global.localStorage",
+   "count": 60,
+   "kinds": {
+    "has": 30,
+    "get": 30
+   }
+  },
+  {
+   "path": "global.localStorage.getItem",
+   "count": 32,
+   "kinds": {
+    "get": 16,
+    "call": 16
+   }
+  },
+  {
+   "path": "global.Document",
+   "count": 4,
+   "kinds": {
+    "has": 2,
+    "get": 2
+   }
+  },
+  {
+   "path": "global.HTMLElement",
+   "count": 2,
+   "kinds": {
+    "has": 1,
+    "get": 1
+   }
+  },
+  {
+   "path": "global.document",
+   "count": 48,
+   "kinds": {
+    "has": 24,
+    "get": 24
+   }
+  },
+  {
+   "path": "global.document.mozHidden",
+   "count": 1,
+   "kinds": {
+    "get-missing": 1
+   }
+  },
+  {
+   "path": "global.document.msHidden",
+   "count": 1,
+   "kinds": {
+    "get-missing": 1
+   }
+  },
+  {
+   "path": "global.document.webkitHidden",
+   "count": 1,
+   "kinds": {
+    "get-missing": 1
+   }
+  },
+  {
+   "path": "global.onpagehide",
+   "count": 1,
+   "kinds": {
+    "probe-missing": 1
+   }
+  },
+  {
+   "path": "global.Event",
+   "count": 10,
+   "kinds": {
+    "has": 4,
+    "get": 4,
+    "construct": 2
+   }
+  },
+  {
+   "path": "global.VTTCue",
+   "count": 1,
+   "kinds": {
+    "get-missing": 1
+   }
+  },
+  {
+   "path": "global.VTTRegion",
+   "count": 1,
+   "kinds": {
+    "get-missing": 1
+   }
+  },
+  {
+   "path": "global.fetch",
+   "count": 14,
+   "kinds": {
+    "has": 6,
+    "get": 7,
+    "call": 1
+   }
+  },
+  {
+   "path": "global.fetch.bind",
+   "count": 6,
+   "kinds": {
+    "get": 3,
+    "call": 3
+   }
+  },
+  {
+   "path": "global.HlsUnresolvedUriData",
+   "count": 1,
+   "kinds": {
+    "probe-missing": 1
+   }
+  },
+  {
+   "path": "global.HlsDaterangeUpdatedData",
+   "count": 1,
+   "kinds": {
+    "probe-missing": 1
+   }
+  },
+  {
+   "path": "global.LicenseData",
+   "count": 1,
+   "kinds": {
+    "probe-missing": 1
+   }
+  },
+  {
+   "path": "global.document.querySelectorAll",
+   "count": 6,
+   "kinds": {
+    "get": 4,
+    "call": 2
+   }
+  },
+  {
+   "path": "global.ActivityIntention",
+   "count": 2,
+   "kinds": {
+    "probe-missing": 2
+   }
+  },
+  {
+   "path": "global.ActivityNotificationOptions",
+   "count": 1,
+   "kinds": {
+    "probe-missing": 1
+   }
+  },
+  {
+   "path": "global.document.querySelector",
+   "count": 2,
+   "kinds": {
+    "get": 1,
+    "call": 1
+   }
+  },
+  {
+   "path": "global.setTimeout",
+   "count": 6,
+   "kinds": {
+    "has": 2,
+    "get": 2,
+    "call": 2
+   }
+  },
+  {
+   "path": "global.document.head",
+   "count": 6,
+   "kinds": {
+    "get": 6
+   }
+  },
+  {
+   "path": "global.document.head.querySelector",
+   "count": 12,
+   "kinds": {
+    "get": 6,
+    "call": 6
+   }
+  },
+  {
+   "path": "global.document.readyState",
+   "count": 1,
+   "kinds": {
+    "get": 1
+   }
+  },
+  {
+   "path": "global.__definitely_missing_global__",
+   "count": 1,
+   "kinds": {
+    "probe-missing": 1
+   }
+  },
+  {
+   "path": "global.MusicKit.version",
+   "count": 1,
+   "kinds": {
+    "get": 1
+   }
+  },
+  {
+   "path": "global.MusicKit.configure",
+   "count": 3,
+   "kinds": {
+    "get": 2,
+    "call": 1
+   }
+  },
+  {
+   "path": "global.btoa",
+   "count": 6,
+   "kinds": {
+    "has": 2,
+    "get": 2,
+    "call": 2
+   }
+  },
+  {
+   "path": "global.navigator",
+   "count": 19,
+   "kinds": {
+    "get": 12,
+    "has": 7
+   }
+  },
+  {
+   "path": "global.navigator.userAgent",
+   "count": 5,
+   "kinds": {
+    "get": 5
+   }
+  },
+  {
+   "path": "global.document.createElement",
+   "count": 4,
+   "kinds": {
+    "get": 2,
+    "call": 2
+   }
+  },
+  {
+   "path": "element.video.webkitSupportsPresentationMode",
+   "count": 1,
+   "kinds": {
+    "get-missing": 1
+   }
+  },
+  {
+   "path": "global.document.pictureInPictureEnabled",
+   "count": 1,
+   "kinds": {
+    "get-missing": 1
+   }
+  },
+  {
+   "path": "global.ManagedSourceBuffer",
+   "count": 1,
+   "kinds": {
+    "get-missing": 1
+   }
+  },
+  {
+   "path": "global.ManagedMediaSource",
+   "count": 1,
+   "kinds": {
+    "get-missing": 1
+   }
+  },
+  {
+   "path": "global.MediaSource",
+   "count": 1,
+   "kinds": {
+    "get-missing": 1
+   }
+  },
+  {
+   "path": "global.navigator.requestMediaKeySystemAccess",
+   "count": 3,
+   "kinds": {
+    "get-missing": 3
+   }
+  },
+  {
+   "path": "global.WebKitMediaKeys",
+   "count": 2,
+   "kinds": {
+    "get-missing": 2
+   }
+  },
+  {
+   "path": "global.MSMediaKeys",
+   "count": 2,
+   "kinds": {
+    "get-missing": 2
+   }
+  },
+  {
+   "path": "global.navigator.mediaSession",
+   "count": 1,
+   "kinds": {
+    "get-missing": 1
+   }
+  },
+  {
+   "path": "global.navigator.connection",
+   "count": 1,
+   "kinds": {
+    "get-missing": 1
+   }
+  },
+  {
+   "path": "global.sessionStorage",
+   "count": 4,
+   "kinds": {
+    "has": 2,
+    "get": 2
+   }
+  },
+  {
+   "path": "global.document.cookie",
+   "count": 1,
+   "kinds": {
+    "get": 1
+   }
+  },
+  {
+   "path": "global.atob",
+   "count": 4,
+   "kinds": {
+    "get": 2,
+    "call": 2
+   }
+  },
+  {
+   "path": "global.name",
+   "count": 1,
+   "kinds": {
+    "get-missing": 1
+   }
+  },
+  {
+   "path": "global.localStorage.removeItem",
+   "count": 2,
+   "kinds": {
+    "get": 1,
+    "call": 1
+   }
+  },
+  {
+   "path": "global.location.hash",
+   "count": 1,
+   "kinds": {
+    "get": 1
+   }
+  },
+  {
+   "path": "global.navigator.platform",
+   "count": 1,
+   "kinds": {
+    "get": 1
+   }
+  },
+  {
+   "path": "global.URL",
+   "count": 8,
+   "kinds": {
+    "has": 4,
+    "get": 4
+   }
+  },
+  {
+   "path": "global.document.dispatchEvent",
+   "count": 4,
+   "kinds": {
+    "get": 2,
+    "call": 2
+   }
+  }
+ ],
+ "storageKeys": [
+  "get local mk-console-logging",
+  "get local mk-logging-levels",
+  "get local mk-mse-buffer",
+  "get local mk-hlsjs-item-preloading",
+  "get local mk-block-report-cdn-server",
+  "get local mk-hlsjs-version",
+  "get local mk-hlsjs-log-level",
+  "get local mk-hlsjs-live-radio",
+  "get local mk-hlsjs-song-playback",
+  "get local mk-bag-features-overrides",
+  "get local music.spikedummyteam.media-user-token",
+  "remove local music.spikedummyteam.media-user-token",
+  "get local music.spikedummyteam.itua",
+  "get local mk-use-paf-qa-endpoint"
+ ],
+ "createdTags": [
+  "video",
+  "video"
+ ],
+ "unparsedLines": []
+}

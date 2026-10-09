@@ -1,0 +1,203 @@
+{
+ "name": "quickjs-plain",
+ "engine": "quickjs",
+ "mode": "plain",
+ "cmd": [
+  "/home/norm/projects/Personal/apple-music-client/spikes/04-js-engine/quickjs/target/release/spike-quickjs",
+  "--musickit",
+  "/home/norm/projects/Personal/apple-music-client/spikes/04-js-engine/../02-musickit-surface/vendor-cache/musickit.js",
+  "--mode",
+  "plain",
+  "--hold",
+  "34",
+  "--max-wait",
+  "20"
+ ],
+ "musickitSha256": "21908b72bdcdeea3ec91fa40b105d0b9a2ba07c2a3fe32ea77edcd26e735012c",
+ "binaryBytes": 1720272,
+ "verdict": "PASS",
+ "checks": {
+  "mkDefined": true,
+  "configureReached": true,
+  "pointSeen": true,
+  "samplesOk": true
+ },
+ "mk": {
+  "definedAtMs": 53,
+  "typeofMusicKit": "object",
+  "version": "3.2526.0-prerelease.x",
+  "keys": 28
+ },
+ "timing": {
+  "engineInitMs": 0.64,
+  "preludeMs": 1.61,
+  "mkEvalMs": 51.23,
+  "mkDefinedSinceStartMs": 53.92,
+  "mkEvalError": null
+ },
+ "point": {
+  "why": "configure-resolved",
+  "at": 54
+ },
+ "configure": "resolved",
+ "apiProbe": "rejected: TypeError: spike: network disabled",
+ "refCheck": "ReferenceError",
+ "fetches": [
+  {
+   "at": 54,
+   "method": "GET",
+   "url": "https://api.music.apple.com/v1/catalog/us/songs/1440833098",
+   "headerNames": [
+    "authorization"
+   ]
+  }
+ ],
+ "scriptLoads": [],
+ "errors": [],
+ "consoleLines": [],
+ "engineOwnHostGlobals": [
+  "queueMicrotask",
+  "atob",
+  "btoa"
+ ],
+ "summary": {
+  "pssMedMiB": 8.5,
+  "pssMaxMiB": 8.5,
+  "rssMedMiB": 10.9,
+  "rssMaxMiB": 10.9,
+  "ussMedMiB": 8.4,
+  "ussMaxMiB": 8.4,
+  "procs": 1,
+  "threads": 1,
+  "samples": 15
+ },
+ "samplesRaw": [
+  {
+   "pssKb": 8657,
+   "rssKb": 11124,
+   "ussKb": 8644,
+   "procs": 1,
+   "threads": 1
+  },
+  {
+   "pssKb": 8657,
+   "rssKb": 11124,
+   "ussKb": 8644,
+   "procs": 1,
+   "threads": 1
+  },
+  {
+   "pssKb": 8657,
+   "rssKb": 11124,
+   "ussKb": 8644,
+   "procs": 1,
+   "threads": 1
+  },
+  {
+   "pssKb": 8657,
+   "rssKb": 11124,
+   "ussKb": 8644,
+   "procs": 1,
+   "threads": 1
+  },
+  {
+   "pssKb": 8657,
+   "rssKb": 11124,
+   "ussKb": 8644,
+   "procs": 1,
+   "threads": 1
+  },
+  {
+   "pssKb": 8657,
+   "rssKb": 11124,
+   "ussKb": 8644,
+   "procs": 1,
+   "threads": 1
+  },
+  {
+   "pssKb": 8657,
+   "rssKb": 11124,
+   "ussKb": 8644,
+   "procs": 1,
+   "threads": 1
+  },
+  {
+   "pssKb": 8657,
+   "rssKb": 11124,
+   "ussKb": 8644,
+   "procs": 1,
+   "threads": 1
+  },
+  {
+   "pssKb": 8657,
+   "rssKb": 11124,
+   "ussKb": 8644,
+   "procs": 1,
+   "threads": 1
+  },
+  {
+   "pssKb": 8657,
+   "rssKb": 11124,
+   "ussKb": 8644,
+   "procs": 1,
+   "threads": 1
+  },
+  {
+   "pssKb": 8657,
+   "rssKb": 11124,
+   "ussKb": 8644,
+   "procs": 1,
+   "threads": 1
+  },
+  {
+   "pssKb": 8657,
+   "rssKb": 11124,
+   "ussKb": 8644,
+   "procs": 1,
+   "threads": 1
+  },
+  {
+   "pssKb": 8657,
+   "rssKb": 11124,
+   "ussKb": 8644,
+   "procs": 1,
+   "threads": 1
+  },
+  {
+   "pssKb": 8653,
+   "rssKb": 11120,
+   "ussKb": 8640,
+   "procs": 1,
+   "threads": 1
+  },
+  {
+   "pssKb": 8653,
+   "rssKb": 11120,
+   "ussKb": 8640,
+   "procs": 1,
+   "threads": 1
+  }
+ ],
+ "touched": [],
+ "storageKeys": [
+  "get local mk-console-logging",
+  "get local mk-logging-levels",
+  "get local mk-mse-buffer",
+  "get local mk-hlsjs-item-preloading",
+  "get local mk-block-report-cdn-server",
+  "get local mk-hlsjs-version",
+  "get local mk-hlsjs-log-level",
+  "get local mk-hlsjs-live-radio",
+  "get local mk-hlsjs-song-playback",
+  "get local mk-bag-features-overrides",
+  "get local music.spikedummyteam.media-user-token",
+  "remove local music.spikedummyteam.media-user-token",
+  "get local music.spikedummyteam.itua",
+  "get local mk-use-paf-qa-endpoint"
+ ],
+ "createdTags": [
+  "video",
+  "video"
+ ],
+ "unparsedLines": []
+}

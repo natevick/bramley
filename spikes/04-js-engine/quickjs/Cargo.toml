@@ -1,0 +1,12 @@
+[package]
+name = "spike-quickjs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rquickjs = "0.14"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
