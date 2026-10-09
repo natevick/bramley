@@ -119,6 +119,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cc",
+ "getrandom",
  "pulseaudio",
  "rquickjs",
  "serde_json",

@@ -134,9 +134,11 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
         ArrayBuffer<'js>,
     > {
         let mut buf = vec![0u8; len as usize];
-        if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-            use std::io::Read;
-            let _ = f.read_exact(&mut buf);
+        if let Err(e) = getrandom::getrandom(&mut buf) {
+            return Err(rquickjs::Exception::throw_internal(
+                &ctx,
+                &format!("crypto.getRandomValues: no system randomness: {e}"),
+            ));
         }
         ArrayBuffer::new(ctx, buf)
     });

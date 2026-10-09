@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
+getrandom = "0.2"
 pulseaudio = "0.3.1"
 rquickjs = "0.14"
 serde_json = "1"
