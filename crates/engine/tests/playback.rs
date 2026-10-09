@@ -111,7 +111,7 @@ fn engine_play(
     let status = dir.join(format!("{name}-status.json"));
     let _ = std::fs::remove_file(&status);
     let log = std::fs::File::create(dir.join(format!("{name}-engine.log"))).unwrap();
-    let child = Command::new(env!("CARGO_BIN_EXE_engine-play"))
+    let child = Command::new(env!("CARGO_BIN_EXE_bramley-play"))
         .args(["--output-device", SINK, "--no-loop", "--status"])
         .arg(&status)
         .args(args)
@@ -153,7 +153,7 @@ fn plays_widevine_hls_end_to_end_into_a_null_sink() {
         })
         .unwrap()
         .clone();
-    assert!(finished.success(), "engine-play exited with {finished}");
+    assert!(finished.success(), "bramley-play exited with {finished}");
     assert_eq!(
         targets,
         [SINK],
@@ -206,7 +206,7 @@ fn ten_back_to_back_tracks_hold_memory() {
         "400",
     ];
     let (finished, s) = engine_play("tracks", &args, |_| {});
-    assert!(finished.success(), "engine-play exited with {finished}");
+    assert!(finished.success(), "bramley-play exited with {finished}");
     let tracks = s["tracks"].as_array().unwrap();
     let field = |i: usize, k: &str| tracks[i][k].as_f64().unwrap_or(0.0);
     let keys = |i: usize| tracks[i]["js"]["keyLoaded"].as_u64().unwrap();
@@ -260,7 +260,7 @@ fn plays_widevine_cbcs_audio_end_to_end_into_a_null_sink() {
         "40",
     ];
     let (finished, s) = engine_play("cbcs", &args, |_| {});
-    assert!(finished.success(), "engine-play exited with {finished}");
+    assert!(finished.success(), "bramley-play exited with {finished}");
     let init = s["sourceBuffers"]
         .as_object()
         .unwrap()

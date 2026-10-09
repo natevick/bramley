@@ -69,7 +69,7 @@ Sintel's first ~12 s is clear audio and plays without a license. "It played" alo
 
 ## Re-run
 ```
-cd /home/norm/projects/Personal/apple-music-client/spikes/01-sidecar-memory
+cd /home/norm/projects/Personal/bramley/spikes/01-sidecar-memory
 ./run.sh T2-verify T2.json --warmup 15 --sample 60 --pause 20 && python3 -I report.py results/T2-verify.json
 ./run.sh sabotage-verify T2.json --lic https://cwip-shaka-proxy.appspot.com/no_auth_SABOTAGED --first-audio-timeout 45 && python3 -I report.py results/sabotage-verify.json
 ```

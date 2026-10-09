@@ -20,7 +20,7 @@ Written before the first run of `scripts/measure-playback.sh` against `crates/en
 
 `scripts/measure-playback.sh --scenario <name>`: same stream, no loop, hls.js `backBufferLength` 10 s. The run plays to 15 s, pauses for 20 s, seeks to 40 s, plays, takes a snapshot 5 s after resuming, and plays to the end. PSS is sampled from 5 s to 120 s; the 120 s is the sampling window, and the content is 60 s long.
 
-At each step the engine-play binary records, on the same thread and in the same instant:
+At each step the bramley-play binary records, on the same thread and in the same instant:
 - JS `currentTime`, `paused`, `seeking` and `ended`;
 - the native output position, which is the media PTS of the last PCM handed to the audio output, carried from the demuxed frame timestamps rather than derived from `currentTime`;
 - native decoded seconds;
@@ -61,7 +61,7 @@ The scenario now also passes `maxBufferLength` 10 s, so the track is still loadi
 
 ## Addendum, 2026-10-09: ten back-to-back tracks (review finding M6)
 
-Written before the first run. `cargo test -p engine --test playback ten_back_to_back -- --ignored` runs `engine-play --tracks 10 --track-seconds 20 --no-loop` (12 s in run 1; see the amendment) into a private null sink. Each "track" is a fresh `Hls` instance on the same `<audio>` element: a new MediaSource and `src`, new SourceBuffers and new MediaKeys. The previous instance is destroyed while playing, at `currentTime` ≥ the track length. At each track boundary the binary runs the JS GC and reads its own PSS from `/proc/self/smaps_rollup` (one process).
+Written before the first run. `cargo test -p bramley-engine --test playback ten_back_to_back -- --ignored` runs `bramley-play --tracks 10 --track-seconds 20 --no-loop` (12 s in run 1; see the amendment) into a private null sink. Each "track" is a fresh `Hls` instance on the same `<audio>` element: a new MediaSource and `src`, new SourceBuffers and new MediaKeys. The previous instance is destroyed while playing, at `currentTime` ≥ the track length. At each track boundary the binary runs the JS GC and reads its own PSS from `/proc/self/smaps_rollup` (one process).
 
 - **Did-it-run (any failure means VOID):**
   - 10 track boundaries were recorded.

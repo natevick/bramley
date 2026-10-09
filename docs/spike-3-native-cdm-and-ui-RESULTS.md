@@ -52,7 +52,7 @@ Verdicts: run1 and run2 PASS (bar ≤ 90); sabotage VOID.
 
 ## Re-run
 ```
-cd /home/norm/projects/Personal/apple-music-client/spikes/03-native-cdm-and-ui
+cd /home/norm/projects/Personal/bramley/spikes/03-native-cdm-and-ui
 (cd ui-baseline && CARGO_TARGET_DIR=$PWD/target cargo build --release)
 (cd cdm-host && CARGO_TARGET_DIR=$PWD/target cargo build --release)
 RUN_SUFFIX=-verify ./run-3a.sh bare fastframe

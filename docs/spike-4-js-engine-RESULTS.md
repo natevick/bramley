@@ -56,7 +56,7 @@ Keep V8 as the fallback, and as the spec-correct contract recorder, until a play
 
 ## Re-run
 ```
-cd /home/norm/projects/Personal/apple-music-client/spikes/04-js-engine
+cd /home/norm/projects/Personal/bramley/spikes/04-js-engine
 (cd quickjs && cargo build --release) && (cd v8 && cargo build --release)
 python3 -I run.py quickjs plain quickjs-plain && python3 -I run.py quickjs logged quickjs-logged
 python3 -I run.py v8 plain v8-plain && python3 -I run.py v8 logged v8-logged

@@ -1,6 +1,6 @@
 # Engine crate playback results (2026-10-09)
 
-The pre-registration is `engine-crate-playback-PREREG.md`. The binary under test is `crates/engine`'s `engine-play` release build, driven by `scripts/measure-playback.sh`. Values are MiB, PSS summed over the process tree. There is one process.
+The pre-registration is `engine-crate-playback-PREREG.md`. The binary under test is `crates/engine`'s `bramley-play` release build, driven by `scripts/measure-playback.sh`. Values are MiB, PSS summed over the process tree. There is one process.
 
 ## Steady playback (port of spike 5): **PASS**
 

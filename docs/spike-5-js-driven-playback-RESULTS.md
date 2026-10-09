@@ -63,7 +63,7 @@ Upstream hls.js 1.7.3 runs in QuickJS-NG and drives our Rust host objects (media
 
 ## Re-run
 ```
-cd /home/norm/projects/Personal/apple-music-client/spikes/05-js-driven-playback
+cd /home/norm/projects/Personal/bramley/spikes/05-js-driven-playback
 (cd engine && CARGO_TARGET_DIR=$PWD/target cargo build --release)
 WARMUP=15 SAMPLE=60 ./run-5.sh 5-verify
 WARMUP=15 SAMPLE=60 ./run-5.sh 5-sabotage-verify --lic https://cwip-shaka-proxy.appspot.com/no_auth_SABOTAGED

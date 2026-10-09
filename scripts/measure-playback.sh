@@ -5,12 +5,12 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export TMPDIR="$ROOT/target/tmp"
 SCENARIO=""
 if [ "${1:-}" = "--scenario" ]; then SCENARIO=pause-seek; shift; fi
-NAME="${1:?usage: measure-playback.sh [--scenario] <name> [engine-play args...]}"; shift
+NAME="${1:?usage: measure-playback.sh [--scenario] <name> [bramley-play args...]}"; shift
 RESULTS="${RESULTS_DIR:-$ROOT/target/measure-playback}"
 SINK="engine-measure-null"
-BIN="$ROOT/target/release/engine-play"
+BIN="$ROOT/target/release/bramley-play"
 mkdir -p "$RESULTS" "$TMPDIR"
-(cd "$ROOT" && cargo build --release --quiet -p engine --bin engine-play)
+(cd "$ROOT" && cargo build --release --quiet -p bramley-engine --bin bramley-play)
 if [ -n "$SCENARIO" ]; then
   WARMUP="${WARMUP:-5}"; SAMPLE="${SAMPLE:-115}"
   set -- --scenario "$SCENARIO" --no-loop --back-buffer 10 --max-buffer 10 "$@"

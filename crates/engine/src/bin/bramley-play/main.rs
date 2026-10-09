@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use engine::{Engine, EngineConfig};
+use bramley_engine::{Engine, EngineConfig};
 use serde_json::{Value as J, json};
 
 const APP: &str = include_str!("app.js");
@@ -45,7 +45,7 @@ fn parse_args() -> Result<Args> {
         tracks: 0,
         track_seconds: 12.0,
     };
-    a.config.audio_sink_name = "engine-play".into();
+    a.config.audio_sink_name = "bramley-play".into();
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
         let mut value = || it.next().with_context(|| format!("{flag} needs a value"));
