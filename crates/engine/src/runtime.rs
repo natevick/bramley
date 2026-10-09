@@ -71,7 +71,10 @@ pub struct Engine {
     rt: Runtime,
     n: N,
     net_rx: Receiver<Completion>,
+    last_gc: Instant,
 }
+
+const GC_INTERVAL: Duration = Duration::from_secs(2);
 
 fn opts(name: &str) -> EvalOptions {
     let mut o = EvalOptions::default();
@@ -349,6 +352,21 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
             .map(media_state)
             .unwrap_or_else(|| "{}".into())
     });
+    let s = n.clone();
+    op!("__op_destroy", move |kind: String, id: u32| {
+        let mut st = s.borrow_mut();
+        st.count("destroy");
+        match kind.as_str() {
+            "ms" => {
+                for sb in st.mses.remove(&id).map(|ms| ms.sbs).unwrap_or_default() {
+                    st.sbs.remove(&sb);
+                }
+            }
+            "media" => drop(st.medias.remove(&id)),
+            "cdm" => drop(st.cdms.remove(&id)),
+            _ => {}
+        }
+    });
     op!("__op_type_supported", |mime: String| audio_type_supported(
         &mime
     ));
@@ -567,7 +585,13 @@ impl Engine {
         let ctx = Context::full(&rt)?;
         ctx.with(|ctx| install_ops(&ctx, &n))
             .map_err(|e| anyhow!("install ops: {e}"))?;
-        let engine = Engine { ctx, rt, n, net_rx };
+        let engine = Engine {
+            ctx,
+            rt,
+            n,
+            net_rx,
+            last_gc: Instant::now(),
+        };
         engine.eval_script("platform.js", PLATFORM)?;
         Ok(engine)
     }
@@ -606,7 +630,16 @@ impl Engine {
             .unwrap_or(J::Null))
     }
 
+    pub fn run_gc(&mut self) {
+        self.rt.run_gc();
+        self.last_gc = Instant::now();
+        self.drain();
+    }
+
     pub fn tick(&mut self) -> Duration {
+        if self.last_gc.elapsed() >= GC_INTERVAL {
+            self.run_gc();
+        }
         self.drain();
         while let Ok(c) = self.net_rx.try_recv() {
             self.ctx.with(|ctx| handle_completion(&ctx, &self.n, c));
@@ -716,6 +749,7 @@ impl Engine {
             "pid": std::process::id(),
             "elapsedSec": st.start.elapsed().as_secs_f64(),
             "opCounts": st.op_counts,
+            "live": {"medias": st.medias.len(), "mediaSources": st.mses.len(), "sourceBuffers": st.sbs.len(), "cdms": st.cdms.len()},
             "medias": medias,
             "sourceBuffers": sbs,
             "cdm": st.cdm_error.as_ref().map(|e| json!({"error": e})).or_else(|| st.cdms.values().next().map(|c| c.describe())),

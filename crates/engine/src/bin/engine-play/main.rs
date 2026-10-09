@@ -21,6 +21,8 @@ struct Args {
     max_buffer: Option<f64>,
     scenario: Option<String>,
     skip_pause: bool,
+    tracks: usize,
+    track_seconds: f64,
 }
 
 fn parse_args() -> Result<Args> {
@@ -38,6 +40,8 @@ fn parse_args() -> Result<Args> {
         max_buffer: None,
         scenario: None,
         skip_pause: false,
+        tracks: 0,
+        track_seconds: 12.0,
     };
     a.config.audio_sink_name = "engine-play".into();
     let mut it = std::env::args().skip(1);
@@ -57,6 +61,8 @@ fn parse_args() -> Result<Args> {
             "--max-buffer" => a.max_buffer = Some(value()?.parse()?),
             "--scenario" => a.scenario = Some(value()?),
             "--scenario-skip-pause" => a.skip_pause = true,
+            "--tracks" => a.tracks = value()?.parse()?,
+            "--track-seconds" => a.track_seconds = value()?.parse()?,
             "--no-loop" => a.looping = false,
             "--hls-debug" => a.hls_debug = true,
             other => bail!("unknown arg {other}"),
@@ -132,8 +138,34 @@ impl Scenario {
     }
 }
 
-fn write_status(engine: &Engine, args: &Args, scenario: Option<&Scenario>) {
+fn pss_mib() -> f64 {
+    std::fs::read_to_string("/proc/self/smaps_rollup")
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find_map(|l| l.strip_prefix("Pss:"))
+                .and_then(|kb| kb.trim().trim_end_matches("kB").trim().parse::<f64>().ok())
+        })
+        .map_or(f64::NAN, |kb| kb / 1024.0)
+}
+
+fn record_tracks(engine: &mut Engine, tracks: &mut Vec<J>) -> Result<()> {
+    let done = engine.eval_json("JSON.parse(__app.statusJson()).tracks")?;
+    for t in done.as_array().into_iter().flatten().skip(tracks.len()) {
+        engine.run_gc();
+        let status = engine.status();
+        let native = status["medias"]
+            .as_object()
+            .and_then(|m| m.values().next().cloned())
+            .unwrap_or(J::Null);
+        tracks.push(json!({"js": t, "pssMiB": pss_mib(), "decodedDecryptedSeconds": native["decodedDecryptedSeconds"], "live": status["live"], "opCounts": status["opCounts"]}));
+    }
+    Ok(())
+}
+
+fn write_status(engine: &Engine, args: &Args, scenario: Option<&Scenario>, tracks: &[J]) {
     let mut v = engine.status();
+    v["tracks"] = json!(tracks);
     v["app"] = engine
         .eval_json("JSON.parse(__app.statusJson())")
         .unwrap_or(J::Null);
@@ -161,6 +193,7 @@ fn main() -> Result<()> {
     let config = json!({
         "manifest": args.manifest, "licenseUrl": args.license, "hlsUrl": args.hls_url, "loop": args.looping && scenario.is_none(), "hlsDebug": args.hls_debug,
         "backBufferLength": args.back_buffer, "maxBufferLength": args.max_buffer, "audioMasterCodecs": Some(&args.audio_master_codecs).filter(|c| !c.is_empty()),
+        "tracks": args.tracks, "trackSeconds": args.track_seconds,
     });
     let mut engine = Engine::new(args.config.clone())?;
     engine.eval_script(
@@ -170,6 +203,7 @@ fn main() -> Result<()> {
     engine.eval_script("app.js", APP)?;
     let start = Instant::now();
     let mut last_status = start - Duration::from_secs(5);
+    let mut tracks: Vec<J> = Vec::new();
     while start.elapsed().as_secs_f64() <= args.max_seconds {
         let wait = engine.tick();
         if let Some(s) = scenario.as_mut() {
@@ -177,10 +211,16 @@ fn main() -> Result<()> {
         }
         if last_status.elapsed() >= Duration::from_secs(1) {
             last_status = Instant::now();
-            write_status(&engine, &args, scenario.as_ref());
+            if args.tracks > 0 {
+                record_tracks(&mut engine, &mut tracks)?;
+            }
+            write_status(&engine, &args, scenario.as_ref(), &tracks);
+            if args.tracks > 0 && tracks.len() >= args.tracks {
+                break;
+            }
         }
         std::thread::sleep(wait);
     }
-    write_status(&engine, &args, scenario.as_ref());
+    write_status(&engine, &args, scenario.as_ref(), &tracks);
     Ok(())
 }

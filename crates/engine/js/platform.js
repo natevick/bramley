@@ -543,6 +543,7 @@
   G.TextTrackList = TextTrackList;
 
   const mediaById = new Map();
+  const nativeReaper = new FinalizationRegistry(([kind, id]) => { if (kind === "media") mediaById.delete(id); else if (kind === "cdm") keysById.delete(id); OP.destroy(kind, id); });
   class HTMLMediaElement extends HTMLElement {
     constructor(tag) {
       super(tag);
@@ -568,7 +569,7 @@
       this.disableRemotePlayback = false;
       this.preservesPitch = true;
     }
-    _native() { if (!this._id) { this._id = OP.media_create(); mediaById.set(this._id, this); OP.media_set_loop(this._id, this._loop); } return this._id; }
+    _native() { if (!this._id) { this._id = OP.media_create(); mediaById.set(this._id, new WeakRef(this)); nativeReaper.register(this, ["media", this._id]); OP.media_set_loop(this._id, this._loop); } return this._id; }
     _settlePlay(err) { const ps = this._playPromises; this._playPromises = []; for (const p of ps) err ? p.rej(err) : p.res(); }
     _applyGain() { OP.media_set_gain(this._native(), this._muted ? 0 : this._volume); }
     _refresh() { if (this._id) { try { Object.assign(this._st, JSON.parse(OP.media_state(this._id))); } catch (e) {} } return this._st; }
@@ -692,7 +693,7 @@
   G.Audio = function (src) { const a = new HTMLAudioElement(); if (src) a.src = src; return a; };
 
   function dispatchMedia(id, payload) {
-    const el = mediaById.get(id);
+    const el = mediaById.get(id)?.deref();
     if (!el) return;
     const p = JSON.parse(payload);
     Object.assign(el._st, p.state);
@@ -801,6 +802,7 @@
       super();
       hc("MediaSource.constructor");
       this._id = OP.ms_create();
+      nativeReaper.register(this, ["ms", this._id]);
       this._readyState = "closed";
       this._duration = NaN;
       this._sbl = new SourceBufferList();
@@ -861,7 +863,16 @@
     clearLiveSeekableRange() {}
     _reopen() { if (this._readyState === "ended") { this._readyState = "open"; OP.ms_end(this._id, false); queueTask(() => fire(this, "sourceopen")); } }
     _attach(media) { this._media = media; queueTask(() => { this._readyState = "open"; fire(this, "sourceopen"); }); }
-    _detach() { this._media = null; this._readyState = "closed"; queueTask(() => fire(this, "sourceclose")); }
+    _detach() {
+      this._media = null;
+      this._readyState = "closed";
+      for (const sb of this._sbl._l.splice(0)) {
+        sb._gen++; sb._updating = false; sb._ms = null;
+        OP.sb_remove_buffer(this._id, sb._id);
+        queueTask(() => fire(this._sbl, "removesourcebuffer"));
+      }
+      queueTask(() => fire(this, "sourceclose"));
+    }
     _buffered() {
       let ranges = null;
       for (const sb of this._sbl._l) {
@@ -914,7 +925,7 @@
   G.MediaKeySystemAccess = MediaKeySystemAccess;
 
   class MediaKeys {
-    constructor(id) { this._id = id; this._sessions = new Map(); keysById.set(id, this); }
+    constructor(id) { this._id = id; this._sessions = new Map(); keysById.set(id, new WeakRef(this)); nativeReaper.register(this, ["cdm", id]); }
     createSession(type) {
       hc("MediaKeys.createSession");
       type = type || "temporary";
@@ -985,12 +996,13 @@
   }
   function dispatchCdm(keysId, metaJson, body) {
     const m = JSON.parse(metaJson);
-    const keys = keysById.get(keysId);
+    const keys = keysById.get(keysId)?.deref();
     switch (m.type) {
       case "initialized": {
         const p = pendingCdmInit.get(keysId);
         pendingCdmInit.delete(keysId);
-        if (p) { if (m.ok) p.res(); else p.rej(new DOMException("CDM initialization failed", "InvalidStateError")); }
+        if (p && m.ok) p.res();
+        else if (p) { OP.destroy("cdm", keysId); p.rej(new DOMException("CDM initialization failed", "InvalidStateError")); }
         break;
       }
       case "newSession": {

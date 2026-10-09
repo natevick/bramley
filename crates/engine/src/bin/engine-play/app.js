@@ -2,7 +2,7 @@
   const C = globalThis.__play_config;
   const S = { phase: "start", manifest: C.manifest, licenseUrl: C.licenseUrl, hlsUrl: C.hlsUrl, hlsVersion: null, hlsSupported: null, errors: [], hlsEvents: {}, keyLoaded: 0, maxCurrentTime: 0, lastCurrentTime: 0, timeupdates: 0, mediaEvents: {}, eventLog: [], firstAudioMs: null, firstKeyLoadedMs: null };
   const audio = document.createElement("audio");
-  Object.defineProperty(globalThis, "__app", { value: { audio, statusJson: () => JSON.stringify(S) }, enumerable: false });
+  Object.defineProperty(globalThis, "__app", { value: { audio, statusJson: () => JSON.stringify(S, (k, v) => k === "hls" ? undefined : v) }, enumerable: false });
 
   document.body.appendChild(audio);
   audio.loop = !!C.loop;
@@ -27,7 +27,18 @@
   S.phase = "loading-hls";
   document.head.appendChild(script);
 
+  S.tracks = [];
+  let switching = false;
+  audio.addEventListener("timeupdate", () => {
+    if (!C.tracks || switching || audio.currentTime < C.trackSeconds) return;
+    switching = true;
+    S.tracks.push({ keyLoaded: S.keyLoaded, currentTime: audio.currentTime });
+    S.hls.destroy();
+    if (S.tracks.length < C.tracks) start();
+  });
+
   function start() {
+    switching = false;
     S.hlsVersion = Hls.version;
     S.hlsSupported = Hls.isSupported();
     const hls = new Hls({
@@ -40,6 +51,7 @@
       maxBufferLength: C.maxBufferLength === null ? 30 : C.maxBufferLength,
       maxBufferSize: C.maxBufferLength === null ? 60e6 : 0
     });
+    S.hls = hls;
     const E = Hls.Events;
     for (const k of ["MEDIA_ATTACHED", "MANIFEST_LOADED", "MANIFEST_PARSED", "LEVEL_LOADED", "KEY_LOADING", "KEY_LOADED", "FRAG_LOADED", "FRAG_DECRYPTED", "FRAG_PARSED", "FRAG_BUFFERED", "BUFFER_CREATED", "BUFFER_APPENDED", "BUFFER_EOS", "BUFFER_FLUSHED", "BACK_BUFFER_REACHED"]) {
       hls.on(E[k], () => { S.hlsEvents[k] = (S.hlsEvents[k] || 0) + 1; });

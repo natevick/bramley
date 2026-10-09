@@ -14,12 +14,12 @@ globalThis.later = ms => new Promise(r => setTimeout(r, ms));
 "#;
 
 pub fn engine() -> (Engine, FakeSink) {
-    let cdm = FakeCdm::default();
     let sink = FakeSink::default();
     let s = sink.clone();
-    let factory = move || {
+    let factory = || {
+        let cdm = FakeCdm::default();
         cdm.0.borrow_mut().events.push(CdmEvent::Initialized(true));
-        Ok(Box::new(cdm.clone()) as Box<dyn CdmBackend>)
+        Ok(Box::new(cdm) as Box<dyn CdmBackend>)
     };
     let e = Engine::with_backends(Box::new(factory), Rc::new(move || Box::new(s.clone()))).unwrap();
     e.eval_script("prelude.js", PRELUDE).unwrap();
@@ -280,5 +280,39 @@ fn he_aac_is_not_advertised() {
             "mp4a.40.5:false:no",
             "mp4a.40.29:false:no"
         ]
+    );
+}
+
+#[test]
+fn detach_removes_source_buffers_and_unreachable_objects_release_native_state() {
+    let (mut e, sink) = engine();
+    let keys = r#"navigator.requestMediaKeySystemAccess("com.widevine.alpha", [{ audioCapabilities: [{ contentType: 'audio/mp4; codecs="mp4a.40.2"' }] }])"#;
+    run(
+        &mut e,
+        &sink,
+        &script(&format!(
+            r#"
+            for (let i = 0; i < 3; i++) {{
+                const a = fresh();
+                const url = URL.createObjectURL(a.ms);
+                audio.src = url;
+                URL.revokeObjectURL(url);
+                await fill(a.ms, a.opened, bytes);
+                await audio.setMediaKeys(await (await {keys}).createMediaKeys());
+            }}
+            audio.removeAttribute("src");
+            audio.load();
+            await audio.setMediaKeys(null);
+            await later(10);
+        "#
+        )),
+    );
+    let left = e.status()["sourceBuffers"].as_object().unwrap().len();
+    assert_eq!(left, 0, "detach left SourceBuffers behind");
+    e.run_gc();
+    e.tick();
+    assert_eq!(
+        e.status()["live"],
+        json!({"medias": 0, "mediaSources": 0, "sourceBuffers": 0, "cdms": 0})
     );
 }

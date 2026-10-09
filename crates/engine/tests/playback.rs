@@ -102,25 +102,19 @@ fn linked_targets(pid: u32) -> Vec<String> {
         .collect()
 }
 
-#[test]
-#[ignore = "plays the Shaka Angel One Widevine stream through the real CDM into a PipeWire null sink"]
-fn plays_widevine_hls_end_to_end_into_a_null_sink() {
-    let _sink = null_sink();
-    let before = default_sink();
+fn engine_play(
+    name: &str,
+    args: &[&str],
+    during: impl FnOnce(u32),
+) -> (std::process::ExitStatus, Value) {
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"));
-    let status = dir.join("itest-status.json");
+    let status = dir.join(format!("{name}-status.json"));
     let _ = std::fs::remove_file(&status);
-    let log = std::fs::File::create(dir.join("itest-engine.log")).unwrap();
+    let log = std::fs::File::create(dir.join(format!("{name}-engine.log"))).unwrap();
     let child = Command::new(env!("CARGO_BIN_EXE_engine-play"))
-        .args([
-            "--output-device",
-            SINK,
-            "--no-loop",
-            "--max-seconds",
-            "70",
-            "--status",
-        ])
+        .args(["--output-device", SINK, "--no-loop", "--status"])
         .arg(&status)
+        .args(args)
         .env("XDG_RUNTIME_DIR", runtime_dir())
         .stdout(Stdio::null())
         .stderr(log)
@@ -128,11 +122,25 @@ fn plays_widevine_hls_end_to_end_into_a_null_sink() {
         .spawn()
         .unwrap();
     let mut engine = Group(child);
-    std::thread::sleep(Duration::from_secs(25));
-    let mut targets = linked_targets(engine.0.id());
-    targets.dedup();
+    during(engine.0.id());
     let finished = engine.0.wait().unwrap();
-    let s: Value = serde_json::from_slice(&std::fs::read(&status).unwrap()).unwrap();
+    (
+        finished,
+        serde_json::from_slice(&std::fs::read(&status).unwrap()).unwrap(),
+    )
+}
+
+#[test]
+#[ignore = "plays the Shaka Angel One Widevine stream through the real CDM into a PipeWire null sink"]
+fn plays_widevine_hls_end_to_end_into_a_null_sink() {
+    let _sink = null_sink();
+    let before = default_sink();
+    let mut targets = Vec::new();
+    let (finished, s) = engine_play("itest", &["--max-seconds", "70"], |pid| {
+        std::thread::sleep(Duration::from_secs(25));
+        targets = linked_targets(pid);
+        targets.dedup();
+    });
     let media = s["medias"]
         .as_object()
         .unwrap()
@@ -176,8 +184,60 @@ fn plays_widevine_hls_end_to_end_into_a_null_sink() {
     );
     assert_eq!(s["app"]["mediaEvents"]["ended"], 1, "{}", s["app"]);
     assert_eq!(
-        (media["drainsAcked"].as_u64(), media["drainTimeouts"].as_u64()),
+        (
+            media["drainsAcked"].as_u64(),
+            media["drainTimeouts"].as_u64()
+        ),
         (Some(1), Some(0)),
         "ended must wait for PipeWire's drain ack: {media}"
+    );
+}
+
+#[test]
+#[ignore = "plays ten back-to-back loads of the Angel One stream through the real CDM into a PipeWire null sink"]
+fn ten_back_to_back_tracks_hold_memory() {
+    let _sink = null_sink();
+    let args = [
+        "--tracks",
+        "10",
+        "--track-seconds",
+        "20",
+        "--max-seconds",
+        "400",
+    ];
+    let (finished, s) = engine_play("tracks", &args, |_| {});
+    assert!(finished.success(), "engine-play exited with {finished}");
+    let tracks = s["tracks"].as_array().unwrap();
+    let field = |i: usize, k: &str| tracks[i][k].as_f64().unwrap_or(0.0);
+    let keys = |i: usize| tracks[i]["js"]["keyLoaded"].as_u64().unwrap();
+    assert_eq!(tracks.len(), 10, "VOID: {}", s["app"]["errors"]);
+    for i in 0..10 {
+        let previous = if i == 0 {
+            (0, 0.0)
+        } else {
+            (keys(i - 1), field(i - 1, "decodedDecryptedSeconds"))
+        };
+        assert!(keys(i) > previous.0, "VOID: track {} loaded no key", i + 1);
+        let decrypted = field(i, "decodedDecryptedSeconds") - previous.1;
+        assert!(
+            decrypted >= 9.0,
+            "VOID: track {} decrypted {decrypted:.1} s",
+            i + 1
+        );
+    }
+    for op in ["cdm_create", "ms_create", "sb_add"] {
+        assert!(
+            s["opCounts"][op].as_u64() >= Some(10),
+            "VOID: {op} {}",
+            s["opCounts"]
+        );
+    }
+    let pss: Vec<f64> = (0..10).map(|i| field(i, "pssMiB")).collect();
+    let live: Vec<&Value> = tracks.iter().map(|t| &t["live"]).collect();
+    eprintln!("PSS MiB per track {pss:.1?}\nlive native objects {live:?}");
+    assert!(
+        pss[9] - pss[0] <= 8.0,
+        "FAIL: PSS grew {:.1} MiB over ten tracks: {pss:.1?}",
+        pss[9] - pss[0]
     );
 }
