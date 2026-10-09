@@ -58,3 +58,15 @@ At each step the engine-play binary records, on the same thread and in the same 
 `scen1` read PASS, but `SourceBuffer.remove()` never ran. hls.js fired `BACK_BUFFER_REACHED` seven times, but it refuses to flush the back buffer once the track's SourceBuffer is in the ended state. The 60 s stream was fully buffered by about 15 s, with the default `maxBufferLength` of 30 s.
 
 The scenario now also passes `maxBufferLength` 10 s, so the track is still loading while the back buffer fills. That flag also sets `maxBufferSize` to 0, because hls.js takes the larger of `maxBufferLength` and 8 × `maxBufferSize` / bitrate. At 140 kbps the default size would allow about an hour of buffer. `scen2` showed this: it set only the length, and remove() still did not run (VOID under the new check). A new did-it-run check requires at least one `sb_remove` op. No threshold moved. `scen1` stays on record as a PASS that did not exercise eviction.
+
+## Addendum, 2026-10-09: ten back-to-back tracks (review finding M6)
+
+Written before the first run. `cargo test -p engine --test playback ten_back_to_back -- --ignored` runs `engine-play --tracks 10 --track-seconds 12 --no-loop` into a private null sink. Each "track" is a fresh `Hls` instance on the same `<audio>` element: a new MediaSource and `src`, new SourceBuffers and new MediaKeys. The previous instance is destroyed while playing, at `currentTime` ≥ 12 s. At each track boundary the binary runs the JS GC and reads its own PSS from `/proc/self/smaps_rollup` (one process).
+
+- **Did-it-run (any failure means VOID):**
+  - 10 track boundaries were recorded.
+  - Every track loaded at least one new key (`KEY_LOADED` count rose).
+  - Every track decoded at least 9 s from decrypted samples.
+  - `cdm_create`, `ms_create` and `sb_add` each ran at least 10 times.
+- **PASS:** PSS at the end of track 10 minus PSS at the end of track 1 ≤ 8 MiB. Otherwise FAIL.
+- **Sabotage:** the same run on 344e38e (the head before the M6 fix), with only the binary's track mode and a `run_gc` seam ported, is expected to read FAIL. If it reads PASS, this check cannot see M6 and is reported as such.
