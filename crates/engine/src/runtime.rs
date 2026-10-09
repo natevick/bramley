@@ -5,7 +5,10 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
-use rquickjs::{ArrayBuffer, CatchResultExt, Context, Ctx, Function, Object, Runtime, Value, context::EvalOptions, function::IntoArgs};
+use rquickjs::{
+    ArrayBuffer, CatchResultExt, Context, Ctx, Function, Object, Runtime, Value,
+    context::EvalOptions, function::IntoArgs,
+};
 use serde_json::{Value as J, json};
 
 use crate::EngineConfig;
@@ -49,7 +52,15 @@ impl Native {
         *self.op_counts.entry(op).or_default() += 1;
     }
     fn position_for_buffer(&self, sb_id: u32) -> i64 {
-        self.medias.values().find(|m| m.ms_id.and_then(|id| self.mses.get(&id)).is_some_and(|ms| ms.sbs.contains(&sb_id))).map(|m| m.current_time_us()).unwrap_or(0)
+        self.medias
+            .values()
+            .find(|m| {
+                m.ms_id
+                    .and_then(|id| self.mses.get(&id))
+                    .is_some_and(|ms| ms.sbs.contains(&sb_id))
+            })
+            .map(|m| m.current_time_us())
+            .unwrap_or(0)
     }
 }
 
@@ -111,11 +122,17 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
         };
     }
     let s = n.clone();
-    op!("__op_now", move || -> f64 { s.borrow().start.elapsed().as_secs_f64() * 1000.0 });
+    op!("__op_now", move || -> f64 {
+        s.borrow().start.elapsed().as_secs_f64() * 1000.0
+    });
     op!("__op_print", move |level: String, msg: String| {
         eprintln!("JS[{level}] {msg}");
     });
-    op!("__op_random", move |ctx: Ctx<'js>, len: u32| -> rquickjs::Result<ArrayBuffer<'js>> {
+    op!("__op_random", move |ctx: Ctx<'js>,
+                             len: u32|
+          -> rquickjs::Result<
+        ArrayBuffer<'js>,
+    > {
         let mut buf = vec![0u8; len as usize];
         if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
             use std::io::Read;
@@ -124,12 +141,28 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
         ArrayBuffer::new(ctx, buf)
     });
     let s = n.clone();
-    op!("__op_http", move |id: u32, method: String, url: String, headers: String, body: Value<'js>, timeout: f64| {
+    op!("__op_http", move |id: u32,
+                           method: String,
+                           url: String,
+                           headers: String,
+                           body: Value<'js>,
+                           timeout: f64| {
         let mut st = s.borrow_mut();
         st.count("http");
         st.http_count += 1;
         let headers: Vec<(String, String)> = serde_json::from_str(&headers).unwrap_or_default();
-        let req = HttpRequest { id, method, url, headers, body: bytes_of(&body), timeout_ms: if timeout > 0.0 { timeout as u64 } else { 60_000 } };
+        let req = HttpRequest {
+            id,
+            method,
+            url,
+            headers,
+            body: bytes_of(&body),
+            timeout_ms: if timeout > 0.0 {
+                timeout as u64
+            } else {
+                60_000
+            },
+        };
         net::spawn(req, st.net_tx.clone());
     });
     let s = n.clone();
@@ -142,7 +175,8 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
     op!("__op_load_script", move |id: u32, url: String| {
         let mut st = s.borrow_mut();
         st.count("load_script");
-        st.script_log.push(json!({"id": id, "url": url, "phase": "fetching"}));
+        st.script_log
+            .push(json!({"id": id, "url": url, "phase": "fetching"}));
         net::spawn_script(id, url, st.net_tx.clone());
     });
     let s = n.clone();
@@ -150,7 +184,14 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
         let mut st = s.borrow_mut();
         st.count("ms_create");
         let id = st.id();
-        st.mses.insert(id, MediaSourceNative { duration: f64::NAN, ended: false, sbs: Vec::new() });
+        st.mses.insert(
+            id,
+            MediaSourceNative {
+                duration: f64::NAN,
+                ended: false,
+                sbs: Vec::new(),
+            },
+        );
         id
     });
     let s = n.clone();
@@ -161,7 +202,8 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
             return -1;
         }
         let id = st.id();
-        st.sbs.insert(id, SourceBufferNative::new(mime, SOURCE_BUFFER_QUOTA_BYTES));
+        st.sbs
+            .insert(id, SourceBufferNative::new(mime, SOURCE_BUFFER_QUOTA_BYTES));
         if let Some(ms) = st.mses.get_mut(&ms_id) {
             ms.sbs.push(id);
         }
@@ -177,26 +219,46 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
         }
     });
     let s = n.clone();
-    op!("__op_sb_prepare_append", move |sb_id: u32, len: u32| -> bool {
+    op!("__op_sb_prepare_append", move |sb_id: u32,
+                                        len: u32|
+          -> bool {
         let mut st = s.borrow_mut();
         st.count("sb_prepare_append");
         let position = st.position_for_buffer(sb_id);
-        st.sbs.get_mut(&sb_id).is_some_and(|sb| sb.make_room(len as usize, position))
+        st.sbs
+            .get_mut(&sb_id)
+            .is_some_and(|sb| sb.make_room(len as usize, position))
     });
     let s = n.clone();
-    op!("__op_sb_append", move |sb_id: u32, data: Value<'js>, ts_offset: f64| -> String {
+    op!("__op_sb_append", move |sb_id: u32,
+                                data: Value<'js>,
+                                ts_offset: f64|
+          -> String {
         let mut st = s.borrow_mut();
         st.count("sb_append");
-        let Some(bytes) = bytes_of(&data) else { return json!({"error": "not an ArrayBuffer"}).to_string() };
-        let Some(sb) = st.sbs.get_mut(&sb_id) else { return json!({"error": "no such SourceBuffer"}).to_string() };
+        let Some(bytes) = bytes_of(&data) else {
+            return json!({"error": "not an ArrayBuffer"}).to_string();
+        };
+        let Some(sb) = st.sbs.get_mut(&sb_id) else {
+            return json!({"error": "no such SourceBuffer"}).to_string();
+        };
         match sb.append(&bytes, if ts_offset.is_finite() { ts_offset } else { 0.0 }) {
             Ok(r) => json!({"init": r.init_segment, "frames": r.media_frames, "hasInitData": r.init_segment && sb.init_data.is_some()}).to_string(),
             Err(e) => json!({"error": format!("{e:#}")}).to_string(),
         }
     });
     let s = n.clone();
-    op!("__op_sb_init_data", move |ctx: Ctx<'js>, sb_id: u32| -> rquickjs::Result<Value<'js>> {
-        match s.borrow().sbs.get(&sb_id).and_then(|sb| sb.init_data.clone()) {
+    op!("__op_sb_init_data", move |ctx: Ctx<'js>,
+                                   sb_id: u32|
+          -> rquickjs::Result<
+        Value<'js>,
+    > {
+        match s
+            .borrow()
+            .sbs
+            .get(&sb_id)
+            .and_then(|sb| sb.init_data.clone())
+        {
             Some(b) => Ok(ArrayBuffer::new(ctx, b)?.into_value()),
             None => Ok(Value::new_null(ctx)),
         }
@@ -216,7 +278,9 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
         }
     });
     let s = n.clone();
-    op!("__op_sb_change_type", move |sb_id: u32, mime: String| -> bool {
+    op!("__op_sb_change_type", move |sb_id: u32,
+                                     mime: String|
+          -> bool {
         if !audio_type_supported(&mime) {
             return false;
         }
@@ -227,7 +291,12 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
     });
     let s = n.clone();
     op!("__op_sb_buffered", move |sb_id: u32| -> String {
-        let r: Vec<[f64; 2]> = s.borrow().sbs.get(&sb_id).map(|sb| sb.buffered().into_iter().map(|(a, b)| [a, b]).collect()).unwrap_or_default();
+        let r: Vec<[f64; 2]> = s
+            .borrow()
+            .sbs
+            .get(&sb_id)
+            .map(|sb| sb.buffered().into_iter().map(|(a, b)| [a, b]).collect())
+            .unwrap_or_default();
         serde_json::to_string(&r).unwrap()
     });
     let s = n.clone();
@@ -251,18 +320,37 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
         st.medias.insert(id, m);
         id
     });
-    with_media!("__op_media_attach", "media_attach", |m, ms_id: u32| m.attach(ms_id));
+    with_media!("__op_media_attach", "media_attach", |m, ms_id: u32| m
+        .attach(ms_id));
     with_media!("__op_media_detach", "media_detach", |m| m.detach());
     with_media!("__op_media_play", "media_play", |m| m.play());
     with_media!("__op_media_pause", "media_pause", |m| m.pause());
-    with_media!("__op_media_seek", "media_seek", |m, t: f64| m.seek((t * 1e6).round() as i64));
-    with_media!("__op_media_set_loop", "media_set_loop", |m, looping: bool| m.looping = looping);
-    with_media!("__op_media_set_gain", "media_set_gain", |m, gain: f64| m.set_gain(gain as f32));
-    with_media!("__op_media_set_keys", "media_set_keys", |m, keys_id: u32| m.set_keys(Some(keys_id).filter(|k| *k != 0)));
+    with_media!("__op_media_seek", "media_seek", |m, t: f64| m
+        .seek((t * 1e6).round() as i64));
+    with_media!(
+        "__op_media_set_loop",
+        "media_set_loop",
+        |m, looping: bool| m.looping = looping
+    );
+    with_media!("__op_media_set_gain", "media_set_gain", |m, gain: f64| m
+        .set_gain(gain as f32));
+    with_media!(
+        "__op_media_set_keys",
+        "media_set_keys",
+        |m, keys_id: u32| m.set_keys(Some(keys_id).filter(|k| *k != 0))
+    );
     let s = n.clone();
-    op!("__op_media_state", move |id: u32| -> String { s.borrow().medias.get(&id).map(media_state).unwrap_or_else(|| "{}".into()) });
+    op!("__op_media_state", move |id: u32| -> String {
+        s.borrow()
+            .medias
+            .get(&id)
+            .map(media_state)
+            .unwrap_or_else(|| "{}".into())
+    });
     let s = n.clone();
-    op!("__op_eme_check", move |key_system: String, configs: String| -> String {
+    op!("__op_eme_check", move |key_system: String,
+                                configs: String|
+          -> String {
         let mut st = s.borrow_mut();
         st.count("eme_check");
         let r = eme_check(&key_system, &configs);
@@ -286,15 +374,46 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
             }
         }
     });
-    with_cdm!("__op_cdm_set_cert", "cdm_set_cert", |c, promise, data: Value<'js>| c.set_server_certificate(promise, &bytes_of(&data).unwrap_or_default()));
-    with_cdm!("__op_cdm_generate", "cdm_generate", |c, promise, init_type: u32, data: Value<'js>| c.create_session(promise, init_type, &bytes_of(&data).unwrap_or_default()));
-    with_cdm!("__op_cdm_update", "cdm_update", |c, promise, sid: String, data: Value<'js>| c.update_session(promise, &sid, &bytes_of(&data).unwrap_or_default()));
-    with_cdm!("__op_cdm_close", "cdm_close", |c, promise, sid: String| c.close_session(promise, &sid));
-    with_cdm!("__op_cdm_remove", "cdm_remove", |c, promise, sid: String| c.remove_session(promise, &sid));
+    with_cdm!(
+        "__op_cdm_set_cert",
+        "cdm_set_cert",
+        |c, promise, data: Value<'js>| c
+            .set_server_certificate(promise, &bytes_of(&data).unwrap_or_default())
+    );
+    with_cdm!(
+        "__op_cdm_generate",
+        "cdm_generate",
+        |c, promise, init_type: u32, data: Value<'js>| c.create_session(
+            promise,
+            init_type,
+            &bytes_of(&data).unwrap_or_default()
+        )
+    );
+    with_cdm!(
+        "__op_cdm_update",
+        "cdm_update",
+        |c, promise, sid: String, data: Value<'js>| c.update_session(
+            promise,
+            &sid,
+            &bytes_of(&data).unwrap_or_default()
+        )
+    );
+    with_cdm!("__op_cdm_close", "cdm_close", |c, promise, sid: String| c
+        .close_session(promise, &sid));
+    with_cdm!(
+        "__op_cdm_remove",
+        "cdm_remove",
+        |c, promise, sid: String| c.remove_session(promise, &sid)
+    );
     Ok(())
 }
 
-fn call<'js, A: IntoArgs<'js>>(ctx: &Ctx<'js>, obj: &str, name: &str, args: A) -> Option<Value<'js>> {
+fn call<'js, A: IntoArgs<'js>>(
+    ctx: &Ctx<'js>,
+    obj: &str,
+    name: &str,
+    args: A,
+) -> Option<Value<'js>> {
     let r = (|| -> rquickjs::Result<Value<'js>> {
         let p: Object = ctx.globals().get(obj)?;
         let f: Function = p.get(name)?;
@@ -310,7 +429,9 @@ fn call<'js, A: IntoArgs<'js>>(ctx: &Ctx<'js>, obj: &str, name: &str, args: A) -
 }
 
 fn buffer_or_null<'js>(ctx: &Ctx<'js>, body: Option<Vec<u8>>) -> Value<'js> {
-    body.and_then(|b| ArrayBuffer::new(ctx.clone(), b).ok()).map(|b| b.into_value()).unwrap_or_else(|| Value::new_null(ctx.clone()))
+    body.and_then(|b| ArrayBuffer::new(ctx.clone(), b).ok())
+        .map(|b| b.into_value())
+        .unwrap_or_else(|| Value::new_null(ctx.clone()))
 }
 
 fn handle_completion(ctx: &Ctx, n: &N, c: Completion) {
@@ -324,13 +445,21 @@ fn handle_completion(ctx: &Ctx, n: &N, c: Completion) {
                 st.http_bytes += r.body.len() as u64;
             }
             let meta = json!({"status": r.status, "statusText": r.status_text, "url": r.url, "headers": r.headers, "error": r.error}).to_string();
-            call(ctx, "__platform", "dispatchHttp", (r.id, meta, buffer_or_null(ctx, Some(r.body))));
+            call(
+                ctx,
+                "__platform",
+                "dispatchHttp",
+                (r.id, meta, buffer_or_null(ctx, Some(r.body))),
+            );
         }
         Completion::Script { id, url, result } => {
             let outcome = result.and_then(|bytes| {
                 let len = bytes.len();
                 let t = Instant::now();
-                ctx.eval_with_options::<(), _>(bytes, opts(&url)).catch(ctx).map(|_| (len, t.elapsed())).map_err(|e| e.to_string())
+                ctx.eval_with_options::<(), _>(bytes, opts(&url))
+                    .catch(ctx)
+                    .map(|_| (len, t.elapsed()))
+                    .map_err(|e| e.to_string())
             });
             let (ok, err) = match outcome {
                 Ok((len, took)) => {
@@ -338,7 +467,9 @@ fn handle_completion(ctx: &Ctx, n: &N, c: Completion) {
                     (true, String::new())
                 }
                 Err(e) => {
-                    n.borrow_mut().script_log.push(json!({"id": id, "url": url, "phase": "error", "error": e}));
+                    n.borrow_mut()
+                        .script_log
+                        .push(json!({"id": id, "url": url, "phase": "error", "error": e}));
                     (false, e)
                 }
             };
@@ -350,26 +481,63 @@ fn handle_completion(ctx: &Ctx, n: &N, c: Completion) {
 fn dispatch_cdm(ctx: &Ctx, keys_id: u32, e: CdmEvent) {
     let (meta, body) = match e {
         CdmEvent::Initialized(ok) => (json!({"type": "initialized", "ok": ok}), None),
-        CdmEvent::NewSession { promise, sid } => (json!({"type": "newSession", "promise": promise, "sid": sid}), None),
+        CdmEvent::NewSession { promise, sid } => (
+            json!({"type": "newSession", "promise": promise, "sid": sid}),
+            None,
+        ),
         CdmEvent::Resolve(p) => (json!({"type": "resolve", "promise": p}), None),
-        CdmEvent::Reject { promise, exception, system_code, message } => (json!({"type": "reject", "promise": promise, "exception": exception, "code": system_code, "message": message}), None),
-        CdmEvent::Message { sid, kind, body } => (json!({"type": "message", "sid": sid, "kind": kind}), Some(body)),
-        CdmEvent::Keys { sid, keys } => (json!({"type": "keys", "sid": sid, "keys": keys.iter().map(|(k, s)| json!({"kid": mp4::hex(k), "status": s})).collect::<Vec<_>>()}), None),
-        CdmEvent::Expiration { sid, expiry } => (json!({"type": "expiration", "sid": sid, "expiry": expiry}), None),
+        CdmEvent::Reject {
+            promise,
+            exception,
+            system_code,
+            message,
+        } => (
+            json!({"type": "reject", "promise": promise, "exception": exception, "code": system_code, "message": message}),
+            None,
+        ),
+        CdmEvent::Message { sid, kind, body } => (
+            json!({"type": "message", "sid": sid, "kind": kind}),
+            Some(body),
+        ),
+        CdmEvent::Keys { sid, keys } => (
+            json!({"type": "keys", "sid": sid, "keys": keys.iter().map(|(k, s)| json!({"kid": mp4::hex(k), "status": s})).collect::<Vec<_>>()}),
+            None,
+        ),
+        CdmEvent::Expiration { sid, expiry } => (
+            json!({"type": "expiration", "sid": sid, "expiry": expiry}),
+            None,
+        ),
         CdmEvent::Closed { sid } => (json!({"type": "closed", "sid": sid}), None),
     };
-    call(ctx, "__platform", "dispatchCdm", (keys_id, meta.to_string(), buffer_or_null(ctx, body)));
+    call(
+        ctx,
+        "__platform",
+        "dispatchCdm",
+        (keys_id, meta.to_string(), buffer_or_null(ctx, body)),
+    );
 }
 
 impl Engine {
     pub fn new(config: EngineConfig) -> Result<Engine> {
-        let EngineConfig { cdm_path, audio_sink_name, output_device } = config;
+        let EngineConfig {
+            cdm_path,
+            audio_sink_name,
+            output_device,
+        } = config;
         let cdm: CdmFactory = Box::new(move || Widevine::create(&cdm_path));
-        let sink: SinkFactory = Rc::new(move || Box::new(PulseSink::start(audio_sink_name.clone(), output_device.clone())) as Box<dyn AudioSink>);
+        let sink: SinkFactory = Rc::new(move || {
+            Box::new(PulseSink::start(
+                audio_sink_name.clone(),
+                output_device.clone(),
+            )) as Box<dyn AudioSink>
+        });
         Engine::with_backends(cdm, sink)
     }
 
-    pub(crate) fn with_backends(cdm_factory: CdmFactory, sink_factory: SinkFactory) -> Result<Engine> {
+    pub(crate) fn with_backends(
+        cdm_factory: CdmFactory,
+        sink_factory: SinkFactory,
+    ) -> Result<Engine> {
         let (net_tx, net_rx) = channel();
         let n: N = Rc::new(RefCell::new(Native {
             start: Instant::now(),
@@ -392,7 +560,8 @@ impl Engine {
         let rt = Runtime::new()?;
         rt.set_max_stack_size(4 * 1024 * 1024);
         let ctx = Context::full(&rt)?;
-        ctx.with(|ctx| install_ops(&ctx, &n)).map_err(|e| anyhow!("install ops: {e}"))?;
+        ctx.with(|ctx| install_ops(&ctx, &n))
+            .map_err(|e| anyhow!("install ops: {e}"))?;
         let engine = Engine { ctx, rt, n, net_rx };
         engine.eval_script("platform.js", PLATFORM)?;
         Ok(engine)
@@ -409,16 +578,27 @@ impl Engine {
     }
 
     pub fn eval_script(&self, name: &str, source: &str) -> Result<()> {
-        let r = self.ctx.with(|ctx| ctx.eval_with_options::<(), _>(source, opts(name)).catch(&ctx).map_err(|e| anyhow!("{name} failed: {e}")));
+        let r = self.ctx.with(|ctx| {
+            ctx.eval_with_options::<(), _>(source, opts(name))
+                .catch(&ctx)
+                .map_err(|e| anyhow!("{name} failed: {e}"))
+        });
         self.drain();
         r
     }
 
     pub fn eval_json(&self, expression: &str) -> Result<J> {
         let src = format!("JSON.stringify(({expression}))");
-        let r = self.ctx.with(|ctx| ctx.eval_with_options::<Option<String>, _>(src, opts("eval")).catch(&ctx).map_err(|e| anyhow!("eval failed: {e}")));
+        let r = self.ctx.with(|ctx| {
+            ctx.eval_with_options::<Option<String>, _>(src, opts("eval"))
+                .catch(&ctx)
+                .map_err(|e| anyhow!("eval failed: {e}"))
+        });
         self.drain();
-        Ok(r?.map(|s| serde_json::from_str(&s)).transpose()?.unwrap_or(J::Null))
+        Ok(r?
+            .map(|s| serde_json::from_str(&s))
+            .transpose()?
+            .unwrap_or(J::Null))
     }
 
     pub fn tick(&mut self) -> Duration {
@@ -427,14 +607,24 @@ impl Engine {
             self.ctx.with(|ctx| handle_completion(&ctx, &self.n, c));
             self.drain();
         }
-        let cdm_events: Vec<(u32, CdmEvent)> = self.n.borrow_mut().cdms.iter_mut().flat_map(|(id, c)| c.poll().into_iter().map(move |e| (*id, e))).collect();
+        let cdm_events: Vec<(u32, CdmEvent)> = self
+            .n
+            .borrow_mut()
+            .cdms
+            .iter_mut()
+            .flat_map(|(id, c)| c.poll().into_iter().map(move |e| (*id, e)))
+            .collect();
         for (id, e) in cdm_events {
             self.ctx.with(|ctx| dispatch_cdm(&ctx, id, e));
             self.drain();
         }
         let mut next_ms = 5.0f64;
         for _ in 0..500 {
-            let r: f64 = self.ctx.with(|ctx| call(&ctx, "__platform", "runTimers", ()).and_then(|v| v.as_number()).unwrap_or(-1.0));
+            let r: f64 = self.ctx.with(|ctx| {
+                call(&ctx, "__platform", "runTimers", ())
+                    .and_then(|v| v.as_number())
+                    .unwrap_or(-1.0)
+            });
             self.drain();
             if r != -2.0 {
                 if r >= 0.0 {
@@ -452,7 +642,14 @@ impl Engine {
                 m.pump(now, &st.sbs, &st.mses, &mut st.cdms);
                 if !m.events.is_empty() {
                     let events = std::mem::take(&mut m.events);
-                    out.push((*id, format!("{{\"events\":{},\"state\":{}}}", json!(events), media_state(m))));
+                    out.push((
+                        *id,
+                        format!(
+                            "{{\"events\":{},\"state\":{}}}",
+                            json!(events),
+                            media_state(m)
+                        ),
+                    ));
                 }
             }
             out
@@ -501,8 +698,14 @@ impl Engine {
                 (id.to_string(), json!({"mime": sb.mime, "appendedBytes": sb.appended_bytes, "bytes": sb.bytes, "evictedFrames": sb.evicted_frames, "frames": sb.frames.len(), "buffered": sb.buffered(), "init": init}))
             })
             .collect();
-        let platform =
-            self.ctx.with(|ctx| call(&ctx, "__platform", "statusJson", ()).and_then(|v| v.as_string().and_then(|s| s.to_string().ok()))).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(J::Null);
+        let platform = self
+            .ctx
+            .with(|ctx| {
+                call(&ctx, "__platform", "statusJson", ())
+                    .and_then(|v| v.as_string().and_then(|s| s.to_string().ok()))
+            })
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or(J::Null);
         json!({
             "pid": std::process::id(),
             "elapsedSec": st.start.elapsed().as_secs_f64(),

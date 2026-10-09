@@ -1,13 +1,33 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum CdmEvent {
     Initialized(bool),
-    NewSession { promise: u32, sid: String },
+    NewSession {
+        promise: u32,
+        sid: String,
+    },
     Resolve(u32),
-    Reject { promise: u32, exception: u32, system_code: u32, message: String },
-    Message { sid: String, kind: u32, body: Vec<u8> },
-    Keys { sid: String, keys: Vec<(Vec<u8>, u32)> },
-    Expiration { sid: String, expiry: f64 },
-    Closed { sid: String },
+    Reject {
+        promise: u32,
+        exception: u32,
+        system_code: u32,
+        message: String,
+    },
+    Message {
+        sid: String,
+        kind: u32,
+        body: Vec<u8>,
+    },
+    Keys {
+        sid: String,
+        keys: Vec<(Vec<u8>, u32)>,
+    },
+    Expiration {
+        sid: String,
+        expiry: f64,
+    },
+    Closed {
+        sid: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,11 +113,39 @@ mod widevine {
         fn shim_requested_host_version() -> i32;
         fn shim_create(interface_version: i32, callbacks: *const ShimCallbacks) -> *mut c_void;
         fn shim_initialize(handle: *mut c_void);
-        fn shim_set_server_certificate(handle: *mut c_void, promise_id: u32, data: *const u8, size: u32);
-        fn shim_create_session(handle: *mut c_void, promise_id: u32, init_data_type: u32, init_data: *const u8, init_data_size: u32);
-        fn shim_update_session(handle: *mut c_void, promise_id: u32, session_id: *const c_char, session_id_size: u32, response: *const u8, response_size: u32);
-        fn shim_close_session(handle: *mut c_void, promise_id: u32, session_id: *const c_char, session_id_size: u32);
-        fn shim_remove_session(handle: *mut c_void, promise_id: u32, session_id: *const c_char, session_id_size: u32);
+        fn shim_set_server_certificate(
+            handle: *mut c_void,
+            promise_id: u32,
+            data: *const u8,
+            size: u32,
+        );
+        fn shim_create_session(
+            handle: *mut c_void,
+            promise_id: u32,
+            init_data_type: u32,
+            init_data: *const u8,
+            init_data_size: u32,
+        );
+        fn shim_update_session(
+            handle: *mut c_void,
+            promise_id: u32,
+            session_id: *const c_char,
+            session_id_size: u32,
+            response: *const u8,
+            response_size: u32,
+        );
+        fn shim_close_session(
+            handle: *mut c_void,
+            promise_id: u32,
+            session_id: *const c_char,
+            session_id_size: u32,
+        );
+        fn shim_remove_session(
+            handle: *mut c_void,
+            promise_id: u32,
+            session_id: *const c_char,
+            session_id_size: u32,
+        );
         fn shim_decrypt(
             handle: *mut c_void,
             scheme: u32,
@@ -146,35 +194,83 @@ mod widevine {
         sink(ctx).events.push(CdmEvent::Initialized(success));
     }
     extern "C" fn cb_new_session(ctx: *mut c_void, promise: u32, sid: *const c_char, len: u32) {
-        sink(ctx).events.push(CdmEvent::NewSession { promise, sid: text(sid, len) });
+        sink(ctx).events.push(CdmEvent::NewSession {
+            promise,
+            sid: text(sid, len),
+        });
     }
     extern "C" fn cb_resolve(ctx: *mut c_void, promise: u32) {
         sink(ctx).events.push(CdmEvent::Resolve(promise));
     }
-    extern "C" fn cb_reject(ctx: *mut c_void, promise: u32, exception: u32, code: u32, msg: *const c_char, len: u32) {
-        sink(ctx).events.push(CdmEvent::Reject { promise, exception, system_code: code, message: text(msg, len) });
+    extern "C" fn cb_reject(
+        ctx: *mut c_void,
+        promise: u32,
+        exception: u32,
+        code: u32,
+        msg: *const c_char,
+        len: u32,
+    ) {
+        sink(ctx).events.push(CdmEvent::Reject {
+            promise,
+            exception,
+            system_code: code,
+            message: text(msg, len),
+        });
     }
-    extern "C" fn cb_message(ctx: *mut c_void, sid: *const c_char, sid_len: u32, kind: u32, msg: *const c_char, len: u32) {
-        sink(ctx).events.push(CdmEvent::Message { sid: text(sid, sid_len), kind, body: bytes(msg, len).to_vec() });
+    extern "C" fn cb_message(
+        ctx: *mut c_void,
+        sid: *const c_char,
+        sid_len: u32,
+        kind: u32,
+        msg: *const c_char,
+        len: u32,
+    ) {
+        sink(ctx).events.push(CdmEvent::Message {
+            sid: text(sid, sid_len),
+            kind,
+            body: bytes(msg, len).to_vec(),
+        });
     }
-    extern "C" fn cb_key(ctx: *mut c_void, sid: *const c_char, sid_len: u32, kid: *const u8, len: u32, status: u32, _code: u32) {
+    extern "C" fn cb_key(
+        ctx: *mut c_void,
+        sid: *const c_char,
+        sid_len: u32,
+        kid: *const u8,
+        len: u32,
+        status: u32,
+        _code: u32,
+    ) {
         let kid = bytes(kid as *const c_char, len).to_vec();
-        sink(ctx).pending_keys.push((text(sid, sid_len), kid, status));
+        sink(ctx)
+            .pending_keys
+            .push((text(sid, sid_len), kid, status));
     }
     extern "C" fn cb_keys_done(ctx: *mut c_void, sid: *const c_char, sid_len: u32, _has_new: bool) {
         let s = sink(ctx);
         let sid = text(sid, sid_len);
-        let keys: Vec<(Vec<u8>, u32)> = s.pending_keys.drain(..).filter(|k| k.0 == sid).map(|k| (k.1, k.2)).collect();
+        let keys: Vec<(Vec<u8>, u32)> = s
+            .pending_keys
+            .drain(..)
+            .filter(|k| k.0 == sid)
+            .map(|k| (k.1, k.2))
+            .collect();
         s.events.push(CdmEvent::Keys { sid, keys });
     }
     extern "C" fn cb_expiration(ctx: *mut c_void, sid: *const c_char, sid_len: u32, expiry: f64) {
-        sink(ctx).events.push(CdmEvent::Expiration { sid: text(sid, sid_len), expiry });
+        sink(ctx).events.push(CdmEvent::Expiration {
+            sid: text(sid, sid_len),
+            expiry,
+        });
     }
     extern "C" fn cb_closed(ctx: *mut c_void, sid: *const c_char, sid_len: u32) {
-        sink(ctx).events.push(CdmEvent::Closed { sid: text(sid, sid_len) });
+        sink(ctx).events.push(CdmEvent::Closed {
+            sid: text(sid, sid_len),
+        });
     }
     extern "C" fn cb_log(ctx: *mut c_void, msg: *const c_char) {
-        let text = unsafe { CStr::from_ptr(msg) }.to_string_lossy().into_owned();
+        let text = unsafe { CStr::from_ptr(msg) }
+            .to_string_lossy()
+            .into_owned();
         eprintln!("CDM-HOST {text}");
         let logs = &mut sink(ctx).logs;
         if logs.len() < MAX_LOGS {
@@ -196,9 +292,15 @@ mod widevine {
             let mut err = vec![0 as c_char; 512];
             let rc = unsafe { shim_load(lib.as_ptr(), err.as_mut_ptr(), err.len() as u32) };
             if rc != 0 {
-                bail!("loading {} failed rc={rc}: {}", path.display(), unsafe { CStr::from_ptr(err.as_ptr()) }.to_string_lossy());
+                bail!(
+                    "loading {} failed rc={rc}: {}",
+                    path.display(),
+                    unsafe { CStr::from_ptr(err.as_ptr()) }.to_string_lossy()
+                );
             }
-            let version = unsafe { CStr::from_ptr(shim_cdm_version()) }.to_string_lossy().into_owned();
+            let version = unsafe { CStr::from_ptr(shim_cdm_version()) }
+                .to_string_lossy()
+                .into_owned();
             let mut sink = Box::new(Sink::default());
             let callbacks = Box::new(ShimCallbacks {
                 ctx: &mut *sink as *mut Sink as *mut c_void,
@@ -219,23 +321,60 @@ mod widevine {
                 bail!("CreateCdmInstance returned null (host version requested {host_version})");
             }
             unsafe { shim_initialize(handle) };
-            Ok(Box::new(Widevine { handle, sink, _callbacks: callbacks, version, host_version }))
+            Ok(Box::new(Widevine {
+                handle,
+                sink,
+                _callbacks: callbacks,
+                version,
+                host_version,
+            }))
         }
 
-        fn session_call(&mut self, f: unsafe extern "C" fn(*mut c_void, u32, *const c_char, u32), promise: u32, sid: &str) {
-            unsafe { f(self.handle, promise, sid.as_ptr() as *const c_char, sid.len() as u32) };
+        fn session_call(
+            &mut self,
+            f: unsafe extern "C" fn(*mut c_void, u32, *const c_char, u32),
+            promise: u32,
+            sid: &str,
+        ) {
+            unsafe {
+                f(
+                    self.handle,
+                    promise,
+                    sid.as_ptr() as *const c_char,
+                    sid.len() as u32,
+                )
+            };
         }
     }
 
     impl CdmBackend for Widevine {
         fn set_server_certificate(&mut self, promise: u32, cert: &[u8]) {
-            unsafe { shim_set_server_certificate(self.handle, promise, cert.as_ptr(), cert.len() as u32) };
+            unsafe {
+                shim_set_server_certificate(self.handle, promise, cert.as_ptr(), cert.len() as u32)
+            };
         }
         fn create_session(&mut self, promise: u32, init_data_type: u32, init: &[u8]) {
-            unsafe { shim_create_session(self.handle, promise, init_data_type, init.as_ptr(), init.len() as u32) };
+            unsafe {
+                shim_create_session(
+                    self.handle,
+                    promise,
+                    init_data_type,
+                    init.as_ptr(),
+                    init.len() as u32,
+                )
+            };
         }
         fn update_session(&mut self, promise: u32, sid: &str, response: &[u8]) {
-            unsafe { shim_update_session(self.handle, promise, sid.as_ptr() as *const c_char, sid.len() as u32, response.as_ptr(), response.len() as u32) };
+            unsafe {
+                shim_update_session(
+                    self.handle,
+                    promise,
+                    sid.as_ptr() as *const c_char,
+                    sid.len() as u32,
+                    response.as_ptr(),
+                    response.len() as u32,
+                )
+            };
         }
         fn close_session(&mut self, promise: u32, sid: &str) {
             self.session_call(shim_close_session, promise, sid);

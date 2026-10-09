@@ -40,7 +40,17 @@ pub struct AppendResult {
 
 impl SourceBufferNative {
     pub fn new(mime: String, quota: usize) -> Self {
-        SourceBufferNative { mime, pending: Vec::new(), init: None, frames: BTreeMap::new(), init_data: None, appended_bytes: 0, bytes: 0, evicted_frames: 0, quota }
+        SourceBufferNative {
+            mime,
+            pending: Vec::new(),
+            init: None,
+            frames: BTreeMap::new(),
+            init_data: None,
+            appended_bytes: 0,
+            bytes: 0,
+            evicted_frames: 0,
+            quota,
+        }
     }
 
     pub fn abort(&mut self) {
@@ -75,7 +85,9 @@ impl SourceBufferNative {
         let mut cut = None;
         let mut freed = 0usize;
         for f in self.frames.values() {
-            if f.end_us() > limit || self.bytes - freed + self.pending.len() + incoming <= self.quota {
+            if f.end_us() > limit
+                || self.bytes - freed + self.pending.len() + incoming <= self.quota
+            {
                 break;
             }
             freed += f.data.len();
@@ -94,7 +106,10 @@ impl SourceBufferNative {
         let buf = std::mem::take(&mut self.pending);
         let tops = mp4::boxes(&buf, 0, complete);
         let mut consumed = 0usize;
-        let mut result = AppendResult { init_segment: false, media_frames: 0 };
+        let mut result = AppendResult {
+            init_segment: false,
+            media_frames: 0,
+        };
         let offset_us = (ts_offset * 1e6).round() as i64;
         let mut i = 0;
         while i < tops.len() {
@@ -115,15 +130,27 @@ impl SourceBufferNative {
                     i += 1;
                     continue;
                 };
-                let init = self.init.as_ref().ok_or_else(|| anyhow!("media segment before init segment"))?;
+                let init = self
+                    .init
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("media segment before init segment"))?;
                 let ts = init.timescale;
                 let samples = mp4::parse_fragment(&buf, b, init)?;
                 if let (Some(first), Some(last)) = (samples.first(), samples.last()) {
-                    self.remove_us(mp4::ticks_to_us(first.dts, ts).saturating_add(offset_us), mp4::ticks_to_us(last.dts.wrapping_add(last.dur as i64), ts).saturating_add(offset_us));
+                    self.remove_us(
+                        mp4::ticks_to_us(first.dts, ts).saturating_add(offset_us),
+                        mp4::ticks_to_us(last.dts.wrapping_add(last.dur as i64), ts)
+                            .saturating_add(offset_us),
+                    );
                 }
                 for s in samples {
                     let pts_us = mp4::ticks_to_us(s.dts, ts).saturating_add(offset_us);
-                    self.insert(Frame { pts_us, dur_us: mp4::ticks_to_us(s.dur as i64, ts), data: s.data, enc: s.enc });
+                    self.insert(Frame {
+                        pts_us,
+                        dur_us: mp4::ticks_to_us(s.dur as i64, ts),
+                        data: s.data,
+                        enc: s.enc,
+                    });
                     result.media_frames += 1;
                 }
                 consumed = mdat.end;
@@ -138,7 +165,11 @@ impl SourceBufferNative {
     }
 
     pub fn remove(&mut self, start: f64, end: f64) {
-        let e = if end.is_finite() { (end * 1e6) as i64 } else { i64::MAX };
+        let e = if end.is_finite() {
+            (end * 1e6) as i64
+        } else {
+            i64::MAX
+        };
         self.remove_us((start * 1e6) as i64, e);
     }
 
@@ -146,7 +177,9 @@ impl SourceBufferNative {
         let mut out: Vec<(i64, i64)> = Vec::new();
         for f in self.frames.values() {
             match out.last_mut() {
-                Some(last) if f.pts_us.saturating_sub(last.1) <= RANGE_GAP_US => last.1 = last.1.max(f.end_us()),
+                Some(last) if f.pts_us.saturating_sub(last.1) <= RANGE_GAP_US => {
+                    last.1 = last.1.max(f.end_us())
+                }
                 _ => out.push((f.pts_us, f.end_us())),
             }
         }
@@ -154,7 +187,10 @@ impl SourceBufferNative {
     }
 
     pub fn buffered(&self) -> Vec<(f64, f64)> {
-        self.buffered_us().into_iter().map(|(a, b)| (a as f64 / 1e6, b as f64 / 1e6)).collect()
+        self.buffered_us()
+            .into_iter()
+            .map(|(a, b)| (a as f64 / 1e6, b as f64 / 1e6))
+            .collect()
     }
 
     pub fn end_us(&self) -> Option<i64> {

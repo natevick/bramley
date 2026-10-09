@@ -130,7 +130,10 @@ impl MediaEngine {
     }
 
     pub fn output_position(&self) -> Option<f64> {
-        self.sink.as_ref().and_then(|s| s.output_position_us()).map(|p| p as f64 / 1e6)
+        self.sink
+            .as_ref()
+            .and_then(|s| s.output_position_us())
+            .map(|p| p as f64 / 1e6)
     }
 
     fn anchor(&mut self, position_us: i64, keep_queued: bool) {
@@ -264,18 +267,37 @@ impl MediaEngine {
         }
     }
 
-    fn computed_ready_state(&self, sbs: &HashMap<u32, SourceBufferNative>, ms: &MediaSourceNative) -> u8 {
-        if ms.sbs.is_empty() || !ms.sbs.iter().all(|id| sbs.get(id).is_some_and(|s| s.init.is_some())) {
+    fn computed_ready_state(
+        &self,
+        sbs: &HashMap<u32, SourceBufferNative>,
+        ms: &MediaSourceNative,
+    ) -> u8 {
+        if ms.sbs.is_empty()
+            || !ms
+                .sbs
+                .iter()
+                .all(|id| sbs.get(id).is_some_and(|s| s.init.is_some()))
+        {
             return HAVE_NOTHING;
         }
         if self.seeking {
             return HAVE_METADATA;
         }
         let t = self.current_time_us();
-        let duration_us = if ms.duration.is_finite() { (ms.duration * 1e6) as i64 } else { i64::MAX };
+        let duration_us = if ms.duration.is_finite() {
+            (ms.duration * 1e6) as i64
+        } else {
+            i64::MAX
+        };
         let mut ahead = i64::MAX;
         for sb in ms.sbs.iter().filter_map(|id| sbs.get(id)) {
-            let Some((_, end)) = sb.buffered_us().into_iter().find(|(s, e)| t >= s - GAP_US && t <= *e) else { return HAVE_METADATA };
+            let Some((_, end)) = sb
+                .buffered_us()
+                .into_iter()
+                .find(|(s, e)| t >= s - GAP_US && t <= *e)
+            else {
+                return HAVE_METADATA;
+            };
             let reaches_end = ms.ended && end >= duration_us.saturating_sub(END_SLACK_US);
             ahead = ahead.min(if reaches_end { i64::MAX } else { end - t });
         }
@@ -287,7 +309,9 @@ impl MediaEngine {
     }
 
     fn at_stream_end(&self, sb: &SourceBufferNative) -> bool {
-        let Some(end_us) = sb.end_us() else { return false };
+        let Some(end_us) = sb.end_us() else {
+            return false;
+        };
         self.cursor_us >= end_us - 1_000 && self.current_time_us() >= self.sent_end_us
     }
 
@@ -310,15 +334,28 @@ impl MediaEngine {
 
     fn try_complete_seek(&mut self, sb: &SourceBufferNative, ms: &MediaSourceNative, now: Instant) {
         let mut t = self.position_us;
-        let in_range = sb.buffered_us().iter().any(|(s, e)| t >= s - GAP_US && t < *e);
+        let in_range = sb
+            .buffered_us()
+            .iter()
+            .any(|(s, e)| t >= s - GAP_US && t < *e);
         let past_end = ms.ended && sb.end_us().is_some_and(|e| t >= e - GAP_US);
         if !in_range && !past_end {
             return;
         }
-        let at = sb.frames.range(..=t).next_back().map(|(_, f)| f).or_else(|| sb.frames.values().next());
+        let at = sb
+            .frames
+            .range(..=t)
+            .next_back()
+            .map(|(_, f)| f)
+            .or_else(|| sb.frames.values().next());
         if let Some(f) = at {
             t = t.max(f.pts_us);
-            let preroll = sb.frames.range(..f.pts_us).next_back().map(|(_, p)| p).filter(|p| f.pts_us - p.end_us() <= GAP_US);
+            let preroll = sb
+                .frames
+                .range(..f.pts_us)
+                .next_back()
+                .map(|(_, p)| p)
+                .filter(|p| f.pts_us - p.end_us() <= GAP_US);
             self.cursor_us = preroll.unwrap_or(f).pts_us;
         }
         self.skip_until_us = t;
@@ -330,12 +367,28 @@ impl MediaEngine {
     }
 
     fn ensure_decoder(&mut self, init: &TrackInit) -> Result<()> {
-        if self.decoder.as_ref().is_some_and(|(asc, _)| asc == &init.asc) {
+        if self
+            .decoder
+            .as_ref()
+            .is_some_and(|(asc, _)| asc == &init.asc)
+        {
             return Ok(());
         }
-        let ch = if init.channels == 1 { Channels::FRONT_LEFT } else { Channels::FRONT_LEFT | Channels::FRONT_RIGHT };
+        let ch = if init.channels == 1 {
+            Channels::FRONT_LEFT
+        } else {
+            Channels::FRONT_LEFT | Channels::FRONT_RIGHT
+        };
         let mut params = CodecParameters::new();
-        params.for_codec(CODEC_TYPE_AAC).with_sample_rate(if init.sample_rate > 0 { init.sample_rate } else { 44100 }).with_channels(ch).with_extra_data(init.asc.clone().into_boxed_slice());
+        params
+            .for_codec(CODEC_TYPE_AAC)
+            .with_sample_rate(if init.sample_rate > 0 {
+                init.sample_rate
+            } else {
+                44100
+            })
+            .with_channels(ch)
+            .with_extra_data(init.asc.clone().into_boxed_slice());
         let dec = symphonia::default::get_codecs().make(&params, &DecoderOptions::default())?;
         self.decoder = Some((init.asc.clone(), dec));
         Ok(())
@@ -349,8 +402,15 @@ impl MediaEngine {
         }
     }
 
-    fn decrypt(&mut self, frame: &Frame, init: &TrackInit, cdms: &mut HashMap<u32, Box<dyn CdmBackend>>) -> Option<Decrypted> {
-        let (Some(enc), Some(prot)) = (&frame.enc, &init.protection) else { return Some(Decrypted::Ok) };
+    fn decrypt(
+        &mut self,
+        frame: &Frame,
+        init: &TrackInit,
+        cdms: &mut HashMap<u32, Box<dyn CdmBackend>>,
+    ) -> Option<Decrypted> {
+        let (Some(enc), Some(prot)) = (&frame.enc, &init.protection) else {
+            return Some(Decrypted::Ok);
+        };
         let cdm = self.keys_id.and_then(|id| cdms.get_mut(&id))?;
         let mut iv = [0u8; 16];
         let n = enc.iv.len().min(16);
@@ -367,7 +427,11 @@ impl MediaEngine {
         Some(cdm.decrypt(&sample, &mut self.out_buf))
     }
 
-    fn decode_ahead(&mut self, sb: &SourceBufferNative, cdms: &mut HashMap<u32, Box<dyn CdmBackend>>) {
+    fn decode_ahead(
+        &mut self,
+        sb: &SourceBufferNative,
+        cdms: &mut HashMap<u32, Box<dyn CdmBackend>>,
+    ) {
         let Some(init) = sb.init.as_ref() else { return };
         if self.ensure_decoder(init).is_err() {
             return;
@@ -378,7 +442,14 @@ impl MediaEngine {
             self.sink = Some(s);
         }
         while self.sent_end_us - self.current_time_us() < DECODE_AHEAD_US {
-            let Some(frame) = sb.frames.range(self.cursor_us - 2_000..).next().map(|(_, f)| f) else { break };
+            let Some(frame) = sb
+                .frames
+                .range(self.cursor_us - 2_000..)
+                .next()
+                .map(|(_, f)| f)
+            else {
+                break;
+            };
             if frame.pts_us - self.cursor_us > 100_000 {
                 break;
             }
@@ -401,7 +472,11 @@ impl MediaEngine {
             } else {
                 self.counters.clear_samples += 1;
             }
-            let payload: &[u8] = if encrypted { &self.out_buf } else { &frame.data };
+            let payload: &[u8] = if encrypted {
+                &self.out_buf
+            } else {
+                &frame.data
+            };
             let packet = Packet::new_from_slice(0, frame.pts_us as u64, 1024, payload);
             let decoded = self.decoder.as_mut().map(|(_, d)| {
                 d.decode(&packet).map(|buf| {
@@ -415,8 +490,18 @@ impl MediaEngine {
             self.cursor_us = frame.end_us();
             match decoded {
                 Some(Ok((spec, frames, pcm))) => {
-                    let frames = frames.min((frame.dur_us as i128 * spec.rate as i128 + 500_000).div_euclid(1_000_000) as usize);
-                    self.send(frame.pts_us, spec.rate, spec.channels.count() as u16, frames, pcm.samples(), encrypted)
+                    let frames = frames.min(
+                        (frame.dur_us as i128 * spec.rate as i128 + 500_000).div_euclid(1_000_000)
+                            as usize,
+                    );
+                    self.send(
+                        frame.pts_us,
+                        spec.rate,
+                        spec.channels.count() as u16,
+                        frames,
+                        pcm.samples(),
+                        encrypted,
+                    )
                 }
                 Some(Err(e)) => {
                     self.counters.decode_err += 1;
@@ -429,14 +514,26 @@ impl MediaEngine {
         }
     }
 
-    fn send(&mut self, pts_us: i64, rate: u32, channels: u16, frames: usize, samples: &[i16], encrypted: bool) {
+    fn send(
+        &mut self,
+        pts_us: i64,
+        rate: u32,
+        channels: u16,
+        frames: usize,
+        samples: &[i16],
+        encrypted: bool,
+    ) {
         self.rate = rate;
         self.channels = channels;
         let end_us = pts_us + frames_to_us(frames as u64, rate);
         if end_us <= self.skip_until_us {
             return;
         }
-        let skip = if self.skip_until_us > pts_us { ((self.skip_until_us - pts_us) as i128 * rate as i128 / 1_000_000) as usize } else { 0 };
+        let skip = if self.skip_until_us > pts_us {
+            ((self.skip_until_us - pts_us) as i128 * rate as i128 / 1_000_000) as usize
+        } else {
+            0
+        };
         let skip = skip.min(frames);
         let start_us = pts_us.max(self.skip_until_us);
         self.skip_until_us = i64::MIN;
@@ -453,15 +550,33 @@ impl MediaEngine {
         self.sent_since_anchor = true;
         self.sent_end_us = end_us;
         if let Some(s) = self.sink.as_mut() {
-            s.write(start_us, rate, channels, samples[skip * channels as usize..frames * channels as usize].to_vec());
+            s.write(
+                start_us,
+                rate,
+                channels,
+                samples[skip * channels as usize..frames * channels as usize].to_vec(),
+            );
         }
     }
 
-    pub fn pump(&mut self, now: Instant, sbs: &HashMap<u32, SourceBufferNative>, mses: &HashMap<u32, MediaSourceNative>, cdms: &mut HashMap<u32, Box<dyn CdmBackend>>) {
-        let Some(ms) = self.ms_id.and_then(|id| mses.get(&id)) else { return };
+    pub fn pump(
+        &mut self,
+        now: Instant,
+        sbs: &HashMap<u32, SourceBufferNative>,
+        mses: &HashMap<u32, MediaSourceNative>,
+        cdms: &mut HashMap<u32, Box<dyn CdmBackend>>,
+    ) {
+        let Some(ms) = self.ms_id.and_then(|id| mses.get(&id)) else {
+            return;
+        };
         let sb = ms.sbs.first().and_then(|id| sbs.get(id));
         if let Some(sb) = sb {
-            if ms.ended && !self.seeking && !self.paused && self.ready_state >= HAVE_CURRENT_DATA && self.at_stream_end(sb) {
+            if ms.ended
+                && !self.seeking
+                && !self.paused
+                && self.ready_state >= HAVE_CURRENT_DATA
+                && self.at_stream_end(sb)
+            {
                 self.reach_end();
                 return;
             }
@@ -472,12 +587,19 @@ impl MediaEngine {
         let rs = self.computed_ready_state(sbs, ms);
         self.set_ready_state(rs);
         let Some(sb) = sb else { return };
-        if self.paused || self.seeking || self.ready_state < HAVE_FUTURE_DATA && !(ms.ended && self.ready_state >= HAVE_CURRENT_DATA) {
+        if self.paused
+            || self.seeking
+            || self.ready_state < HAVE_FUTURE_DATA
+                && !(ms.ended && self.ready_state >= HAVE_CURRENT_DATA)
+        {
             return;
         }
         self.decode_ahead(sb, cdms);
         self.max_current_time_us = self.max_current_time_us.max(self.current_time_us());
-        if self.last_timeupdate.is_none_or(|t| now.duration_since(t) >= TIMEUPDATE_INTERVAL) {
+        if self
+            .last_timeupdate
+            .is_none_or(|t| now.duration_since(t) >= TIMEUPDATE_INTERVAL)
+        {
             self.last_timeupdate = Some(now);
             self.emit("timeupdate");
         }

@@ -4,6 +4,11 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_FAMILY").as_deref() != Ok("unix") {
         return;
     }
-    cc::Build::new().cpp(true).std("c++17").file("src/shim.cc").warnings(true).compile("cdmshim");
+    cc::Build::new()
+        .cpp(true)
+        .std("c++17")
+        .file("src/shim.cc")
+        .warnings(true)
+        .compile("cdmshim");
     println!("cargo:rustc-link-lib=dl");
 }

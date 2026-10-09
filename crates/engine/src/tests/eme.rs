@@ -38,7 +38,10 @@ fn run(e: &mut Engine, script: &str) -> Value {
         }
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
-    panic!("script never finished; log = {}", e.eval_json("log").unwrap());
+    panic!(
+        "script never finished; log = {}",
+        e.eval_json("log").unwrap()
+    );
 }
 
 const SESSION_FLOW: &str = r#"
@@ -60,7 +63,18 @@ const SESSION_FLOW: &str = r#"
 fn session_lifecycle_orders_promises_and_events() {
     for message_first in [false, true] {
         let (mut e, _) = engine(message_first);
-        assert_eq!(run(&mut e, SESSION_FLOW), json!(["generated:s1", "message:license-request:9", "updated", "keys:usable", "closed:0", "keys:"]), "message_first={message_first}");
+        assert_eq!(
+            run(&mut e, SESSION_FLOW),
+            json!([
+                "generated:s1",
+                "message:license-request:9",
+                "updated",
+                "keys:usable",
+                "closed:0",
+                "keys:"
+            ]),
+            "message_first={message_first}"
+        );
     }
 }
 
@@ -106,7 +120,13 @@ fn session_methods_enforce_the_eme_state_machine() {
 fn key_system_access_grants_only_audio_widevine_temporary_sessions() {
     let audio = r#"[{"audioCapabilities":[{"contentType":"audio/mp4; codecs=\"mp4a.40.2\""}]}]"#;
     let granted = eme_check("com.widevine.alpha", audio).unwrap();
-    assert_eq!((granted["persistentState"].as_str(), granted["sessionTypes"].clone()), (Some("not-allowed"), json!(["temporary"])));
+    assert_eq!(
+        (
+            granted["persistentState"].as_str(),
+            granted["sessionTypes"].clone()
+        ),
+        (Some("not-allowed"), json!(["temporary"]))
+    );
     assert!(eme_check("org.w3.clearkey", audio).is_none());
     assert!(
         eme_check("com.widevine.alpha", r#"[{"videoCapabilities":[{"contentType":"video/mp4; codecs=\"avc1.42E01E\""}],"audioCapabilities":[{"contentType":"audio/mp4; codecs=\"mp4a.40.2\""}]}]"#)
@@ -158,12 +178,28 @@ fn media_element_play_promise_volume_and_seek_reach_native() {
         "#,
         ),
     );
-    let log: Vec<&str> = log.as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
+    let log: Vec<&str> = log
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
     let playing = log.iter().position(|x| *x == "playing").unwrap();
-    assert!(log.iter().position(|x| *x == "play-resolved").unwrap() > playing, "{log:?}");
+    assert!(
+        log.iter().position(|x| *x == "play-resolved").unwrap() > playing,
+        "{log:?}"
+    );
     assert_eq!(log.iter().filter(|x| **x == "volumechange").count(), 1);
-    let after_play: Vec<&str> = log[playing..].iter().copied().filter(|x| ["seeking", "waiting", "seeked", "at:2"].contains(x)).collect();
-    assert_eq!(after_play, ["seeking", "waiting", "seeked", "at:2"], "{log:?}");
+    let after_play: Vec<&str> = log[playing..]
+        .iter()
+        .copied()
+        .filter(|x| ["seeking", "waiting", "seeked", "at:2"].contains(x))
+        .collect();
+    assert_eq!(
+        after_play,
+        ["seeking", "waiting", "seeked", "at:2"],
+        "{log:?}"
+    );
     assert_eq!(sink.state().gain, 0.5);
 }
 
@@ -184,7 +220,22 @@ fn media_element_relays_abort_range_and_index_errors() {
         "#,
         ),
     );
-    let log: Vec<&str> = log.as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
-    assert_eq!(log[..5], ["play", "waiting", "pause", "play-then-pause:AbortError", "volume:IndexSizeError"], "{log:?}");
+    let log: Vec<&str> = log
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    assert_eq!(
+        log[..5],
+        [
+            "play",
+            "waiting",
+            "pause",
+            "play-then-pause:AbortError",
+            "volume:IndexSizeError"
+        ],
+        "{log:?}"
+    );
     assert!(log.contains(&"remove:TypeError"));
 }

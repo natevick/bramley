@@ -21,16 +21,26 @@ pub struct EngineConfig {
 impl EngineConfig {
     pub fn default_cdm_path() -> PathBuf {
         if cfg!(target_os = "linux") {
-            PathBuf::from("/opt/google/chrome/WidevineCdm/_platform_specific/linux_x64/libwidevinecdm.so")
+            PathBuf::from(
+                "/opt/google/chrome/WidevineCdm/_platform_specific/linux_x64/libwidevinecdm.so",
+            )
         } else {
-            PathBuf::from(format!("{}widevinecdm{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX))
+            PathBuf::from(format!(
+                "{}widevinecdm{}",
+                std::env::consts::DLL_PREFIX,
+                std::env::consts::DLL_SUFFIX
+            ))
         }
     }
 }
 
 impl Default for EngineConfig {
     fn default() -> Self {
-        EngineConfig { cdm_path: Self::default_cdm_path(), audio_sink_name: "engine".into(), output_device: None }
+        EngineConfig {
+            cdm_path: Self::default_cdm_path(),
+            audio_sink_name: "engine".into(),
+            output_device: None,
+        }
     }
 }
 

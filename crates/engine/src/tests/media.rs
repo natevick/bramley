@@ -35,12 +35,31 @@ impl Rig {
         for seg in &media[..segments] {
             sb.append(seg, 0.0).unwrap();
         }
-        let duration = if ended { sb.end_us().unwrap() as f64 / 1e6 } else { f64::NAN };
+        let duration = if ended {
+            sb.end_us().unwrap() as f64 / 1e6
+        } else {
+            f64::NAN
+        };
         let cdm = FakeCdm::default();
         let mut cdms: HashMap<u32, Box<dyn CdmBackend>> = HashMap::new();
         cdms.insert(KEYS, Box::new(cdm.clone()));
         m.attach(MS);
-        Rig { m, sink, cdm, sbs: HashMap::from([(SB, sb)]), mses: HashMap::from([(MS, MediaSourceNative { duration, ended, sbs: vec![SB] })]), cdms, now: Instant::now() }
+        Rig {
+            m,
+            sink,
+            cdm,
+            sbs: HashMap::from([(SB, sb)]),
+            mses: HashMap::from([(
+                MS,
+                MediaSourceNative {
+                    duration,
+                    ended,
+                    sbs: vec![SB],
+                },
+            )]),
+            cdms,
+            now: Instant::now(),
+        }
     }
 
     fn pump(&mut self) -> Vec<&'static str> {
@@ -79,7 +98,10 @@ fn near(a: f64, b: f64, tol: f64) -> bool {
 #[test]
 fn readiness_events_follow_spec_order_while_paused() {
     let mut r = Rig::new(5, false);
-    assert_eq!(r.pump(), ["loadedmetadata", "loadeddata", "canplay", "canplaythrough"]);
+    assert_eq!(
+        r.pump(),
+        ["loadedmetadata", "loadeddata", "canplay", "canplaythrough"]
+    );
     assert_eq!(r.m.ready_state, 4);
     r.pump();
     assert!(r.sink.state().writes.is_empty());
@@ -95,7 +117,16 @@ fn play_before_data_waits_then_fires_playing() {
     for seg in &media {
         r.sb().append(seg, 0.0).unwrap();
     }
-    assert_eq!(r.pump(), ["loadeddata", "canplay", "playing", "canplaythrough", "timeupdate"]);
+    assert_eq!(
+        r.pump(),
+        [
+            "loadeddata",
+            "canplay",
+            "playing",
+            "canplaythrough",
+            "timeupdate"
+        ]
+    );
 }
 
 #[test]
@@ -160,7 +191,10 @@ fn seek_while_playing_reports_waiting_then_playing() {
     r.take();
     r.m.seek(1_000_000);
     assert_eq!(r.take(), ["seeking", "timeupdate", "waiting"]);
-    assert_eq!(r.pump()[..4], ["timeupdate", "seeked", "canplay", "playing"]);
+    assert_eq!(
+        r.pump()[..4],
+        ["timeupdate", "seeked", "canplay", "playing"]
+    );
 }
 
 #[test]
@@ -191,7 +225,11 @@ fn end_of_stream_fires_timeupdate_pause_ended_and_play_restarts() {
     assert_eq!(events[events.len() - 3..], ["timeupdate", "pause", "ended"]);
     assert!(r.m.ended && r.m.paused && r.sink.state().paused);
     let end = r.sbs[&SB].end_us().unwrap() as f64 / 1e6;
-    assert!(near(r.m.current_time(), end, 0.03), "{} vs {end}", r.m.current_time());
+    assert!(
+        near(r.m.current_time(), end, 0.03),
+        "{} vs {end}",
+        r.m.current_time()
+    );
     assert!(r.play_for(0.2).is_empty());
     r.m.play();
     assert_eq!(r.take(), ["play", "seeking", "timeupdate", "waiting"]);
@@ -216,7 +254,10 @@ fn running_out_of_data_mid_stream_fires_timeupdate_then_waiting() {
     let mut r = Rig::new(2, false);
     r.m.play();
     let events = r.play_for(2.5);
-    assert!(events.windows(2).any(|w| w == ["timeupdate", "waiting"]), "{events:?}");
+    assert!(
+        events.windows(2).any(|w| w == ["timeupdate", "waiting"]),
+        "{events:?}"
+    );
     assert_eq!(r.m.counters.underruns, 1);
     assert!(r.m.current_time() <= r.sbs[&SB].end_us().unwrap() as f64 / 1e6);
 }
@@ -259,10 +300,18 @@ fn apply_gain_scales_and_clamps_pcm() {
 fn encrypted_frames_wait_for_a_key_without_skipping_audio() {
     let mut r = Rig::new(5, false);
     let sb = r.sb();
-    sb.init.as_mut().unwrap().protection = Some(Protection { scheme: "cenc".into(), kid: KID.to_vec(), iv_size: 8, ..Default::default() });
+    sb.init.as_mut().unwrap().protection = Some(Protection {
+        scheme: "cenc".into(),
+        kid: KID.to_vec(),
+        iv_size: 8,
+        ..Default::default()
+    });
     for f in sb.frames.values_mut() {
         f.data.iter_mut().for_each(|b| *b ^= XOR_KEY);
-        f.enc = Some(SampleEnc { iv: vec![1; 8], subsamples: vec![] });
+        f.enc = Some(SampleEnc {
+            iv: vec![1; 8],
+            subsamples: vec![],
+        });
     }
     let first_pts = *sb.frames.keys().next().unwrap();
     r.m.set_keys(Some(KEYS));
@@ -273,7 +322,11 @@ fn encrypted_frames_wait_for_a_key_without_skipping_audio() {
     r.cdm.0.borrow_mut().has_key = true;
     r.play_for(0.3);
     assert_eq!(r.first_write_after(0), first_pts);
-    assert!(!r.m.waiting_for_key && r.m.counters.decode_err == 0 && r.m.counters.decoded_decrypted_frames > 0);
+    assert!(
+        !r.m.waiting_for_key
+            && r.m.counters.decode_err == 0
+            && r.m.counters.decoded_decrypted_frames > 0
+    );
     assert!(r.cdm.0.borrow().decrypts > 0);
 }
 
@@ -290,5 +343,13 @@ fn seeking_before_metadata_sets_the_start_position_without_events() {
 #[test]
 fn cdm_status_two_is_no_key_and_other_failures_are_distinct() {
     use crate::cdm::Decrypted;
-    assert_eq!([0, 1, 2, 4].map(Decrypted::from_status), [Decrypted::Ok, Decrypted::Failed(1), Decrypted::NoKey, Decrypted::Failed(4)]);
+    assert_eq!(
+        [0, 1, 2, 4].map(Decrypted::from_status),
+        [
+            Decrypted::Ok,
+            Decrypted::Failed(1),
+            Decrypted::NoKey,
+            Decrypted::Failed(4)
+        ]
+    );
 }

@@ -1,13 +1,18 @@
 use anyhow::{Result, anyhow, bail};
 
 fn bytes<const N: usize>(b: &[u8], o: usize) -> Result<[u8; N]> {
-    o.checked_add(N).and_then(|e| b.get(o..e)).and_then(|s| s.try_into().ok()).ok_or_else(|| anyhow!("truncated box at {o}"))
+    o.checked_add(N)
+        .and_then(|e| b.get(o..e))
+        .and_then(|s| s.try_into().ok())
+        .ok_or_else(|| anyhow!("truncated box at {o}"))
 }
 fn byte(b: &[u8], o: usize) -> Result<u8> {
     Ok(bytes::<1>(b, o)?[0])
 }
 fn slice(b: &[u8], o: usize, len: usize) -> Result<&[u8]> {
-    o.checked_add(len).and_then(|e| b.get(o..e)).ok_or_else(|| anyhow!("truncated box at {o}"))
+    o.checked_add(len)
+        .and_then(|e| b.get(o..e))
+        .ok_or_else(|| anyhow!("truncated box at {o}"))
 }
 pub fn be16(b: &[u8], o: usize) -> Result<u16> {
     Ok(u16::from_be_bytes(bytes(b, o)?))
@@ -53,9 +58,16 @@ pub fn boxes(b: &[u8], start: usize, end: usize) -> Vec<BoxRef> {
     let mut out = Vec::new();
     let mut off = start;
     while off + 8 <= end {
-        let Some((size, hdr)) = box_size(b, off, end) else { break };
+        let Some((size, hdr)) = box_size(b, off, end) else {
+            break;
+        };
         let typ: [u8; 4] = b[off + 4..off + 8].try_into().unwrap();
-        out.push(BoxRef { typ, start: off, body: off + hdr, end: off + size });
+        out.push(BoxRef {
+            typ,
+            start: off,
+            body: off + hdr,
+            end: off + size,
+        });
         off += size;
     }
     out
@@ -67,7 +79,9 @@ pub fn complete_top_level(b: &[u8]) -> usize {
         if be32(b, off).ok() == Some(0) {
             break;
         }
-        let Some((size, _)) = box_size(b, off, b.len()) else { break };
+        let Some((size, _)) = box_size(b, off, b.len()) else {
+            break;
+        };
         off += size;
     }
     off
@@ -169,7 +183,11 @@ pub fn parse_init(b: &[u8], moov: &BoxRef) -> Result<TrackInit> {
         }
     }
     if let Some(mvhd) = find(b, moov.body, moov.end, &["mvhd"]) {
-        let (ts, dur) = if byte(b, mvhd.body)? == 1 { (be32(b, mvhd.body + 20)?, be64(b, mvhd.body + 24)?) } else { (be32(b, mvhd.body + 12)?, be32(b, mvhd.body + 16)? as u64) };
+        let (ts, dur) = if byte(b, mvhd.body)? == 1 {
+            (be32(b, mvhd.body + 20)?, be64(b, mvhd.body + 24)?)
+        } else {
+            (be32(b, mvhd.body + 12)?, be32(b, mvhd.body + 16)? as u64)
+        };
         if ts > 0 && dur > 0 && dur != u32::MAX as u64 && dur != u64::MAX {
             t.duration_secs = Some(dur as f64 / ts as f64);
         }
@@ -184,9 +202,13 @@ pub fn parse_init(b: &[u8], moov: &BoxRef) -> Result<TrackInit> {
     }
     let mdhd = find(b, trak.body, trak.end, &["mdia", "mdhd"]).ok_or_else(|| anyhow!("no mdhd"))?;
     t.timescale = versioned32(b, mdhd.body, 12, 20)?;
-    let stsd = find(b, trak.body, trak.end, &["mdia", "minf", "stbl", "stsd"]).ok_or_else(|| anyhow!("no stsd"))?;
+    let stsd = find(b, trak.body, trak.end, &["mdia", "minf", "stbl", "stsd"])
+        .ok_or_else(|| anyhow!("no stsd"))?;
     let entries = boxes(b, stsd.body + 8, stsd.end);
-    let entry = entries.iter().find(|e| e.is("enca") || e.is("mp4a")).ok_or_else(|| anyhow!("no mp4a/enca sample entry"))?;
+    let entry = entries
+        .iter()
+        .find(|e| e.is("enca") || e.is("mp4a"))
+        .ok_or_else(|| anyhow!("no mp4a/enca sample entry"))?;
     t.channels = be16(b, entry.body + 16)?;
     t.sample_rate = be32(b, entry.body + 24)? >> 16;
     let inner = entry.body + 28;
@@ -194,12 +216,17 @@ pub fn parse_init(b: &[u8], moov: &BoxRef) -> Result<TrackInit> {
     t.asc = asc_from_esds(b, esds.body, esds.end)?;
     t.codec = format!("mp4a.40.{}", t.asc.first().map(|x| x >> 3).unwrap_or(2));
     if entry.is("enca") {
-        let sinf = find(b, inner, entry.end, &["sinf"]).ok_or_else(|| anyhow!("enca without sinf"))?;
-        let mut p = Protection { scheme: "cenc".into(), ..Default::default() };
+        let sinf =
+            find(b, inner, entry.end, &["sinf"]).ok_or_else(|| anyhow!("enca without sinf"))?;
+        let mut p = Protection {
+            scheme: "cenc".into(),
+            ..Default::default()
+        };
         if let Some(schm) = find(b, sinf.body, sinf.end, &["schm"]) {
             p.scheme = String::from_utf8_lossy(slice(b, schm.body + 4, 4)?).into_owned();
         }
-        let tenc = find(b, sinf.body, sinf.end, &["schi", "tenc"]).ok_or_else(|| anyhow!("no tenc"))?;
+        let tenc =
+            find(b, sinf.body, sinf.end, &["schi", "tenc"]).ok_or_else(|| anyhow!("no tenc"))?;
         if byte(b, tenc.body)? >= 1 {
             let pat = byte(b, tenc.body + 5)?;
             p.crypt = (pat >> 4) as u32;
@@ -269,7 +296,10 @@ fn parse_senc(b: &[u8], x: &BoxRef, iv_size: usize) -> Result<Vec<SampleEnc>> {
 pub fn parse_fragment(b: &[u8], moof: &BoxRef, track: &TrackInit) -> Result<Vec<Sample>> {
     let mut out = Vec::new();
     let protection = track.protection.as_ref();
-    for traf in boxes(b, moof.body, moof.end).into_iter().filter(|x| x.is("traf")) {
+    for traf in boxes(b, moof.body, moof.end)
+        .into_iter()
+        .filter(|x| x.is("traf"))
+    {
         let mut default_size = track.default_size;
         let mut default_dur = track.default_duration;
         let mut base = moof.start as i64;
@@ -294,40 +324,74 @@ pub fn parse_fragment(b: &[u8], moof: &BoxRef, track: &TrackInit) -> Result<Vec<
                     default_size = be32(b, p)?;
                 }
             } else if x.is("tfdt") {
-                decode_time = if byte(b, x.body)? == 1 { be64(b, x.body + 4)? } else { be32(b, x.body + 4)? as u64 };
+                decode_time = if byte(b, x.body)? == 1 {
+                    be64(b, x.body + 4)?
+                } else {
+                    be32(b, x.body + 4)? as u64
+                };
             } else if x.is("trun") {
                 let flags = be32(b, x.body)? & 0xff_ffff;
                 let count = bounded_count(b, x.body)?;
                 let mut p = x.body + 8;
-                let data_offset = if flags & 0x1 != 0 { take32(b, &mut p)? as i32 as i64 } else { 0 };
+                let data_offset = if flags & 0x1 != 0 {
+                    take32(b, &mut p)? as i32 as i64
+                } else {
+                    0
+                };
                 if flags & 0x4 != 0 {
                     p += 4;
                 }
                 let mut entries = Vec::new();
                 for _ in 0..count {
-                    let dur = if flags & 0x100 != 0 { take32(b, &mut p)? } else { default_dur };
-                    let size = if flags & 0x200 != 0 { take32(b, &mut p)? } else { default_size };
+                    let dur = if flags & 0x100 != 0 {
+                        take32(b, &mut p)?
+                    } else {
+                        default_dur
+                    };
+                    let size = if flags & 0x200 != 0 {
+                        take32(b, &mut p)?
+                    } else {
+                        default_size
+                    };
                     p += 4 * ((flags & 0x400 != 0) as usize + (flags & 0x800 != 0) as usize);
                     entries.push((dur, size));
                 }
                 runs.push((data_offset, entries));
             } else if x.is("senc") && protection.is_some() {
-                encs = Some(parse_senc(b, &x, protection.map(|p| p.iv_size).unwrap_or(0))?);
+                encs = Some(parse_senc(
+                    b,
+                    &x,
+                    protection.map(|p| p.iv_size).unwrap_or(0),
+                )?);
             }
         }
         let mut dts = decode_time as i64;
         let mut idx = 0usize;
         for (data_offset, entries) in runs {
-            let mut pos = base.checked_add(data_offset).and_then(|p| usize::try_from(p).ok()).ok_or_else(|| anyhow!("bad data offset"))?;
+            let mut pos = base
+                .checked_add(data_offset)
+                .and_then(|p| usize::try_from(p).ok())
+                .ok_or_else(|| anyhow!("bad data offset"))?;
             for (dur, size) in entries {
                 let data = slice(b, pos, size as usize)?.to_vec();
-                let enc = encs.as_ref().and_then(|e| e.get(idx)).cloned().map(|mut e| {
-                    if e.iv.is_empty() {
-                        e.iv = protection.map(|p| p.constant_iv.clone()).unwrap_or_default();
-                    }
-                    e
+                let enc = encs
+                    .as_ref()
+                    .and_then(|e| e.get(idx))
+                    .cloned()
+                    .map(|mut e| {
+                        if e.iv.is_empty() {
+                            e.iv = protection
+                                .map(|p| p.constant_iv.clone())
+                                .unwrap_or_default();
+                        }
+                        e
+                    });
+                out.push(Sample {
+                    dts,
+                    dur,
+                    data,
+                    enc,
                 });
-                out.push(Sample { dts, dur, data, enc });
                 dts = dts.wrapping_add(dur as i64);
                 pos += size as usize;
                 idx += 1;

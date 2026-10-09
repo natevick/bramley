@@ -84,7 +84,10 @@ struct Scenario {
 
 impl Scenario {
     fn snap(&mut self, engine: &Engine, start: Instant, name: &str, js: &J) {
-        let native = engine.status()["medias"].as_object().and_then(|m| m.values().next().cloned()).unwrap_or(J::Null);
+        let native = engine.status()["medias"]
+            .as_object()
+            .and_then(|m| m.values().next().cloned())
+            .unwrap_or(J::Null);
         let pick = |k: &str| native.get(k).cloned().unwrap_or(J::Null);
         self.steps.push(json!({
             "step": name, "wallSec": start.elapsed().as_secs_f64(), "js": js,
@@ -131,7 +134,9 @@ impl Scenario {
 
 fn write_status(engine: &Engine, args: &Args, scenario: Option<&Scenario>) {
     let mut v = engine.status();
-    v["app"] = engine.eval_json("JSON.parse(__app.statusJson())").unwrap_or(J::Null);
+    v["app"] = engine
+        .eval_json("JSON.parse(__app.statusJson())")
+        .unwrap_or(J::Null);
     v["phase"] = v["app"]["phase"].clone();
     v["scenario"] = scenario.map(|s| json!({"name": args.scenario, "skipPause": s.skip_pause, "steps": s.steps, "done": s.stage == Stage::Done})).unwrap_or(J::Null);
     let tmp = args.status.with_extension("tmp");
@@ -144,7 +149,12 @@ fn main() -> Result<()> {
     let args = parse_args()?;
     let mut scenario = match args.scenario.as_deref() {
         None => None,
-        Some("pause-seek") => Some(Scenario { skip_pause: args.skip_pause, stage: Stage::WaitForPausePoint, since: Instant::now(), steps: Vec::new() }),
+        Some("pause-seek") => Some(Scenario {
+            skip_pause: args.skip_pause,
+            stage: Stage::WaitForPausePoint,
+            since: Instant::now(),
+            steps: Vec::new(),
+        }),
         Some(other) => bail!("unknown scenario {other}"),
     };
     println!("PID {}", std::process::id());
@@ -153,7 +163,10 @@ fn main() -> Result<()> {
         "backBufferLength": args.back_buffer, "maxBufferLength": args.max_buffer, "audioMasterCodecs": Some(&args.audio_master_codecs).filter(|c| !c.is_empty()),
     });
     let mut engine = Engine::new(args.config.clone())?;
-    engine.eval_script("config.js", &format!("globalThis.__play_config = {config};"))?;
+    engine.eval_script(
+        "config.js",
+        &format!("globalThis.__play_config = {config};"),
+    )?;
     engine.eval_script("app.js", APP)?;
     let start = Instant::now();
     let mut last_status = start - Duration::from_secs(5);
