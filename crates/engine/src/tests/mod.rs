@@ -1,4 +1,5 @@
 mod buffer;
+mod cdm;
 mod element;
 mod eme;
 mod media;
@@ -177,4 +178,35 @@ pub fn fixture_segments() -> (Vec<u8>, Vec<Vec<u8>>) {
         .map(|p| FIXTURE[p[0].start..p[1].end].to_vec())
         .collect();
     (init, media)
+}
+
+pub struct ChildRun {
+    pub status: std::process::ExitStatus,
+    pub stderr: String,
+}
+
+pub fn in_child(test: &str, wrapper: &[&str], body: impl FnOnce()) -> Option<ChildRun> {
+    const CHILD: &str = "ENGINE_TEST_CHILD";
+    if std::env::var(CHILD).as_deref() == Ok(test) {
+        body();
+        return None;
+    }
+    let exe = std::env::current_exe().unwrap();
+    let mut argv: Vec<&std::ffi::OsStr> = wrapper.iter().map(std::ffi::OsStr::new).collect();
+    argv.push(exe.as_os_str());
+    let out = std::process::Command::new(argv[0])
+        .args(&argv[1..])
+        .args(["--exact", test, "--include-ignored", "--nocapture"])
+        .env(CHILD, test)
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("running 1 test"),
+        "child did not run {test}: {stdout}"
+    );
+    Some(ChildRun {
+        status: out.status,
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+    })
 }

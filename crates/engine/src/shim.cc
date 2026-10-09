@@ -250,6 +250,16 @@ void MemoryFileIO::Write(const uint8_t* data, uint32_t data_size) {
 void MemoryFileIO::Close() {
   host_->Log("FileIO::Close " + name_);
   closed = true;
+  Host* host = host_;
+  host->tasks.push_back([host, this] {
+    auto& ios = host->file_ios;
+    for (auto it = ios.begin(); it != ios.end(); ++it) {
+      if (it->get() == this) {
+        ios.erase(it);
+        return;
+      }
+    }
+  });
 }
 
 int g_requested_host_version = -1;
@@ -278,6 +288,8 @@ int shim_load(const char* path, char* err, uint32_t err_cap) {
   g_lib.deinit = reinterpret_cast<DeinitFn>(dlsym(g_lib.handle, "DeinitializeCdmModule"));
   if (!g_lib.init || !g_lib.create || !g_lib.version) {
     std::snprintf(err, err_cap, "missing entry points");
+    dlclose(g_lib.handle);
+    g_lib = Library{};
     return -2;
   }
   g_lib.init();
@@ -289,6 +301,7 @@ const char* shim_cdm_version() { return g_lib.version ? g_lib.version() : ""; }
 int shim_requested_host_version() { return g_requested_host_version; }
 
 void* shim_create(int interface_version, const ShimCallbacks* callbacks) {
+  if (!g_lib.create) return nullptr;
   auto* host = new Host(*callbacks);
   static const char kKeySystem[] = "com.widevine.alpha";
   void* instance = g_lib.create(interface_version, kKeySystem, sizeof(kKeySystem) - 1, &GetHost, host);

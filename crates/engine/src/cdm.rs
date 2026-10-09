@@ -168,15 +168,32 @@ mod widevine {
         fn shim_destroy(handle: *mut c_void);
     }
 
-    #[derive(Default)]
     struct Sink {
+        owner: std::thread::ThreadId,
         events: Vec<CdmEvent>,
         pending_keys: Vec<(String, Vec<u8>, u32)>,
         logs: Vec<String>,
     }
 
+    impl Sink {
+        fn new() -> Sink {
+            Sink {
+                owner: std::thread::current().id(),
+                events: Vec::new(),
+                pending_keys: Vec::new(),
+                logs: Vec::new(),
+            }
+        }
+    }
+
     fn sink<'a>(ctx: *mut c_void) -> &'a mut Sink {
-        unsafe { &mut *(ctx as *mut Sink) }
+        let s = unsafe { &mut *(ctx as *mut Sink) };
+        debug_assert_eq!(
+            std::thread::current().id(),
+            s.owner,
+            "CDM host callback on a thread other than the one that created the CDM"
+        );
+        s
     }
 
     fn bytes<'a>(ptr: *const c_char, len: u32) -> &'a [u8] {
@@ -280,8 +297,7 @@ mod widevine {
 
     pub struct Widevine {
         handle: *mut c_void,
-        sink: Box<Sink>,
-        _callbacks: Box<ShimCallbacks>,
+        sink: *mut Sink,
         version: String,
         host_version: i32,
     }
@@ -301,9 +317,9 @@ mod widevine {
             let version = unsafe { CStr::from_ptr(shim_cdm_version()) }
                 .to_string_lossy()
                 .into_owned();
-            let mut sink = Box::new(Sink::default());
-            let callbacks = Box::new(ShimCallbacks {
-                ctx: &mut *sink as *mut Sink as *mut c_void,
+            let sink = Box::into_raw(Box::new(Sink::new()));
+            let callbacks = ShimCallbacks {
+                ctx: sink as *mut c_void,
                 on_initialized: cb_initialized,
                 on_new_session: cb_new_session,
                 on_resolve: cb_resolve,
@@ -314,17 +330,17 @@ mod widevine {
                 on_expiration: cb_expiration,
                 on_closed: cb_closed,
                 on_log: cb_log,
-            });
-            let handle = unsafe { shim_create(10, &*callbacks) };
+            };
+            let handle = unsafe { shim_create(10, &callbacks) };
             let host_version = unsafe { shim_requested_host_version() };
             if handle.is_null() {
+                drop(unsafe { Box::from_raw(sink) });
                 bail!("CreateCdmInstance returned null (host version requested {host_version})");
             }
             unsafe { shim_initialize(handle) };
             Ok(Box::new(Widevine {
                 handle,
                 sink,
-                _callbacks: callbacks,
                 version,
                 host_version,
             }))
@@ -410,19 +426,47 @@ mod widevine {
             Decrypted::from_status(status)
         }
         fn poll(&mut self) -> Vec<CdmEvent> {
-            let mut events = std::mem::take(&mut self.sink.events);
+            let mut events = std::mem::take(&mut sink(self.sink as *mut c_void).events);
             unsafe { shim_pump(self.handle) };
-            events.append(&mut self.sink.events);
+            events.append(&mut sink(self.sink as *mut c_void).events);
             events
         }
         fn describe(&self) -> serde_json::Value {
-            serde_json::json!({"version": self.version, "hostVersionRequested": self.host_version, "interface": 10, "logs": self.sink.logs})
+            serde_json::json!({"version": self.version, "hostVersionRequested": self.host_version, "interface": 10, "logs": sink(self.sink as *mut c_void).logs})
         }
     }
 
     impl Drop for Widevine {
         fn drop(&mut self) {
             unsafe { shim_destroy(self.handle) };
+            drop(unsafe { Box::from_raw(self.sink) });
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{Sink, cb_resolve};
+        use crate::tests::in_child;
+
+        #[cfg(debug_assertions)]
+        #[test]
+        fn a_host_callback_from_a_foreign_thread_aborts_debug_builds() {
+            let test =
+                "cdm::widevine::tests::a_host_callback_from_a_foreign_thread_aborts_debug_builds";
+            let child = in_child(test, &[], || {
+                let ctx = Box::into_raw(Box::new(Sink::new())) as usize;
+                std::thread::spawn(move || cb_resolve(ctx as *mut std::ffi::c_void, 1))
+                    .join()
+                    .unwrap();
+            });
+            if let Some(c) = child {
+                assert!(
+                    !c.status.success() && c.stderr.contains("on a thread other than"),
+                    "{:?}\n{}",
+                    c.status,
+                    c.stderr
+                );
+            }
         }
     }
 }
