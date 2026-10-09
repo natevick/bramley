@@ -13,7 +13,7 @@
 - [x] Name: **Bramley** (Nate, 2026-10-09). Tagline "Bramley for Apple Music"; no real apple image in the icon.
 - [x] MIT LICENSE, README and rename done (2026-10-09). Repo is now `~/projects/Personal/bramley`.
 - [x] Public repo https://github.com/natevick/bramley (2026-10-09). History rewritten to nate@vick.codes before the first push, at Nate's call.
-- [ ] Publish the `bramley` 0.0.1 placeholder (2026-10-09). Token in broker `oss` works. crates.io REJECTED it: "A verified email address is required". Nate must verify his email at https://crates.io/settings/profile. Then re-run from `/srv/agent/bramley-crate`: `broker-run --profile oss --cred CARGO_REGISTRY_TOKEN -- curl -sS -X PUT --variable %CARGO_REGISTRY_TOKEN --expand-header "Authorization: {{CARGO_REGISTRY_TOKEN}}" -H "Accept: application/json" --data-binary @/srv/agent/bramley-crate/body.bin https://crates.io/api/v1/crates/new`. Policy note: crates.io bans pure squatting, so keep the repo actively developed. Broker refused `/usr/bin/python3` as a "boundary path", which looks like a guard bug; curl works.
+- [x] `bramley` 0.0.1 is on crates.io (2026-10-09): https://crates.io/crates/bramley. crates.io bans pure squatting, so keep the repo actively developed and replace it with the real app when it plays.
 - [ ] Engine follow-ups from the fix round:
   - Untested paths: m2 aliasing, m6 FileIO, the m5 stale-chunk race, M7's JS error relay, m7's getrandom throw path.
   - The ten-track check can't see M6 leaks (0.3 MiB per CDM). Pre-register a "live CDMs ≤ 1" assertion.
