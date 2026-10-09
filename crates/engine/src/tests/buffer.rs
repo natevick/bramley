@@ -84,3 +84,15 @@ fn eviction_never_removes_data_at_or_ahead_of_the_playback_position() {
     assert_eq!(sb.evicted_frames, 0);
     assert!(sb.bytes <= 40_000);
 }
+
+#[test]
+fn the_append_window_drops_frames_outside_it_after_the_timestamp_offset() {
+    let mut sb = SourceBufferNative::new("audio/mp4".into(), usize::MAX);
+    sb.append_window_us = (11_000_000, 12_500_000);
+    sb.append(FIXTURE, 10.0).unwrap();
+    let ranges = sb.buffered();
+    assert_eq!(ranges.len(), 1, "{ranges:?}");
+    let (start, end) = ranges[0];
+    assert!((11.0..11.03).contains(&start), "{ranges:?}");
+    assert!((12.45..=12.5).contains(&end), "{ranges:?}");
+}

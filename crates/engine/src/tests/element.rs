@@ -316,3 +316,54 @@ fn detach_removes_source_buffers_and_unreachable_objects_release_native_state() 
         json!({"medias": 0, "mediaSources": 0, "sourceBuffers": 0, "cdms": 0})
     );
 }
+
+#[test]
+fn source_buffer_setters_follow_mse_validation_and_the_window_filters_appends() {
+    let (mut e, sink) = engine();
+    let log = run(
+        &mut e,
+        &sink,
+        &script(
+            r#"
+            const a = fresh();
+            audio.src = URL.createObjectURL(a.ms);
+            const sb = await fill(a.ms, a.opened, bytes);
+            const t = (name, f) => { try { f(); L(name + ":ok"); } catch (err) { L(name + ":" + err.name); } };
+            t("start-negative", () => { sb.appendWindowStart = -1; });
+            t("end-nan", () => { sb.appendWindowEnd = NaN; });
+            t("end-3", () => { sb.appendWindowEnd = 3; });
+            t("start-at-end", () => { sb.appendWindowStart = 3; });
+            t("start-1", () => { sb.appendWindowStart = 1; });
+            t("end-below-start", () => { sb.appendWindowEnd = 0.5; });
+            a.ms.duration = 10;
+            sb.remove(0, Infinity);
+            await new Promise(r => sb.addEventListener("updateend", r, { once: true }));
+            sb.appendBuffer(bytes);
+            t("offset-while-updating", () => { sb.timestampOffset = 5; });
+            t("window-while-updating", () => { sb.appendWindowEnd = 9; });
+            await new Promise(r => sb.addEventListener("updateend", r, { once: true }));
+            const b = sb.buffered;
+            L("buffered:" + (b.start(0) >= 1 && b.end(b.length - 1) <= 3));
+            sb.abort();
+            L("reset:" + sb.appendWindowStart + "," + sb.appendWindowEnd);
+            t("offset-idle", () => { sb.timestampOffset = 5; });
+        "#,
+        ),
+    );
+    assert_eq!(
+        log,
+        [
+            "start-negative:TypeError",
+            "end-nan:TypeError",
+            "end-3:ok",
+            "start-at-end:TypeError",
+            "start-1:ok",
+            "end-below-start:TypeError",
+            "offset-while-updating:InvalidStateError",
+            "window-while-updating:InvalidStateError",
+            "buffered:true",
+            "reset:0,Infinity",
+            "offset-idle:ok"
+        ]
+    );
+}

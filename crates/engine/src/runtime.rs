@@ -253,6 +253,16 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
         }
     });
     let s = n.clone();
+    op!(
+        "__op_sb_set_append_window",
+        move |sb_id: u32, start: f64, end: f64| {
+            if let Some(sb) = s.borrow_mut().sbs.get_mut(&sb_id) {
+                let us = |t: f64| (t * 1e6).round() as i64;
+                sb.append_window_us = (us(start), us(end));
+            }
+        }
+    );
+    let s = n.clone();
     op!("__op_sb_init_data", move |ctx: Ctx<'js>,
                                    sb_id: u32|
           -> rquickjs::Result<

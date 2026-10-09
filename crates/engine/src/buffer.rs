@@ -30,6 +30,7 @@ pub struct SourceBufferNative {
     pub appended_bytes: u64,
     pub bytes: usize,
     pub evicted_frames: u64,
+    pub append_window_us: (i64, i64),
     quota: usize,
 }
 
@@ -49,6 +50,7 @@ impl SourceBufferNative {
             appended_bytes: 0,
             bytes: 0,
             evicted_frames: 0,
+            append_window_us: (0, i64::MAX),
             quota,
         }
     }
@@ -135,22 +137,22 @@ impl SourceBufferNative {
                     .as_ref()
                     .ok_or_else(|| anyhow!("media segment before init segment"))?;
                 let ts = init.timescale;
-                let samples = mp4::parse_fragment(&buf, b, init)?;
-                if let (Some(first), Some(last)) = (samples.first(), samples.last()) {
-                    self.remove_us(
-                        mp4::ticks_to_us(first.dts, ts).saturating_add(offset_us),
-                        mp4::ticks_to_us(last.dts.wrapping_add(last.dur as i64), ts)
-                            .saturating_add(offset_us),
-                    );
-                }
-                for s in samples {
-                    let pts_us = mp4::ticks_to_us(s.dts, ts).saturating_add(offset_us);
-                    self.insert(Frame {
-                        pts_us,
+                let (window_start, window_end) = self.append_window_us;
+                let frames: Vec<Frame> = mp4::parse_fragment(&buf, b, init)?
+                    .into_iter()
+                    .map(|s| Frame {
+                        pts_us: mp4::ticks_to_us(s.dts, ts).saturating_add(offset_us),
                         dur_us: mp4::ticks_to_us(s.dur as i64, ts),
                         data: s.data,
                         enc: s.enc,
-                    });
+                    })
+                    .filter(|f| f.pts_us >= window_start && f.end_us() <= window_end)
+                    .collect();
+                if let (Some(first), Some(last)) = (frames.first(), frames.last()) {
+                    self.remove_us(first.pts_us, last.end_us());
+                }
+                for f in frames {
+                    self.insert(f);
                     result.media_frames += 1;
                 }
                 consumed = mdat.end;

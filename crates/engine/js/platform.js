@@ -726,12 +726,39 @@
       this._updating = false;
       this._gen = 0;
       this.mode = "segments";
-      this.timestampOffset = 0;
-      this.appendWindowStart = 0;
-      this.appendWindowEnd = Infinity;
+      this._timestampOffset = 0;
+      this._appendWindow = [0, Infinity];
       this.onupdatestart = null; this.onupdate = null; this.onupdateend = null; this.onerror = null; this.onabort = null;
     }
     get updating() { return this._updating; }
+    _checkSettable(what) {
+      if (!this._ms) throw new DOMException("SourceBuffer has been removed", "InvalidStateError");
+      if (this._updating) throw new DOMException("Cannot set " + what + " while the SourceBuffer is updating", "InvalidStateError");
+    }
+    get timestampOffset() { return this._timestampOffset; }
+    set timestampOffset(v) {
+      hc("SourceBuffer.timestampOffset=");
+      this._checkSettable("timestampOffset");
+      this._ms._reopen();
+      this._timestampOffset = Number(v);
+    }
+    get appendWindowStart() { return this._appendWindow[0]; }
+    set appendWindowStart(v) {
+      hc("SourceBuffer.appendWindowStart=");
+      this._checkSettable("appendWindowStart");
+      v = Number(v);
+      if (!(v >= 0) || v >= this._appendWindow[1]) throw new TypeError("appendWindowStart must be in [0, appendWindowEnd)");
+      this._setAppendWindow(v, this._appendWindow[1]);
+    }
+    get appendWindowEnd() { return this._appendWindow[1]; }
+    set appendWindowEnd(v) {
+      hc("SourceBuffer.appendWindowEnd=");
+      this._checkSettable("appendWindowEnd");
+      v = Number(v);
+      if (isNaN(v) || v <= this._appendWindow[0]) throw new TypeError("appendWindowEnd must be greater than appendWindowStart");
+      this._setAppendWindow(this._appendWindow[0], v);
+    }
+    _setAppendWindow(start, end) { this._appendWindow = [start, end]; OP.sb_set_append_window(this._id, start, end); }
     get buffered() { hc("SourceBuffer.buffered"); return new TimeRanges(JSON.parse(OP.sb_buffered(this._id))); }
     get audioTracks() { return undefined; }
     appendBuffer(data) {
@@ -787,7 +814,7 @@
       this._gen++;
       OP.sb_abort(this._id);
       if (this._updating) { this._updating = false; queueTask(() => fire(this, "abort")); queueTask(() => fire(this, "updateend")); }
-      this.appendWindowStart = 0; this.appendWindowEnd = Infinity;
+      this._setAppendWindow(0, Infinity);
     }
     changeType(type) {
       hc("SourceBuffer.changeType");
