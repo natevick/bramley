@@ -22,6 +22,48 @@ pub struct HttpResponse {
     pub error: Option<String>,
 }
 
+const FORBIDDEN_REQUEST_HEADERS: [&str; 23] = [
+    "accept-charset",
+    "accept-encoding",
+    "access-control-request-headers",
+    "access-control-request-method",
+    "access-control-request-private-network",
+    "connection",
+    "content-length",
+    "cookie",
+    "cookie2",
+    "date",
+    "dnt",
+    "expect",
+    "host",
+    "keep-alive",
+    "origin",
+    "referer",
+    "set-cookie",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "user-agent",
+    "via",
+];
+
+pub fn forbidden_request_header(name: &str, value: &str) -> bool {
+    let name = name.trim().to_ascii_lowercase();
+    let overrides_to_forbidden_method = matches!(
+        name.as_str(),
+        "x-http-method" | "x-http-method-override" | "x-method-override"
+    ) && value.split(',').any(|m| {
+        ["CONNECT", "TRACE", "TRACK"]
+            .iter()
+            .any(|f| m.trim().eq_ignore_ascii_case(f))
+    });
+    FORBIDDEN_REQUEST_HEADERS.contains(&name.as_str())
+        || name.starts_with("proxy-")
+        || name.starts_with("sec-")
+        || overrides_to_forbidden_method
+}
+
 pub fn spawn(req: HttpRequest, done: Sender<Completion>) {
     std::thread::Builder::new()
         .name("http".into())
@@ -81,7 +123,11 @@ fn perform(req: &HttpRequest) -> HttpResponse {
     let mut builder = ureq::http::Request::builder()
         .method(req.method.as_str())
         .uri(req.url.as_str());
-    for (k, v) in &req.headers {
+    for (k, v) in req
+        .headers
+        .iter()
+        .filter(|(k, v)| !forbidden_request_header(k, v))
+    {
         builder = builder.header(k.as_str(), v.as_str());
     }
     let result = match &req.body {

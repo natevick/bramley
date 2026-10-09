@@ -3,6 +3,7 @@ mod element;
 mod eme;
 mod media;
 mod mp4;
+mod net;
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
