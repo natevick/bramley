@@ -7,7 +7,7 @@
 - [x] Spike 3 (2026-10-09, reproduced by Norm): native Widevine host PASS at 86.8 MiB (66 s decrypted and decoded; sabotage VOID, 404). UI baseline 107 MiB under Xvfb/llvmpipe (FAIL as measured; ~41 MiB is llvmpipe). Real-GPU UI unmeasured: this box lacks render-node access.
 - [x] Spike 4 (2026-10-09, reproduced by Norm): QuickJS-NG 8.5 MiB / V8 32-33 MiB PSS idle with musickit.js configured; sabotage VOID. Pick QuickJS; V8 is the fallback and API-contract recorder. Idle only: playback memory with hls.js is unmeasured.
 - [x] Spike 5 (2026-10-09, reproduced by Norm): hls.js in QuickJS, through native MSE/EME host objects, into the CDM: PASS at 96.7 MiB, one process (bar 105); sabotage VOID. Not yet covered: pause, volume, eviction, musickit.js, Apple license server.
-- [ ] Real-GPU UI measurement: waiting on Nate's one-time sudo (render/video groups + packages: libasound2-dev, libxkbcommon-x11-0, libxkbcommon-dev, libdbus-1-dev, libwayland-dev, weston). Measure under weston headless with the GL renderer.
+- [x] Real-GPU UI measurement (2026-10-09): fastframe build 85.4 MiB on the AMD GPU (MARGINAL against 70); bare 59.1. UI plus engine is about 183 MiB, under 200. Follow-up: break down fastframe's +26 MiB (fonts and emoji?).
 - [x] Engine crate (2026-10-09). Merged to main after the review-fix round. Norm verified: 10/10 key fixes fail on base and pass on HEAD; measure 97.2 MiB PASS; sabotage VOID; scenario PASS (skip-pause FAIL); 56 tests; cbcs e2e passes.
 - [ ] Thinnest end-to-end slice: MusicKit JS in engine, then shims, then CDM, then Apple license, then audible sound. Do this before any UI work.
 - [x] Name: **Bramley** (Nate, 2026-10-09). Tagline "Bramley for Apple Music"; no real apple image in the icon.
