@@ -134,6 +134,12 @@ fn key_system_access_grants_only_audio_widevine_temporary_sessions() {
     );
     assert!(eme_check("com.widevine.alpha", r#"[{"persistentState":"required","audioCapabilities":[{"contentType":"audio/mp4; codecs=\"mp4a.40.2\""}]}]"#).is_none());
     assert!(eme_check("com.widevine.alpha", r#"[{"audioCapabilities":[{"contentType":"audio/mp4; codecs=\"mp4a.40.2\"","robustness":"HW_SECURE_ALL"}]}]"#).is_none());
+    for he_aac in ["mp4a.40.5", "mp4a.40.29"] {
+        let caps = format!(
+            r#"[{{"audioCapabilities":[{{"contentType":"audio/mp4; codecs=\"{he_aac}\""}}]}}]"#
+        );
+        assert!(eme_check("com.widevine.alpha", &caps).is_none(), "{he_aac}");
+    }
 }
 
 fn media_script(body: &str) -> String {

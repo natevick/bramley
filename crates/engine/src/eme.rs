@@ -109,7 +109,5 @@ pub fn audio_type_supported(ct: &str) -> bool {
                 .collect();
         }
     }
-    codecs
-        .iter()
-        .all(|c| c == "mp4a.40.2" || c == "mp4a.40.5" || c == "mp4a.40.29" || c == "mp4a.40")
+    codecs.iter().all(|c| c == "mp4a.40.2" || c == "mp4a.40")
 }

@@ -260,3 +260,25 @@ fn abort_cancels_a_queued_append() {
         "{log:?}"
     );
 }
+
+#[test]
+fn he_aac_is_not_advertised() {
+    let (mut e, sink) = engine();
+    let log = run(
+        &mut e,
+        &sink,
+        r#"
+        for (const c of ["mp4a.40.2", "mp4a.40.5", "mp4a.40.29"]) {
+            L(c + ":" + MediaSource.isTypeSupported('audio/mp4; codecs="' + c + '"') + ":" + (document.createElement("audio").canPlayType('audio/mp4; codecs="' + c + '"') || "no"));
+        }
+    "#,
+    );
+    assert_eq!(
+        log,
+        [
+            "mp4a.40.2:true:probably",
+            "mp4a.40.5:false:no",
+            "mp4a.40.29:false:no"
+        ]
+    );
+}

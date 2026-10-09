@@ -347,6 +347,9 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
             .map(media_state)
             .unwrap_or_else(|| "{}".into())
     });
+    op!("__op_type_supported", |mime: String| audio_type_supported(
+        &mime
+    ));
     let s = n.clone();
     op!("__op_eme_check", move |key_system: String,
                                 configs: String|

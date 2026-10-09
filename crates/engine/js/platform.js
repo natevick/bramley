@@ -704,16 +704,7 @@
     }
   }
 
-  function mimeSupported(t) {
-    const lower = t.toLowerCase();
-    const parts = lower.split(";");
-    const mime = parts[0].trim();
-    if (mime !== "audio/mp4") return false;
-    let codecs = null;
-    for (const p of parts.slice(1)) { const q = p.trim(); if (q.startsWith("codecs=")) codecs = q.slice(7).replace(/"/g, "").split(",").map(s => s.trim()); }
-    if (!codecs) return true;
-    return codecs.every(c => /^mp4a\.40(\.(2|5|29))?$/.test(c));
-  }
+  function mimeSupported(t) { return OP.type_supported(t); }
 
   class SourceBufferList extends EventTarget {
     constructor() { super(); this._l = []; }
