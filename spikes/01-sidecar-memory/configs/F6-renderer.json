@@ -1,0 +1,1 @@
+{"args":["--renderer-process-limit=1","--process-per-site","--disable-site-isolation-trials"],"disable":["SpareRendererForSitePerProcess","IsolateOrigins","site-per-process"]}

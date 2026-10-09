@@ -1,0 +1,1053 @@
+{
+ "name": "F4a-optguide",
+ "mode": "drm",
+ "cfg": {
+  "disable": [
+   "OptimizationHints",
+   "OptimizationGuideModelDownloading",
+   "OptimizationHintsFetching"
+  ]
+ },
+ "args": [
+  "--headless=new",
+  "--no-first-run",
+  "--no-default-browser-check",
+  "--autoplay-policy=no-user-gesture-required",
+  "--disable-features=OptimizationHints,OptimizationGuideModelDownloading,OptimizationHintsFetching",
+  "--user-data-dir=/home/norm/projects/Personal/apple-music-client/spikes/01-sidecar-memory/profiles/F4a-optguide-2026-10-09T16-45-55-009Z",
+  "--remote-debugging-port=0",
+  "http://127.0.0.1:8765/page.html?mode=drm&lic=https%3A%2F%2Fcwip-shaka-proxy.appspot.com%2Fno_auth&mpd=https%3A%2F%2Fstorage.googleapis.com%2Fshaka-demo-assets%2Fsintel-widevine%2Fdash.mpd"
+ ],
+ "warmup": 15,
+ "sampleSecs": 60,
+ "pauseSecs": 0,
+ "lic": "https://cwip-shaka-proxy.appspot.com/no_auth",
+ "mpd": "https://storage.googleapis.com/shaka-demo-assets/sintel-widevine/dash.mpd",
+ "startedAt": "2026-10-09T16:45:55.010Z",
+ "samples": [
+  {
+   "t": 17332,
+   "count": 15,
+   "pssKb": 527995,
+   "rssKb": 1594664,
+   "ussKb": 335672,
+   "swapPssKb": 0,
+   "currentTime": 16.429557,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "renderer",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 19418,
+   "count": 14,
+   "pssKb": 515502,
+   "rssKb": 1478656,
+   "ussKb": 324384,
+   "swapPssKb": 0,
+   "currentTime": 18.521126,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 21501,
+   "count": 14,
+   "pssKb": 515933,
+   "rssKb": 1479604,
+   "ussKb": 324300,
+   "swapPssKb": 0,
+   "currentTime": 20.600518,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 23574,
+   "count": 14,
+   "pssKb": 516593,
+   "rssKb": 1480400,
+   "ussKb": 324888,
+   "swapPssKb": 0,
+   "currentTime": 22.677618,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 25645,
+   "count": 14,
+   "pssKb": 516473,
+   "rssKb": 1480012,
+   "ussKb": 325036,
+   "swapPssKb": 0,
+   "currentTime": 24.748406,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 27716,
+   "count": 14,
+   "pssKb": 516529,
+   "rssKb": 1480036,
+   "ussKb": 325124,
+   "swapPssKb": 0,
+   "currentTime": 26.819386,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 29790,
+   "count": 14,
+   "pssKb": 516655,
+   "rssKb": 1480576,
+   "ussKb": 325136,
+   "swapPssKb": 0,
+   "currentTime": 28.894,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 31859,
+   "count": 13,
+   "pssKb": 497786,
+   "rssKb": 1376024,
+   "ussKb": 303692,
+   "swapPssKb": 0,
+   "currentTime": 30.958265,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 33925,
+   "count": 12,
+   "pssKb": 485482,
+   "rssKb": 1270256,
+   "ussKb": 293704,
+   "swapPssKb": 0,
+   "currentTime": 33.02899,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 35993,
+   "count": 12,
+   "pssKb": 485894,
+   "rssKb": 1270732,
+   "ussKb": 294052,
+   "swapPssKb": 0,
+   "currentTime": 35.092193,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 38058,
+   "count": 12,
+   "pssKb": 486014,
+   "rssKb": 1270916,
+   "ussKb": 294108,
+   "swapPssKb": 0,
+   "currentTime": 37.161494,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 40132,
+   "count": 12,
+   "pssKb": 486454,
+   "rssKb": 1271420,
+   "ussKb": 294484,
+   "swapPssKb": 0,
+   "currentTime": 39.231066,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 42201,
+   "count": 12,
+   "pssKb": 486554,
+   "rssKb": 1271592,
+   "ussKb": 294512,
+   "swapPssKb": 0,
+   "currentTime": 41.304579,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 44271,
+   "count": 12,
+   "pssKb": 487022,
+   "rssKb": 1272136,
+   "ussKb": 294904,
+   "swapPssKb": 0,
+   "currentTime": 43.370989,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 46337,
+   "count": 12,
+   "pssKb": 487194,
+   "rssKb": 1272372,
+   "ussKb": 295012,
+   "swapPssKb": 0,
+   "currentTime": 45.440917,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 48404,
+   "count": 12,
+   "pssKb": 487646,
+   "rssKb": 1272896,
+   "ussKb": 295392,
+   "swapPssKb": 0,
+   "currentTime": 47.503664,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 50497,
+   "count": 12,
+   "pssKb": 487670,
+   "rssKb": 1272984,
+   "ussKb": 295352,
+   "swapPssKb": 0,
+   "currentTime": 49.600587,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 52566,
+   "count": 12,
+   "pssKb": 488106,
+   "rssKb": 1273484,
+   "ussKb": 295724,
+   "swapPssKb": 0,
+   "currentTime": 51.669425,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 54633,
+   "count": 12,
+   "pssKb": 488226,
+   "rssKb": 1273668,
+   "ussKb": 295780,
+   "swapPssKb": 0,
+   "currentTime": 53.737005,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 56701,
+   "count": 12,
+   "pssKb": 488602,
+   "rssKb": 1274116,
+   "ussKb": 296084,
+   "swapPssKb": 0,
+   "currentTime": 55.804284,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 58768,
+   "count": 12,
+   "pssKb": 488722,
+   "rssKb": 1274300,
+   "ussKb": 296140,
+   "swapPssKb": 0,
+   "currentTime": 57.867858,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 60838,
+   "count": 12,
+   "pssKb": 488175,
+   "rssKb": 1275080,
+   "ussKb": 296436,
+   "swapPssKb": 0,
+   "currentTime": 59.94148,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 62906,
+   "count": 12,
+   "pssKb": 505045,
+   "rssKb": 1292780,
+   "ussKb": 312704,
+   "swapPssKb": 0,
+   "currentTime": 62.005683,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 64973,
+   "count": 12,
+   "pssKb": 506345,
+   "rssKb": 1293164,
+   "ussKb": 313296,
+   "swapPssKb": 0,
+   "currentTime": 64.076867,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 67055,
+   "count": 12,
+   "pssKb": 502916,
+   "rssKb": 1293468,
+   "ussKb": 312832,
+   "swapPssKb": 0,
+   "currentTime": 66.154523,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 69124,
+   "count": 12,
+   "pssKb": 506717,
+   "rssKb": 1293664,
+   "ussKb": 313540,
+   "swapPssKb": 0,
+   "currentTime": 68.227969,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 71194,
+   "count": 12,
+   "pssKb": 504966,
+   "rssKb": 1292412,
+   "ussKb": 311428,
+   "swapPssKb": 0,
+   "currentTime": 70.293317,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 73263,
+   "count": 12,
+   "pssKb": 505126,
+   "rssKb": 1292644,
+   "ussKb": 311516,
+   "swapPssKb": 0,
+   "currentTime": 72.367387,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 75333,
+   "count": 12,
+   "pssKb": 505278,
+   "rssKb": 1292860,
+   "ussKb": 311604,
+   "swapPssKb": 0,
+   "currentTime": 74.437123,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 77404,
+   "count": 12,
+   "pssKb": 505578,
+   "rssKb": 1293224,
+   "ussKb": 311840,
+   "swapPssKb": 0,
+   "currentTime": 76.507523,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 79471,
+   "count": 12,
+   "pssKb": 505942,
+   "rssKb": 1293660,
+   "ussKb": 312132,
+   "swapPssKb": 0,
+   "currentTime": 78.575213,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "utility:audio.mojom.AudioService",
+    "utility:network.mojom.NetworkService",
+    "zygote",
+    "zygote",
+    "renderer",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  }
+ ],
+ "pauseSamples": [],
+ "checks": {
+  "c1_playedPast30s": true,
+  "c2_keyUsable": true,
+  "c3_audioOnly": true,
+  "c4_audioOutput": true,
+  "c5_treeWalked": true,
+  "detail": {
+   "ctStart": 16.429557,
+   "ctEnd": 78.575213,
+   "keyStatuses": {
+    "26470f4296d45d04a9babb442e169800": "usable",
+    "4d4b0ca25ac158f0b9c1983c517ee2b5": "usable",
+    "517453862d4256fd8bad4f58422004d7": "usable",
+    "902a051a6b3656aeac1926fc0f5d9232": "usable",
+    "f0937e9a77c855f0a6d43864c5d9f365": "usable"
+   },
+   "keySystem": null,
+   "playerKeySystem": "com.widevine.alpha",
+   "robustness": null,
+   "sourceBuffers": [
+    "audio/mp4; codecs=\"mp4a.40.2\""
+   ],
+   "activeVariant": {
+    "audioCodec": "mp4a.40.2",
+    "videoCodec": null,
+    "bandwidth": 135512
+   },
+   "licenseRequests": 1,
+   "licenseResponses": 1,
+   "errors": [],
+   "musickitLoaded": true,
+   "configureOk": true,
+   "midRouting": {
+    "streams": [
+     {
+      "id": 72,
+      "name": "Google Chrome",
+      "app": "Google Chrome",
+      "pid": 595098
+     }
+    ],
+    "targets": [
+     "spike1-null"
+    ]
+   }
+  }
+ },
+ "notes": [],
+ "firstAudioMs": 997,
+ "routing": {
+  "streams": [
+   {
+    "id": 72,
+    "name": "Google Chrome",
+    "app": "Google Chrome",
+    "pid": 595098
+   }
+  ],
+  "targets": [
+   "spike1-null"
+  ]
+ },
+ "midRouting": {
+  "streams": [
+   {
+    "id": 72,
+    "name": "Google Chrome",
+    "app": "Google Chrome",
+    "pid": 595098
+   }
+  ],
+  "targets": [
+   "spike1-null"
+  ]
+ },
+ "midPer": [
+  {
+   "pid": 594890,
+   "type": "browser",
+   "pssMiB": 116.5,
+   "rssMiB": 218,
+   "ussMiB": 88.3
+  },
+  {
+   "pid": 595098,
+   "type": "utility:audio.mojom.AudioService",
+   "pssMiB": 28.7,
+   "rssMiB": 91.2,
+   "ussMiB": 17.3
+  },
+  {
+   "pid": 594942,
+   "type": "utility:network.mojom.NetworkService",
+   "pssMiB": 40.8,
+   "rssMiB": 123.6,
+   "ussMiB": 22.6
+  },
+  {
+   "pid": 594901,
+   "type": "zygote",
+   "pssMiB": 12.4,
+   "rssMiB": 74.2,
+   "ussMiB": 0.2
+  },
+  {
+   "pid": 594904,
+   "type": "zygote",
+   "pssMiB": 2.9,
+   "rssMiB": 19.6,
+   "ussMiB": 0.3
+  },
+  {
+   "pid": 595376,
+   "type": "renderer",
+   "pssMiB": 17.1,
+   "rssMiB": 79.1,
+   "ussMiB": 6
+  },
+  {
+   "pid": 595091,
+   "type": "utility:media.mojom.CdmServiceBroker",
+   "pssMiB": 89.1,
+   "rssMiB": 134.5,
+   "ussMiB": 81.9
+  },
+  {
+   "pid": 594994,
+   "type": "renderer",
+   "pssMiB": 62,
+   "rssMiB": 154.4,
+   "ussMiB": 32.3
+  },
+  {
+   "pid": 594983,
+   "type": "renderer",
+   "pssMiB": 52.9,
+   "rssMiB": 142.2,
+   "ussMiB": 25.6
+  },
+  {
+   "pid": 594965,
+   "type": "utility:storage.mojom.StorageService",
+   "pssMiB": 8.4,
+   "rssMiB": 53.7,
+   "ussMiB": 1.8
+  },
+  {
+   "pid": 594900,
+   "type": "zygote",
+   "pssMiB": 18.1,
+   "rssMiB": 74.1,
+   "ussMiB": 0.7
+  },
+  {
+   "pid": 594929,
+   "type": "gpu-process",
+   "pssMiB": 27.3,
+   "rssMiB": 78.4,
+   "ussMiB": 11.6
+  }
+ ],
+ "state": {
+  "phase": "playing",
+  "errors": [],
+  "everUsable": true,
+  "keyStatuses": {
+   "26470f4296d45d04a9babb442e169800": "usable",
+   "4d4b0ca25ac158f0b9c1983c517ee2b5": "usable",
+   "517453862d4256fd8bad4f58422004d7": "usable",
+   "902a051a6b3656aeac1926fc0f5d9232": "usable",
+   "f0937e9a77c855f0a6d43864c5d9f365": "usable"
+  },
+  "sessions": 1,
+  "keySystem": null,
+  "robustness": null,
+  "licenseRequests": 1,
+  "licenseResponses": 1,
+  "sourceBuffers": [
+   "audio/mp4; codecs=\"mp4a.40.2\""
+  ],
+  "audioOnly": true,
+  "activeVariant": {
+   "audioCodec": "mp4a.40.2",
+   "videoCodec": null,
+   "bandwidth": 135512
+  },
+  "configureOk": true,
+  "musickitLoaded": true,
+  "firstAudioEpochMs": 1791564356007,
+  "firstUsableEpochMs": 1791564356389,
+  "playerKeySystem": "com.widevine.alpha",
+  "currentTime": 78.575997,
+  "paused": false,
+  "readyState": 4
+ },
+ "browserCmdline": [
+  "/opt/google/chrome/chrome",
+  "--headless=new",
+  "--no-first-run",
+  "--no-default-browser-check",
+  "--autoplay-policy=no-user-gesture-required",
+  "--disable-features=OptimizationHints,OptimizationGuideModelDownloading,OptimizationHintsFetching",
+  "--user-data-dir=/home/norm/projects/Personal/apple-music-client/spikes/01-sidecar-memory/profiles/F4a-optguide-2026-10-09T16-45-55-009Z",
+  "--remote-debugging-port=0",
+  "http://127.0.0.1:8765/page.html?mode=drm&lic=https%3A%2F%2Fcwip-shaka-proxy.appspot.com%2Fno_auth&mpd=https%3A%2F%2Fstorage.googleapis.com%2Fshaka-demo-assets%2Fsintel-widevine%2Fdash.mpd"
+ ],
+ "firstUsableMs": 1379,
+ "summary": {
+  "samples": 31,
+  "pssMedMiB": 491.1,
+  "pssMaxMiB": 515.6,
+  "rssMedMiB": 1262.3,
+  "rssMaxMiB": 1557.3,
+  "ussMedMiB": 304.1,
+  "ussMaxMiB": 327.8,
+  "procCount": 12,
+  "types": [
+   "browser",
+   "utility:audio.mojom.AudioService",
+   "utility:network.mojom.NetworkService",
+   "zygote",
+   "zygote",
+   "renderer",
+   "utility:media.mojom.CdmServiceBroker",
+   "renderer",
+   "renderer",
+   "utility:storage.mojom.StorageService",
+   "zygote",
+   "gpu-process"
+  ]
+ },
+ "verdict": "FAIL"
+}

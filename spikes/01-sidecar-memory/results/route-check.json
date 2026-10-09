@@ -1,0 +1,85 @@
+{
+ "name": "route-check",
+ "mode": "silence",
+ "cfg": {},
+ "args": [
+  "--headless=new",
+  "--no-first-run",
+  "--no-default-browser-check",
+  "--autoplay-policy=no-user-gesture-required",
+  "--user-data-dir=/home/norm/projects/Personal/apple-music-client/spikes/01-sidecar-memory/profiles/route-check-2026-10-09T16-24-07-636Z",
+  "--remote-debugging-port=0",
+  "http://127.0.0.1:8765/page.html?mode=silence&lic=https%3A%2F%2Fcwip-shaka-proxy.appspot.com%2Fno_auth&mpd=https%3A%2F%2Fstorage.googleapis.com%2Fshaka-demo-assets%2Fsintel-widevine%2Fdash.mpd"
+ ],
+ "warmup": 15,
+ "sampleSecs": 60,
+ "pauseSecs": 0,
+ "lic": "https://cwip-shaka-proxy.appspot.com/no_auth",
+ "mpd": "https://storage.googleapis.com/shaka-demo-assets/sintel-widevine/dash.mpd",
+ "startedAt": "2026-10-09T16:24:07.637Z",
+ "samples": [],
+ "pauseSamples": [],
+ "checks": {},
+ "notes": [],
+ "firstAudioMs": 776,
+ "routing": {
+  "streams": [
+   {
+    "id": 72,
+    "name": "Google Chrome",
+    "app": "Google Chrome",
+    "pid": 502481
+   }
+  ],
+  "targets": [
+   "spike1-null"
+  ]
+ },
+ "state": {
+  "phase": "playing",
+  "errors": [],
+  "everUsable": false,
+  "keyStatuses": {},
+  "sessions": 0,
+  "keySystem": null,
+  "robustness": null,
+  "licenseRequests": 0,
+  "licenseResponses": 0,
+  "sourceBuffers": [],
+  "audioOnly": null,
+  "activeVariant": null,
+  "configureOk": null,
+  "musickitLoaded": true,
+  "firstAudioEpochMs": 1791563048413,
+  "currentTime": 0.283834,
+  "paused": false,
+  "readyState": 4
+ },
+ "browserCmdline": [
+  "/opt/google/chrome/chrome",
+  "--headless=new",
+  "--no-first-run",
+  "--no-default-browser-check",
+  "--autoplay-policy=no-user-gesture-required",
+  "--user-data-dir=/home/norm/projects/Personal/apple-music-client/spikes/01-sidecar-memory/profiles/route-check-2026-10-09T16-24-07-636Z",
+  "--remote-debugging-port=0",
+  "http://127.0.0.1:8765/page.html?mode=silence&lic=https%3A%2F%2Fcwip-shaka-proxy.appspot.com%2Fno_auth&mpd=https%3A%2F%2Fstorage.googleapis.com%2Fshaka-demo-assets%2Fsintel-widevine%2Fdash.mpd"
+ ],
+ "verdict": "ROUTING-CHECK",
+ "summary": {
+  "routing": {
+   "streams": [
+    {
+     "id": 72,
+     "name": "Google Chrome",
+     "app": "Google Chrome",
+     "pid": 502481
+    }
+   ],
+   "targets": [
+    "spike1-null"
+   ]
+  },
+  "phase": "playing"
+ }
+}

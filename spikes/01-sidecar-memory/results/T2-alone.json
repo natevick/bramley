@@ -1,0 +1,1110 @@
+{
+ "name": "T2-alone",
+ "mode": "drm",
+ "cfg": {
+  "args": [
+   "--disable-extensions",
+   "--disable-component-extensions-with-background-pages",
+   "--renderer-process-limit=1"
+  ],
+  "enable": [
+   "NetworkServiceInProcess2"
+  ],
+  "disable": [
+   "OptimizationHints",
+   "WebUIOmniboxPopup",
+   "WebUIOmniboxAimPopup",
+   "AudioServiceOutOfProcess"
+  ]
+ },
+ "args": [
+  "--headless=new",
+  "--no-first-run",
+  "--no-default-browser-check",
+  "--autoplay-policy=no-user-gesture-required",
+  "--disable-extensions",
+  "--disable-component-extensions-with-background-pages",
+  "--renderer-process-limit=1",
+  "--enable-features=NetworkServiceInProcess2",
+  "--disable-features=OptimizationHints,WebUIOmniboxPopup,WebUIOmniboxAimPopup,AudioServiceOutOfProcess",
+  "--user-data-dir=/home/norm/projects/Personal/apple-music-client/spikes/01-sidecar-memory/profiles/T2-alone-2026-10-09T16-58-49-839Z",
+  "--remote-debugging-port=0",
+  "http://127.0.0.1:8765/page.html?mode=drm&lic=https%3A%2F%2Fcwip-shaka-proxy.appspot.com%2Fno_auth&mpd=https%3A%2F%2Fstorage.googleapis.com%2Fshaka-demo-assets%2Fsintel-widevine%2Fdash.mpd"
+ ],
+ "warmup": 15,
+ "sampleSecs": 60,
+ "pauseSecs": 20,
+ "lic": "https://cwip-shaka-proxy.appspot.com/no_auth",
+ "mpd": "https://storage.googleapis.com/shaka-demo-assets/sintel-widevine/dash.mpd",
+ "startedAt": "2026-10-09T16:58:49.840Z",
+ "samples": [
+  {
+   "t": 17267,
+   "count": 8,
+   "pssKb": 406632,
+   "rssKb": 814420,
+   "ussKb": 255320,
+   "swapPssKb": 0,
+   "currentTime": 16.408016,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 19338,
+   "count": 8,
+   "pssKb": 407268,
+   "rssKb": 815128,
+   "ussKb": 255884,
+   "swapPssKb": 0,
+   "currentTime": 18.484134,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 21396,
+   "count": 8,
+   "pssKb": 407820,
+   "rssKb": 816260,
+   "ussKb": 255856,
+   "swapPssKb": 0,
+   "currentTime": 20.537991,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 23454,
+   "count": 8,
+   "pssKb": 408320,
+   "rssKb": 816824,
+   "ussKb": 256292,
+   "swapPssKb": 0,
+   "currentTime": 22.600516,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 25519,
+   "count": 8,
+   "pssKb": 408164,
+   "rssKb": 816424,
+   "ussKb": 256380,
+   "swapPssKb": 0,
+   "currentTime": 24.664998,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 27575,
+   "count": 8,
+   "pssKb": 408392,
+   "rssKb": 816636,
+   "ussKb": 256624,
+   "swapPssKb": 0,
+   "currentTime": 26.722069,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 29634,
+   "count": 8,
+   "pssKb": 408552,
+   "rssKb": 816860,
+   "ussKb": 256720,
+   "swapPssKb": 0,
+   "currentTime": 28.780075,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 31699,
+   "count": 8,
+   "pssKb": 407424,
+   "rssKb": 816724,
+   "ussKb": 255068,
+   "swapPssKb": 0,
+   "currentTime": 30.841301,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 33752,
+   "count": 8,
+   "pssKb": 407509,
+   "rssKb": 816872,
+   "ussKb": 255088,
+   "swapPssKb": 0,
+   "currentTime": 32.898485,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 35807,
+   "count": 8,
+   "pssKb": 407973,
+   "rssKb": 817400,
+   "ussKb": 255488,
+   "swapPssKb": 0,
+   "currentTime": 34.94973,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 37864,
+   "count": 8,
+   "pssKb": 408089,
+   "rssKb": 817588,
+   "ussKb": 255532,
+   "swapPssKb": 0,
+   "currentTime": 37.010944,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 39922,
+   "count": 8,
+   "pssKb": 408557,
+   "rssKb": 818120,
+   "ussKb": 255936,
+   "swapPssKb": 0,
+   "currentTime": 39.064358,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 41977,
+   "count": 8,
+   "pssKb": 408657,
+   "rssKb": 818284,
+   "ussKb": 255972,
+   "swapPssKb": 0,
+   "currentTime": 41.123812,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 44031,
+   "count": 8,
+   "pssKb": 409137,
+   "rssKb": 818828,
+   "ussKb": 256388,
+   "swapPssKb": 0,
+   "currentTime": 43.173748,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 46091,
+   "count": 8,
+   "pssKb": 409265,
+   "rssKb": 819028,
+   "ussKb": 256444,
+   "swapPssKb": 0,
+   "currentTime": 45.237549,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 48146,
+   "count": 8,
+   "pssKb": 409669,
+   "rssKb": 819496,
+   "ussKb": 256784,
+   "swapPssKb": 0,
+   "currentTime": 47.292538,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 50227,
+   "count": 8,
+   "pssKb": 409813,
+   "rssKb": 819704,
+   "ussKb": 256864,
+   "swapPssKb": 0,
+   "currentTime": 49.373827,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 52282,
+   "count": 8,
+   "pssKb": 410253,
+   "rssKb": 820208,
+   "ussKb": 257240,
+   "swapPssKb": 0,
+   "currentTime": 51.428506,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 54338,
+   "count": 8,
+   "pssKb": 410369,
+   "rssKb": 820388,
+   "ussKb": 257292,
+   "swapPssKb": 0,
+   "currentTime": 53.484696,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 56393,
+   "count": 8,
+   "pssKb": 410737,
+   "rssKb": 820828,
+   "ussKb": 257588,
+   "swapPssKb": 0,
+   "currentTime": 55.539785,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 58458,
+   "count": 8,
+   "pssKb": 410861,
+   "rssKb": 821016,
+   "ussKb": 257648,
+   "swapPssKb": 0,
+   "currentTime": 57.600348,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 60514,
+   "count": 8,
+   "pssKb": 413293,
+   "rssKb": 825440,
+   "ussKb": 258184,
+   "swapPssKb": 0,
+   "currentTime": 59.66064,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 62578,
+   "count": 8,
+   "pssKb": 428849,
+   "rssKb": 839592,
+   "ussKb": 275368,
+   "swapPssKb": 0,
+   "currentTime": 61.720229,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 64634,
+   "count": 8,
+   "pssKb": 429109,
+   "rssKb": 839904,
+   "ussKb": 275568,
+   "swapPssKb": 0,
+   "currentTime": 63.780736,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 66690,
+   "count": 8,
+   "pssKb": 429253,
+   "rssKb": 840112,
+   "ussKb": 275648,
+   "swapPssKb": 0,
+   "currentTime": 65.832834,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 68748,
+   "count": 8,
+   "pssKb": 429521,
+   "rssKb": 840444,
+   "ussKb": 275852,
+   "swapPssKb": 0,
+   "currentTime": 67.895125,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 70804,
+   "count": 8,
+   "pssKb": 429677,
+   "rssKb": 840664,
+   "ussKb": 275944,
+   "swapPssKb": 0,
+   "currentTime": 69.951279,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 72870,
+   "count": 8,
+   "pssKb": 429841,
+   "rssKb": 840892,
+   "ussKb": 276044,
+   "swapPssKb": 0,
+   "currentTime": 72.017162,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 74929,
+   "count": 8,
+   "pssKb": 429929,
+   "rssKb": 841052,
+   "ussKb": 276060,
+   "swapPssKb": 0,
+   "currentTime": 74.07582,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 76986,
+   "count": 8,
+   "pssKb": 432305,
+   "rssKb": 843556,
+   "ussKb": 278308,
+   "swapPssKb": 0,
+   "currentTime": 76.132812,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "t": 79049,
+   "count": 8,
+   "pssKb": 432397,
+   "rssKb": 843712,
+   "ussKb": 278336,
+   "swapPssKb": 0,
+   "currentTime": 78.195362,
+   "paused": false,
+   "everUsable": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  }
+ ],
+ "pauseSamples": [
+  {
+   "count": 8,
+   "pssKb": 432401,
+   "rssKb": 843716,
+   "ussKb": 278340,
+   "currentTime": 78.196774,
+   "paused": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "count": 8,
+   "pssKb": 432157,
+   "rssKb": 843472,
+   "ussKb": 278096,
+   "currentTime": 78.196774,
+   "paused": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "count": 8,
+   "pssKb": 432989,
+   "rssKb": 844528,
+   "ussKb": 278704,
+   "currentTime": 78.196774,
+   "paused": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "count": 8,
+   "pssKb": 432721,
+   "rssKb": 844260,
+   "ussKb": 278436,
+   "currentTime": 78.196774,
+   "paused": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "count": 8,
+   "pssKb": 432537,
+   "rssKb": 843884,
+   "ussKb": 278444,
+   "currentTime": 78.196774,
+   "paused": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "count": 8,
+   "pssKb": 432205,
+   "rssKb": 843488,
+   "ussKb": 278176,
+   "currentTime": 78.196774,
+   "paused": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "count": 8,
+   "pssKb": 432089,
+   "rssKb": 843372,
+   "ussKb": 278060,
+   "currentTime": 78.196774,
+   "paused": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "count": 8,
+   "pssKb": 431605,
+   "rssKb": 842888,
+   "ussKb": 277576,
+   "currentTime": 78.196774,
+   "paused": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "count": 8,
+   "pssKb": 431446,
+   "rssKb": 842968,
+   "ussKb": 277424,
+   "currentTime": 78.196774,
+   "paused": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "count": 8,
+   "pssKb": 431246,
+   "rssKb": 842768,
+   "ussKb": 277224,
+   "currentTime": 78.196774,
+   "paused": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  },
+  {
+   "count": 8,
+   "pssKb": 431262,
+   "rssKb": 842784,
+   "ussKb": 277240,
+   "currentTime": 78.196774,
+   "paused": true,
+   "types": [
+    "browser",
+    "zygote",
+    "zygote",
+    "utility:media.mojom.CdmServiceBroker",
+    "renderer",
+    "utility:storage.mojom.StorageService",
+    "zygote",
+    "gpu-process"
+   ]
+  }
+ ],
+ "checks": {
+  "c1_playedPast30s": true,
+  "c2_keyUsable": true,
+  "c3_audioOnly": true,
+  "c4_audioOutput": true,
+  "c5_treeWalked": true,
+  "detail": {
+   "ctStart": 16.408016,
+   "ctEnd": 78.195362,
+   "keyStatuses": {
+    "26470f4296d45d04a9babb442e169800": "usable",
+    "4d4b0ca25ac158f0b9c1983c517ee2b5": "usable",
+    "517453862d4256fd8bad4f58422004d7": "usable",
+    "902a051a6b3656aeac1926fc0f5d9232": "usable",
+    "f0937e9a77c855f0a6d43864c5d9f365": "usable"
+   },
+   "keySystem": null,
+   "playerKeySystem": "com.widevine.alpha",
+   "robustness": null,
+   "sourceBuffers": [
+    "audio/mp4; codecs=\"mp4a.40.2\""
+   ],
+   "activeVariant": {
+    "audioCodec": "mp4a.40.2",
+    "videoCodec": null,
+    "bandwidth": 135512
+   },
+   "licenseRequests": 1,
+   "licenseResponses": 1,
+   "errors": [],
+   "musickitLoaded": true,
+   "configureOk": true,
+   "midRouting": {
+    "streams": [
+     {
+      "id": 72,
+      "name": "Chrome",
+      "app": "Chrome",
+      "pid": 649075
+     }
+    ],
+    "targets": [
+     "spike1-null"
+    ]
+   }
+  }
+ },
+ "notes": [],
+ "firstAudioMs": 979,
+ "routing": {
+  "streams": [
+   {
+    "id": 72,
+    "name": "Chrome",
+    "app": "Chrome",
+    "pid": 649075
+   }
+  ],
+  "targets": [
+   "spike1-null"
+  ]
+ },
+ "midRouting": {
+  "streams": [
+   {
+    "id": 72,
+    "name": "Chrome",
+    "app": "Chrome",
+    "pid": 649075
+   }
+  ],
+  "targets": [
+   "spike1-null"
+  ]
+ },
+ "midPer": [
+  {
+   "pid": 649075,
+   "type": "browser",
+   "pssMiB": 134.1,
+   "rssMiB": 216.6,
+   "ussMiB": 97
+  },
+  {
+   "pid": 649087,
+   "type": "zygote",
+   "pssMiB": 18.5,
+   "rssMiB": 73.8,
+   "ussMiB": 0.3
+  },
+  {
+   "pid": 649089,
+   "type": "zygote",
+   "pssMiB": 3.9,
+   "rssMiB": 19.6,
+   "ussMiB": 0.3
+  },
+  {
+   "pid": 649191,
+   "type": "utility:media.mojom.CdmServiceBroker",
+   "pssMiB": 92.5,
+   "rssMiB": 134.2,
+   "ussMiB": 82
+  },
+  {
+   "pid": 649161,
+   "type": "renderer",
+   "pssMiB": 85.1,
+   "rssMiB": 151.9,
+   "ussMiB": 58
+  },
+  {
+   "pid": 649143,
+   "type": "utility:storage.mojom.StorageService",
+   "pssMiB": 11.7,
+   "rssMiB": 52.7,
+   "ussMiB": 1.7
+  },
+  {
+   "pid": 649086,
+   "type": "zygote",
+   "pssMiB": 23.3,
+   "rssMiB": 73.7,
+   "ussMiB": 0.8
+  },
+  {
+   "pid": 649113,
+   "type": "gpu-process",
+   "pssMiB": 30.9,
+   "rssMiB": 77.8,
+   "ussMiB": 10.8
+  }
+ ],
+ "state": {
+  "phase": "playing",
+  "errors": [],
+  "everUsable": true,
+  "keyStatuses": {
+   "26470f4296d45d04a9babb442e169800": "usable",
+   "4d4b0ca25ac158f0b9c1983c517ee2b5": "usable",
+   "517453862d4256fd8bad4f58422004d7": "usable",
+   "902a051a6b3656aeac1926fc0f5d9232": "usable",
+   "f0937e9a77c855f0a6d43864c5d9f365": "usable"
+  },
+  "sessions": 1,
+  "keySystem": null,
+  "robustness": null,
+  "licenseRequests": 1,
+  "licenseResponses": 1,
+  "sourceBuffers": [
+   "audio/mp4; codecs=\"mp4a.40.2\""
+  ],
+  "audioOnly": true,
+  "activeVariant": {
+   "audioCodec": "mp4a.40.2",
+   "videoCodec": null,
+   "bandwidth": 135512
+  },
+  "configureOk": true,
+  "musickitLoaded": true,
+  "firstAudioEpochMs": 1791565130819,
+  "firstUsableEpochMs": 1791565131203,
+  "playerKeySystem": "com.widevine.alpha",
+  "currentTime": 78.196133,
+  "paused": false,
+  "readyState": 4
+ },
+ "pauseRouting": {
+  "streams": [],
+  "targets": []
+ },
+ "browserCmdline": [
+  "/opt/google/chrome/chrome",
+  "--headless=new",
+  "--no-first-run",
+  "--no-default-browser-check",
+  "--autoplay-policy=no-user-gesture-required",
+  "--disable-extensions",
+  "--disable-component-extensions-with-background-pages",
+  "--renderer-process-limit=1",
+  "--enable-features=NetworkServiceInProcess2",
+  "--disable-features=OptimizationHints,WebUIOmniboxPopup,WebUIOmniboxAimPopup,AudioServiceOutOfProcess",
+  "--user-data-dir=/home/norm/projects/Personal/apple-music-client/spikes/01-sidecar-memory/profiles/T2-alone-2026-10-09T16-58-49-839Z",
+  "--remote-debugging-port=0",
+  "http://127.0.0.1:8765/page.html?mode=drm&lic=https%3A%2F%2Fcwip-shaka-proxy.appspot.com%2Fno_auth&mpd=https%3A%2F%2Fstorage.googleapis.com%2Fshaka-demo-assets%2Fsintel-widevine%2Fdash.mpd"
+ ],
+ "firstUsableMs": 1363,
+ "summary": {
+  "samples": 31,
+  "pssMedMiB": 400.1,
+  "pssMaxMiB": 422.3,
+  "rssMedMiB": 800.3,
+  "rssMaxMiB": 823.9,
+  "ussMedMiB": 250.8,
+  "ussMaxMiB": 271.8,
+  "procCount": 8,
+  "types": [
+   "browser",
+   "zygote",
+   "zygote",
+   "utility:media.mojom.CdmServiceBroker",
+   "renderer",
+   "utility:storage.mojom.StorageService",
+   "zygote",
+   "gpu-process"
+  ],
+  "paused": {
+   "pssMedMiB": 422,
+   "rssMedMiB": 823.7,
+   "ussMedMiB": 271.6,
+   "procCount": 8,
+   "stillPaused": true,
+   "ctFrozen": true,
+   "streamsWhilePaused": 0
+  }
+ },
+ "verdict": "FAIL"
+}

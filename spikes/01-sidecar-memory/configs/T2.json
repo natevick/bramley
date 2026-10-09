@@ -1,0 +1,1 @@
+{"args":["--disable-extensions","--disable-component-extensions-with-background-pages","--renderer-process-limit=1"],"enable":["NetworkServiceInProcess2"],"disable":["OptimizationHints","WebUIOmniboxPopup","WebUIOmniboxAimPopup","AudioServiceOutOfProcess"]}

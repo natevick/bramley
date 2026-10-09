@@ -1,0 +1,108 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>spike1</title>
+<script>
+window.__spike = {
+  phase: 'boot', errors: [], keyStatuses: {}, everUsable: false, sessions: 0,
+  keySystem: null, robustness: null, licenseRequests: 0, licenseResponses: 0,
+  sourceBuffers: [], audioOnly: null, activeVariant: null, configureOk: null,
+  musickitLoaded: false, firstAudioEpochMs: null, firstUsableEpochMs: null
+};
+(function () {
+  const S = window.__spike;
+  const origRMKSA = navigator.requestMediaKeySystemAccess.bind(navigator);
+  navigator.requestMediaKeySystemAccess = async function (ks, cfgs) {
+    const access = await origRMKSA(ks, cfgs);
+    S.keySystem = access.keySystem;
+    const c = access.getConfiguration();
+    S.robustness = (c.audioCapabilities || []).map(a => a.contentType + '|' + a.robustness);
+    return access;
+  };
+  const origCreate = MediaKeys.prototype.createSession;
+  MediaKeys.prototype.createSession = function (...args) {
+    const s = origCreate.apply(this, args);
+    S.sessions++;
+    s.addEventListener('keystatuseschange', () => {
+      s.keyStatuses.forEach((st, kid) => {
+        const k = Array.from(new Uint8Array(kid)).map(b => b.toString(16).padStart(2, '0')).join('');
+        S.keyStatuses[k] = st;
+        if (st === 'usable') { S.everUsable = true; if (S.firstUsableEpochMs === null) S.firstUsableEpochMs = Date.now(); }
+      });
+    });
+    return s;
+  };
+  const origASB = MediaSource.prototype.addSourceBuffer;
+  MediaSource.prototype.addSourceBuffer = function (mime) {
+    S.sourceBuffers.push(mime);
+    return origASB.call(this, mime);
+  };
+  document.addEventListener('musickitloaded', () => { S.musickitLoaded = true; });
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/shaka-player@5.2.11/dist/shaka-player.compiled.js"></script>
+<script src="https://js-cdn.music.apple.com/musickit/v3/musickit.js" async></script>
+</head>
+<body>
+<audio id="a" autoplay></audio>
+<script>
+(async function () {
+  const S = window.__spike;
+  const q = new URLSearchParams(location.search);
+  const audio = document.getElementById('a');
+  window.__spikeAudio = audio;
+  window.__spikePause = () => audio.pause();
+  window.__spikeResume = () => audio.play();
+  audio.addEventListener('timeupdate', () => {
+    if (S.firstAudioEpochMs === null && audio.currentTime > 0) S.firstAudioEpochMs = Date.now();
+  });
+  audio.addEventListener('error', () => S.errors.push('media:' + (audio.error && audio.error.code)));
+  try {
+    if (q.get('mode') === 'silence') {
+      const rate = 44100, secs = 120, n = rate * secs;
+      const buf = new ArrayBuffer(44 + n * 2);
+      const v = new DataView(buf);
+      const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+      w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+      v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true);
+      v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+      audio.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+      await audio.play();
+      S.phase = 'playing';
+      return;
+    }
+    shaka.polyfill.installAll();
+    const player = new shaka.Player();
+    window.__spikePlayer = player;
+    await player.attach(audio);
+    player.addEventListener('error', e => S.errors.push('shaka:' + (e.detail && e.detail.code)));
+    S.configureOk = player.configure({
+      manifest: { disableVideo: true, disableText: true },
+      preferredAudio: [{ codec: 'mp4a.40.2' }],
+      drm: { servers: { 'com.widevine.alpha': q.get('lic') } }
+    });
+    const ne = player.getNetworkingEngine();
+    const LIC = shaka.net.NetworkingEngine.RequestType.LICENSE;
+    ne.registerRequestFilter((type) => { if (type === LIC) S.licenseRequests++; });
+    ne.registerResponseFilter((type) => { if (type === LIC) S.licenseResponses++; });
+    S.phase = 'loading';
+    await player.load(q.get('mpd'));
+    let active = player.getVariantTracks().find(t => t.active);
+    if (active && !(active.audioCodec || '').startsWith('mp4a')) {
+      const aac = player.getVariantTracks().find(t => (t.audioCodec || '').startsWith('mp4a'));
+      if (aac) { player.selectVariantTrack(aac, true); active = aac; }
+    }
+    S.activeVariant = active ? { audioCodec: active.audioCodec, videoCodec: active.videoCodec, bandwidth: active.bandwidth } : null;
+    S.audioOnly = player.isAudioOnly();
+    await audio.play();
+    S.phase = 'playing';
+  } catch (e) {
+    S.errors.push('exc:' + (e && (e.code || e.message || String(e))));
+    S.phase = 'failed';
+  }
+})();
+</script>
+</body>
+</html>

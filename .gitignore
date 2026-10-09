@@ -1,0 +1,9 @@
+/target/
+**/target/
+spikes/*/profiles/
+spikes/*/vendor-cache/
+spikes/*/results/*.raw
+*.p8
+.env
+.env.*
+spikes/*/results/*.log
