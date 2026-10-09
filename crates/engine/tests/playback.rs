@@ -241,3 +241,50 @@ fn ten_back_to_back_tracks_hold_memory() {
         pss[9] - pss[0]
     );
 }
+
+#[test]
+#[ignore = "plays Google's public Widevine cbcs Tears of Steel audio through the real CDM into a PipeWire null sink"]
+fn plays_widevine_cbcs_audio_end_to_end_into_a_null_sink() {
+    let _sink = null_sink();
+    let playlist = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/tears-audio-cbcs.m3u8"
+    );
+    let license = "https://proxy.uat.widevine.com/proxy?video_id=2015_tears&provider=widevine_test";
+    let args = [
+        "--manifest-file",
+        playlist,
+        "--lic",
+        license,
+        "--max-seconds",
+        "40",
+    ];
+    let (finished, s) = engine_play("cbcs", &args, |_| {});
+    assert!(finished.success(), "engine-play exited with {finished}");
+    let init = s["sourceBuffers"]
+        .as_object()
+        .unwrap()
+        .values()
+        .find_map(|sb| sb["init"]["protected"].as_object().cloned())
+        .unwrap_or_else(|| panic!("no protected init segment: {}", s["app"]["errors"]));
+    assert_eq!(init["scheme"], "cbcs", "{init:?}");
+    let media = s["medias"].as_object().unwrap().values().next().unwrap();
+    assert_eq!(
+        s["platform"]["eme"]["usableSeen"], true,
+        "{}",
+        s["app"]["errors"]
+    );
+    assert!(media["encryptedSamples"].as_u64() > Some(1000), "{media}");
+    assert!(
+        media["decodedDecryptedSeconds"].as_f64() > Some(25.0),
+        "{media}"
+    );
+    assert_eq!(
+        (
+            media["decodeErr"].as_u64(),
+            media["decryptFail"].as_object().map(|m| m.len())
+        ),
+        (Some(0), Some(0)),
+        "{media}"
+    );
+}

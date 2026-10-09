@@ -10,6 +10,7 @@ const APP: &str = include_str!("app.js");
 struct Args {
     config: EngineConfig,
     manifest: String,
+    manifest_text: Option<String>,
     license: String,
     hls_url: String,
     status: PathBuf,
@@ -29,6 +30,7 @@ fn parse_args() -> Result<Args> {
     let mut a = Args {
         config: EngineConfig::default(),
         manifest: "https://storage.googleapis.com/shaka-demo-assets/angel-one-widevine-hls/playlist_a-eng-0128k-aac-2c.mp4.m3u8".into(),
+        manifest_text: None,
         license: "https://cwip-shaka-proxy.appspot.com/no_auth".into(),
         hls_url: "https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js".into(),
         status: "status.json".into(),
@@ -49,6 +51,7 @@ fn parse_args() -> Result<Args> {
         let mut value = || it.next().with_context(|| format!("{flag} needs a value"));
         match flag.as_str() {
             "--manifest" => a.manifest = value()?,
+            "--manifest-file" => a.manifest_text = Some(std::fs::read_to_string(value()?)?),
             "--lic" => a.license = value()?,
             "--hls" => a.hls_url = value()?,
             "--cdm" => a.config.cdm_path = value()?.into(),
@@ -191,7 +194,7 @@ fn main() -> Result<()> {
     };
     println!("PID {}", std::process::id());
     let config = json!({
-        "manifest": args.manifest, "licenseUrl": args.license, "hlsUrl": args.hls_url, "loop": args.looping && scenario.is_none(), "hlsDebug": args.hls_debug,
+        "manifest": args.manifest, "manifestText": args.manifest_text, "licenseUrl": args.license, "hlsUrl": args.hls_url, "loop": args.looping && scenario.is_none(), "hlsDebug": args.hls_debug,
         "backBufferLength": args.back_buffer, "maxBufferLength": args.max_buffer, "audioMasterCodecs": Some(&args.audio_master_codecs).filter(|c| !c.is_empty()),
         "tracks": args.tracks, "trackSeconds": args.track_seconds,
     });

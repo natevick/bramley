@@ -68,9 +68,10 @@
     });
     audio.addEventListener("playing", () => { if (!S.phase.startsWith("fatal")) S.phase = "playing"; });
     hls.attachMedia(audio);
-    let src = C.manifest;
+    const media = C.manifestText ? "data:application/vnd.apple.mpegurl;base64," + btoa(C.manifestText) : C.manifest;
+    let src = media;
     if (C.audioMasterCodecs) {
-      const master = "#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-STREAM-INF:BANDWIDTH=140000,CODECS=\"" + C.audioMasterCodecs + "\"\n" + C.manifest + "\n";
+      const master = "#EXTM3U\n#EXT-X-VERSION:6\n#EXT-X-STREAM-INF:BANDWIDTH=140000,CODECS=\"" + C.audioMasterCodecs + "\"\n" + media + "\n";
       src = "data:application/vnd.apple.mpegurl;base64," + btoa(master);
       S.masterPlaylist = master;
     }
