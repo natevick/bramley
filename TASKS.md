@@ -6,5 +6,7 @@
 - [ ] Spike 2 (needs key): our own developer token plus a loopback user token play a FULL song in headless Chrome. Record the browser APIs MusicKit actually touches.
 - [x] Spike 3 (2026-10-09, reproduced by Norm): native Widevine host PASS at 86.8 MiB (66 s decrypted and decoded; sabotage VOID, 404). UI baseline 107 MiB under Xvfb/llvmpipe (FAIL as measured; ~41 MiB is llvmpipe). Real-GPU UI unmeasured: this box lacks render-node access.
 - [x] Spike 4 (2026-10-09, reproduced by Norm): QuickJS-NG 8.5 MiB / V8 32-33 MiB PSS idle with musickit.js configured; sabotage VOID. Pick QuickJS; V8 is the fallback and API-contract recorder. Idle only: playback memory with hls.js is unmeasured.
+- [ ] Spike 5 (running): QuickJS + native media/MSE/EME host objects + CDM play Widevine audio via upstream hls.js in one process; bar ≤ 105 MiB. On completion, Norm re-runs the harness before reporting.
+- [ ] Real-GPU UI measurement: this box gives no render-node access (norm is not in the `render` group). Needs Nate: add the group, or measure on his Linux machine.
 - [ ] Thinnest end-to-end slice: MusicKit JS in engine, then shims, then CDM, then Apple license, then audible sound. Do this before any UI work.
 - [ ] Name: read the Apple Music Identity Guidelines, then propose names to Nate.
