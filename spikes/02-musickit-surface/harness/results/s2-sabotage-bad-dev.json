@@ -1,0 +1,816 @@
+{
+ "name": "s2-sabotage-bad-dev",
+ "variant": "bad-dev",
+ "instrument": true,
+ "contract": true,
+ "startedAt": "2026-10-09T23:06:58.168Z",
+ "samples": [
+  {
+   "t": 1299,
+   "count": 12,
+   "pssKb": 386038,
+   "rssKb": 1199500,
+   "ussKb": 205036,
+   "cpt": 0,
+   "state": 0,
+   "usable": false
+  },
+  {
+   "t": 3369,
+   "count": 14,
+   "pssKb": 417976,
+   "rssKb": 1431652,
+   "ussKb": 232900,
+   "cpt": 0,
+   "state": 0,
+   "usable": false
+  },
+  {
+   "t": 5439,
+   "count": 14,
+   "pssKb": 418607,
+   "rssKb": 1432080,
+   "ussKb": 233880,
+   "cpt": 0,
+   "state": 0,
+   "usable": false
+  },
+  {
+   "t": 7503,
+   "count": 14,
+   "pssKb": 416864,
+   "rssKb": 1430108,
+   "ussKb": 232644,
+   "cpt": 0,
+   "state": 0,
+   "usable": false
+  },
+  {
+   "t": 9594,
+   "count": 14,
+   "pssKb": 416864,
+   "rssKb": 1430108,
+   "ussKb": 232644,
+   "cpt": 0,
+   "state": 0,
+   "usable": false
+  },
+  {
+   "t": 11656,
+   "count": 14,
+   "pssKb": 414743,
+   "rssKb": 1428276,
+   "ussKb": 230508,
+   "cpt": 0,
+   "state": 0,
+   "usable": false
+  }
+ ],
+ "steps": [],
+ "notes": [
+  "no playback within 60 s; phase=play-failed"
+ ],
+ "firstAudioMs": null,
+ "afterStart": {
+  "phase": "play-failed",
+  "errors": [
+   "play: REQUEST_ERROR Unable to read body as JSON for https://api.music.apple.com/v1/catalog/us/songs?ids=6781024437&ids=6781079518"
+  ],
+  "events": [],
+  "musickitVersion": "3.2526.0-prerelease.x",
+  "isAuthorized": true,
+  "storefrontId": "us",
+  "storefrontCountryCode": "us",
+  "previewOnly": false,
+  "playbackState": 0,
+  "currentPlaybackTime": 0,
+  "currentPlaybackDuration": 0,
+  "queuePosition": -1,
+  "queueLength": 0,
+  "eme": {
+   "everUsable": false,
+   "firstUsableEpochMs": null,
+   "sessions": 0,
+   "statuses": [],
+   "messages": 0
+  },
+  "media": null
+ },
+ "routing": {
+  "streams": [],
+  "targets": []
+ },
+ "beforeControls": {
+  "phase": "play-failed",
+  "errors": [
+   "play: REQUEST_ERROR Unable to read body as JSON for https://api.music.apple.com/v1/catalog/us/songs?ids=6781024437&ids=6781079518"
+  ],
+  "events": [],
+  "musickitVersion": "3.2526.0-prerelease.x",
+  "isAuthorized": true,
+  "storefrontId": "us",
+  "storefrontCountryCode": "us",
+  "previewOnly": false,
+  "playbackState": 0,
+  "currentPlaybackTime": 0,
+  "currentPlaybackDuration": 0,
+  "queuePosition": -1,
+  "queueLength": 0,
+  "eme": {
+   "everUsable": false,
+   "firstUsableEpochMs": null,
+   "sessions": 0,
+   "statuses": [],
+   "messages": 0
+  },
+  "media": null
+ },
+ "final": {
+  "phase": "play-failed",
+  "errors": [
+   "play: REQUEST_ERROR Unable to read body as JSON for https://api.music.apple.com/v1/catalog/us/songs?ids=6781024437&ids=6781079518"
+  ],
+  "events": [],
+  "musickitVersion": "3.2526.0-prerelease.x",
+  "isAuthorized": true,
+  "storefrontId": "us",
+  "storefrontCountryCode": "us",
+  "previewOnly": false,
+  "playbackState": 0,
+  "currentPlaybackTime": 0,
+  "currentPlaybackDuration": 0,
+  "queuePosition": -1,
+  "queueLength": 0,
+  "eme": {
+   "everUsable": false,
+   "firstUsableEpochMs": null,
+   "sessions": 0,
+   "statuses": [],
+   "messages": 0
+  },
+  "media": null
+ },
+ "detail": {
+  "rec": [
+   [
+    "window.URLSearchParams",
+    1,
+    0,
+    0,
+    1
+   ],
+   [
+    "URLSearchParams.get()",
+    1,
+    0,
+    0,
+    1
+   ],
+   [
+    "EventTarget.addEventListener()",
+    1,
+    0,
+    0,
+    1
+   ],
+   [
+    "window.self",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "window.Headers",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "window.localStorage",
+    30,
+    30,
+    0,
+    0
+   ],
+   [
+    "Storage.getItem()",
+    20,
+    20,
+    0,
+    0
+   ],
+   [
+    "window.Document",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "window.HTMLElement",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "Document.webkitHidden",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.Event",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "window.VTTCue",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "window.fetch",
+    7,
+    7,
+    0,
+    0
+   ],
+   [
+    "Document.querySelectorAll()",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "HTMLScriptElement.src",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "Document.querySelector()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLElement.dataset",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.setTimeout",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "Document.head",
+    6,
+    6,
+    0,
+    0
+   ],
+   [
+    "Element.querySelector()",
+    6,
+    6,
+    0,
+    0
+   ],
+   [
+    "Document.readyState",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "EventTarget.dispatchEvent()",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "window.navigator",
+    20,
+    20,
+    0,
+    0
+   ],
+   [
+    "Navigator.userAgent",
+    5,
+    5,
+    0,
+    0
+   ],
+   [
+    "Document.createElement()",
+    202,
+    40,
+    0,
+    0
+   ],
+   [
+    "Document.pictureInPictureEnabled",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.MediaSource",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.SourceBuffer",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.MediaKeys",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "window.MediaKeySystemAccess",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "Navigator.requestMediaKeySystemAccess()",
+    7,
+    7,
+    0,
+    0
+   ],
+   [
+    "MediaKeySystemAccess.getConfiguration()",
+    2,
+    0,
+    0,
+    2
+   ],
+   [
+    "HTMLMediaElement.canPlayType()",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "window.sessionStorage",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "Navigator.mediaSession",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "MediaSession.setActionHandler()",
+    26,
+    26,
+    0,
+    0
+   ],
+   [
+    "Navigator.connection",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "NetworkInformation.downlink",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "Document.cookie",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.atob",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "Storage.setItem()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "Headers.set()",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "Navigator.platform",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.load()",
+    200,
+    40,
+    0,
+    0
+   ],
+   [
+    "window.Request",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "window.URL",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "Request.url",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "URL.host",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "URL.pathname",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "Request.method",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "Response.status",
+    1,
+    0,
+    0,
+    1
+   ],
+   [
+    "Response.json()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.chrome",
+    2,
+    0,
+    0,
+    2
+   ]
+  ],
+  "net": [
+   {
+    "t": 1791587219013,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "api.music.apple.com",
+    "path": "/v1/catalog/us/songs",
+    "by": "mk",
+    "status": 401
+   }
+  ],
+  "m3u8": [],
+  "eme": {
+   "access": [
+    {
+     "keySystem": "com.microsoft.playready",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "error": "NotSupportedError: Unsupported keySystem or supportedConfigurations."
+    },
+    {
+     "keySystem": "com.youtube.playready",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "error": "NotSupportedError: Unsupported keySystem or supportedConfigurations."
+    },
+    {
+     "keySystem": "com.widevine.alpha",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "granted": {
+      "audioCapabilities": [
+       {
+        "contentType": "audio/mp4;codecs=\"mp4a.40.2\"",
+        "encryptionScheme": null,
+        "robustness": ""
+       }
+      ],
+      "distinctiveIdentifier": "not-allowed",
+      "initDataTypes": [
+       "cenc"
+      ],
+      "label": "",
+      "persistentState": "required",
+      "sessionTypes": [
+       "temporary"
+      ],
+      "videoCapabilities": [
+       {
+        "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+        "encryptionScheme": null,
+        "robustness": "SW_SECURE_CRYPTO"
+       }
+      ]
+     }
+    },
+    {
+     "keySystem": "org.w3.clearkey",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "error": "NotSupportedError: Unsupported keySystem or supportedConfigurations."
+    },
+    {
+     "keySystem": "com.apple.fps",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "error": "NotSupportedError: Unsupported keySystem or supportedConfigurations."
+    },
+    {
+     "keySystem": "com.apple.fairplay",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "error": "NotSupportedError: Unsupported keySystem or supportedConfigurations."
+    },
+    {
+     "keySystem": "com.widevine.alpha",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "granted": {
+      "audioCapabilities": [
+       {
+        "contentType": "audio/mp4;codecs=\"mp4a.40.2\"",
+        "encryptionScheme": null,
+        "robustness": ""
+       }
+      ],
+      "distinctiveIdentifier": "not-allowed",
+      "initDataTypes": [
+       "cenc"
+      ],
+      "label": "",
+      "persistentState": "required",
+      "sessionTypes": [
+       "temporary"
+      ],
+      "videoCapabilities": [
+       {
+        "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+        "encryptionScheme": null,
+        "robustness": "SW_SECURE_CRYPTO"
+       }
+      ]
+     }
+    }
+   ],
+   "sessions": 0,
+   "messages": [],
+   "statuses": {},
+   "everUsable": false,
+   "firstUsableEpochMs": null,
+   "initData": []
+  },
+  "mse": {
+   "types": [],
+   "schm": [],
+   "frma": [],
+   "appends": 0
+  },
+  "flavors": null,
+  "webPlaybackKeys": null
+ },
+ "exceptions": [],
+ "sinkBefore": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "sinkAfter": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "checks": {
+  "c1_authorizedWithStorefront": true,
+  "c2_fullSongPast35s": false,
+  "c3_widevineKeyUsable": false,
+  "c4_audioToNullSinkOnly": false
+ },
+ "didItRun": {
+  "musickitLoaded": true,
+  "configured": true,
+  "samples": 6,
+  "treeWalked": true
+ },
+ "summary": {
+  "maxCurrentPlaybackTime": 0,
+  "advancing": false,
+  "durationMs": 0,
+  "isAuthorized": true,
+  "storefront": "us",
+  "previewOnly": false,
+  "pssMedMiB": null,
+  "rssMedMiB": null,
+  "procs": 14,
+  "firstAudioMs": null,
+  "firstUsableMs": null,
+  "scheme": [],
+  "frma": [],
+  "mseTypes": [],
+  "flavors": null,
+  "m3u8": [],
+  "steps": []
+ },
+ "verdict": "FAIL"
+}

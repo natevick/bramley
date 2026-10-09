@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>spike2</title>
+<script>
+window.__s2 = { phase: 'loading', errors: [], events: [] };
+const S = window.__s2;
+const err = (where, e) => S.errors.push(where + ': ' + (e && (e.name || '') + ' ' + (e.message || e.description || e.reason || String(e))).slice(0, 300));
+const params = new URLSearchParams(location.search);
+const SONGS = (params.get('songs') || '6781024437,6781079518').split(',');
+document.addEventListener('musickitloaded', async () => {
+  S.phase = 'loaded';
+  S.musickitVersion = MusicKit.version;
+  try {
+    await MusicKit.configure({ developerToken: window.__BRAMLEY_DEV, app: { name: 'Bramley', build: '0.0.1' } });
+    S.phase = 'configured';
+  } catch (e) { err('configure', e); S.phase = 'configure-failed'; return; }
+  const m = MusicKit.getInstance();
+  window.__s2m = m;
+  for (const ev of ['playbackStateDidChange', 'nowPlayingItemDidChange', 'mediaPlaybackError', 'authorizationStatusDidChange']) {
+    try { m.addEventListener(ev, e => S.events.push([Date.now(), ev, e && (e.state ?? e.name ?? e.item?.id ?? '')].join(' '))); } catch (e) { err('listen ' + ev, e); }
+  }
+  try {
+    await m.setQueue({ songs: SONGS, startPlaying: true });
+    S.phase = 'queued';
+    if (m.playbackState !== MusicKit.PlaybackStates.playing) await m.play();
+    S.phase = 'play-called';
+  } catch (e) { err('play', e); S.phase = 'play-failed'; }
+});
+window.__s2state = () => {
+  const m = window.__s2m;
+  const r = { phase: S.phase, errors: S.errors.slice(-10), events: S.events.slice(-30), musickitVersion: S.musickitVersion };
+  if (!m) return r;
+  const g = f => { try { return f(); } catch (e) { return 'ERR ' + e.message; } };
+  r.isAuthorized = g(() => m.isAuthorized);
+  r.storefrontId = g(() => m.storefrontId);
+  r.storefrontCountryCode = g(() => m.storefrontCountryCode);
+  r.previewOnly = g(() => m.previewOnly);
+  r.playbackState = g(() => m.playbackState);
+  r.currentPlaybackTime = g(() => m.currentPlaybackTime);
+  r.currentPlaybackDuration = g(() => m.currentPlaybackDuration);
+  r.queuePosition = g(() => m.queue.position);
+  r.queueLength = g(() => m.queue.length);
+  r.item = g(() => m.nowPlayingItem && { id: m.nowPlayingItem.id, name: m.nowPlayingItem.attributes?.name, durationInMillis: m.nowPlayingItem.attributes?.durationInMillis, isPreview: m.nowPlayingItem.isPreview, flavor: m.nowPlayingItem.flavor, assetURLSet: !!m.nowPlayingItem.assetURL });
+  return r;
+};
+window.__s2pause = () => window.__s2m.pause();
+window.__s2play = () => window.__s2m.play();
+window.__s2seek = t => window.__s2m.seekToTime(t);
+window.__s2next = () => window.__s2m.skipToNextItem();
+</script>
+<script src="https://js-cdn.music.apple.com/musickit/v3/musickit.js" async></script>
+</html>

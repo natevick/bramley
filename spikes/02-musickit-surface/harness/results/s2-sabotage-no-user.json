@@ -1,0 +1,1577 @@
+{
+ "name": "s2-sabotage-no-user",
+ "variant": "no-user",
+ "instrument": true,
+ "contract": true,
+ "startedAt": "2026-10-09T23:05:08.619Z",
+ "samples": [
+  {
+   "t": 2040,
+   "count": 13,
+   "pssKb": 417282,
+   "rssKb": 1314724,
+   "ussKb": 230728,
+   "cpt": 1,
+   "state": 2,
+   "media": 0.798098,
+   "usable": false
+  },
+  {
+   "t": 4117,
+   "count": 15,
+   "pssKb": 449048,
+   "rssKb": 1545996,
+   "ussKb": 258884,
+   "cpt": 3,
+   "state": 2,
+   "media": 2.847602,
+   "usable": false
+  },
+  {
+   "t": 6187,
+   "count": 15,
+   "pssKb": 448656,
+   "rssKb": 1545064,
+   "ussKb": 259288,
+   "cpt": 5,
+   "state": 2,
+   "media": 4.917905,
+   "usable": false
+  },
+  {
+   "t": 8261,
+   "count": 15,
+   "pssKb": 446713,
+   "rssKb": 1542904,
+   "ussKb": 257748,
+   "cpt": 7,
+   "state": 2,
+   "media": 6.996811,
+   "usable": false
+  },
+  {
+   "t": 10355,
+   "count": 15,
+   "pssKb": 445091,
+   "rssKb": 1541616,
+   "ussKb": 256112,
+   "cpt": 9,
+   "state": 2,
+   "media": 9.105342,
+   "usable": false
+  },
+  {
+   "t": 12429,
+   "count": 15,
+   "pssKb": 444489,
+   "rssKb": 1545440,
+   "ussKb": 255356,
+   "cpt": 11,
+   "state": 2,
+   "media": 11.17822,
+   "usable": false
+  },
+  {
+   "t": 14504,
+   "count": 17,
+   "pssKb": 552547,
+   "rssKb": 1731584,
+   "ussKb": 360516,
+   "cpt": 13,
+   "state": 2,
+   "media": 13.255235,
+   "usable": false
+  },
+  {
+   "t": 16578,
+   "count": 16,
+   "pssKb": 543804,
+   "rssKb": 1625524,
+   "ussKb": 352244,
+   "cpt": 15,
+   "state": 2,
+   "media": 15.338004,
+   "usable": false
+  },
+  {
+   "t": 18677,
+   "count": 15,
+   "pssKb": 530785,
+   "rssKb": 1510128,
+   "ussKb": 340900,
+   "cpt": 17,
+   "state": 2,
+   "media": 17.423014,
+   "usable": false
+  },
+  {
+   "t": 20745,
+   "count": 15,
+   "pssKb": 531813,
+   "rssKb": 1511828,
+   "ussKb": 340816,
+   "cpt": 20,
+   "state": 2,
+   "media": 19.504739,
+   "usable": false
+  },
+  {
+   "t": 22830,
+   "count": 15,
+   "pssKb": 531880,
+   "rssKb": 1512076,
+   "ussKb": 340708,
+   "cpt": 22,
+   "state": 2,
+   "media": 21.583126,
+   "usable": false
+  },
+  {
+   "t": 24896,
+   "count": 15,
+   "pssKb": 531926,
+   "rssKb": 1512188,
+   "ussKb": 340756,
+   "cpt": 24,
+   "state": 2,
+   "media": 23.651044,
+   "usable": false
+  },
+  {
+   "t": 26969,
+   "count": 15,
+   "pssKb": 530785,
+   "rssKb": 1510336,
+   "ussKb": 340320,
+   "cpt": 26,
+   "state": 2,
+   "media": 25.716228,
+   "usable": false
+  },
+  {
+   "t": 29035,
+   "count": 15,
+   "pssKb": 530801,
+   "rssKb": 1510352,
+   "ussKb": 340336,
+   "cpt": 28,
+   "state": 2,
+   "media": 27.796578,
+   "usable": false
+  },
+  {
+   "t": 31101,
+   "count": 14,
+   "pssKb": 513682,
+   "rssKb": 1408464,
+   "ussKb": 321600,
+   "cpt": 30,
+   "state": 2,
+   "media": 29.854993,
+   "usable": false
+  },
+  {
+   "t": 33163,
+   "count": 13,
+   "pssKb": 501348,
+   "rssKb": 1304864,
+   "ussKb": 311224,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 35225,
+   "count": 13,
+   "pssKb": 500928,
+   "rssKb": 1304836,
+   "ussKb": 310176,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 37287,
+   "count": 13,
+   "pssKb": 500764,
+   "rssKb": 1304780,
+   "ussKb": 310140,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 39350,
+   "count": 13,
+   "pssKb": 500552,
+   "rssKb": 1303992,
+   "ussKb": 310504,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 41413,
+   "count": 13,
+   "pssKb": 499799,
+   "rssKb": 1303444,
+   "ussKb": 309788,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 43473,
+   "count": 13,
+   "pssKb": 499775,
+   "rssKb": 1303424,
+   "ussKb": 309768,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 45540,
+   "count": 13,
+   "pssKb": 499815,
+   "rssKb": 1303460,
+   "ussKb": 309804,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 47602,
+   "count": 13,
+   "pssKb": 499794,
+   "rssKb": 1303568,
+   "ussKb": 309784,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 49677,
+   "count": 13,
+   "pssKb": 499802,
+   "rssKb": 1303576,
+   "ussKb": 309792,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 51736,
+   "count": 13,
+   "pssKb": 499573,
+   "rssKb": 1303584,
+   "ussKb": 309796,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 53798,
+   "count": 13,
+   "pssKb": 499820,
+   "rssKb": 1303596,
+   "ussKb": 309812,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 55867,
+   "count": 13,
+   "pssKb": 499830,
+   "rssKb": 1303604,
+   "ussKb": 309820,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 57927,
+   "count": 13,
+   "pssKb": 499837,
+   "rssKb": 1303612,
+   "ussKb": 309828,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 59986,
+   "count": 13,
+   "pssKb": 499846,
+   "rssKb": 1303620,
+   "ussKb": 309836,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 62048,
+   "count": 13,
+   "pssKb": 503645,
+   "rssKb": 1308528,
+   "ussKb": 313484,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 64109,
+   "count": 13,
+   "pssKb": 517027,
+   "rssKb": 1322220,
+   "ussKb": 326684,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 66172,
+   "count": 13,
+   "pssKb": 516002,
+   "rssKb": 1321192,
+   "ussKb": 325660,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 68232,
+   "count": 13,
+   "pssKb": 515886,
+   "rssKb": 1321076,
+   "ussKb": 325544,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 70292,
+   "count": 13,
+   "pssKb": 514093,
+   "rssKb": 1319640,
+   "ussKb": 323528,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 72354,
+   "count": 13,
+   "pssKb": 513989,
+   "rssKb": 1319536,
+   "ussKb": 323424,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 74417,
+   "count": 13,
+   "pssKb": 466696,
+   "rssKb": 1273224,
+   "ussKb": 276100,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  },
+  {
+   "t": 76484,
+   "count": 13,
+   "pssKb": 466696,
+   "rssKb": 1273224,
+   "ussKb": 276100,
+   "cpt": 0,
+   "state": 4,
+   "media": 0,
+   "usable": false
+  }
+ ],
+ "steps": [
+  {
+   "label": "pause",
+   "error": null,
+   "cpt": 0,
+   "state": 4,
+   "media": 0
+  },
+  {
+   "label": "paused+4s",
+   "error": null,
+   "cpt": 0,
+   "state": 4,
+   "media": 0
+  },
+  {
+   "label": "seek-120",
+   "error": null,
+   "cpt": 0,
+   "state": 4,
+   "media": 0
+  },
+  {
+   "label": "play",
+   "error": null,
+   "cpt": 6,
+   "state": 2,
+   "item": "6781024437",
+   "media": 5.954143
+  },
+  {
+   "label": "next",
+   "error": null,
+   "cpt": 9,
+   "state": 2,
+   "item": "6781079518",
+   "media": 8.979429
+  }
+ ],
+ "notes": [],
+ "firstAudioMs": 1976,
+ "afterStart": {
+  "phase": "play-called",
+  "errors": [],
+  "events": [
+   "1791587109568 nowPlayingItemDidChange 6781024437",
+   "1791587109576 playbackStateDidChange 2",
+   "1791587109576 playbackStateDidChange 8",
+   "1791587109576 playbackStateDidChange 1",
+   "1791587109827 playbackStateDidChange 2"
+  ],
+  "musickitVersion": "3.2526.0-prerelease.x",
+  "isAuthorized": false,
+  "storefrontId": "us",
+  "storefrontCountryCode": "us",
+  "previewOnly": false,
+  "playbackState": 2,
+  "currentPlaybackTime": 1,
+  "currentPlaybackDuration": 30,
+  "queuePosition": 0,
+  "queueLength": 2,
+  "item": {
+   "id": "6781024437",
+   "name": "Bohemian Rhapsody",
+   "durationInMillis": 355155,
+   "assetURLSet": false
+  },
+  "eme": {
+   "everUsable": false,
+   "firstUsableEpochMs": null,
+   "sessions": 0,
+   "statuses": [],
+   "messages": 0
+  },
+  "media": {
+   "currentTime": 0.74042,
+   "paused": false,
+   "readyState": 4,
+   "tag": "AUDIO"
+  }
+ },
+ "routing": {
+  "streams": [
+   {
+    "id": 69,
+    "app": "Google Chrome",
+    "pid": 2503723
+   }
+  ],
+  "targets": [
+   "spike2-null"
+  ]
+ },
+ "beforeControls": {
+  "phase": "play-called",
+  "errors": [],
+  "events": [
+   "1791587109568 nowPlayingItemDidChange 6781024437",
+   "1791587109576 playbackStateDidChange 2",
+   "1791587109576 playbackStateDidChange 8",
+   "1791587109576 playbackStateDidChange 1",
+   "1791587109827 playbackStateDidChange 2",
+   "1791587139856 playbackStateDidChange 3",
+   "1791587139857 nowPlayingItemDidChange ",
+   "1791587139857 playbackStateDidChange 5",
+   "1791587139859 playbackStateDidChange 4"
+  ],
+  "musickitVersion": "3.2526.0-prerelease.x",
+  "isAuthorized": false,
+  "storefrontId": "us",
+  "storefrontCountryCode": "us",
+  "previewOnly": false,
+  "playbackState": 4,
+  "currentPlaybackTime": 0,
+  "currentPlaybackDuration": 0,
+  "queuePosition": 0,
+  "queueLength": 2,
+  "eme": {
+   "everUsable": false,
+   "firstUsableEpochMs": null,
+   "sessions": 0,
+   "statuses": [],
+   "messages": 0
+  },
+  "media": {
+   "currentTime": 0,
+   "paused": true,
+   "readyState": 4,
+   "tag": "AUDIO"
+  }
+ },
+ "final": {
+  "phase": "play-called",
+  "errors": [],
+  "events": [
+   "1791587109568 nowPlayingItemDidChange 6781024437",
+   "1791587109576 playbackStateDidChange 2",
+   "1791587109576 playbackStateDidChange 8",
+   "1791587109576 playbackStateDidChange 1",
+   "1791587109827 playbackStateDidChange 2",
+   "1791587139856 playbackStateDidChange 3",
+   "1791587139857 nowPlayingItemDidChange ",
+   "1791587139857 playbackStateDidChange 5",
+   "1791587139859 playbackStateDidChange 4",
+   "1791587194618 nowPlayingItemDidChange ",
+   "1791587194618 nowPlayingItemDidChange 6781024437",
+   "1791587194619 playbackStateDidChange 2",
+   "1791587194619 playbackStateDidChange 8",
+   "1791587194620 playbackStateDidChange 1",
+   "1791587194625 playbackStateDidChange 2",
+   "1791587200635 nowPlayingItemDidChange 6781079518",
+   "1791587200637 playbackStateDidChange 8",
+   "1791587200637 playbackStateDidChange 1",
+   "1791587200761 playbackStateDidChange 2"
+  ],
+  "musickitVersion": "3.2526.0-prerelease.x",
+  "isAuthorized": false,
+  "storefrontId": "us",
+  "storefrontCountryCode": "us",
+  "previewOnly": false,
+  "playbackState": 2,
+  "currentPlaybackTime": 9,
+  "currentPlaybackDuration": 30,
+  "queuePosition": 1,
+  "queueLength": 2,
+  "item": {
+   "id": "6781079518",
+   "name": "Don't Stop Me Now",
+   "durationInMillis": 209413,
+   "assetURLSet": false
+  },
+  "eme": {
+   "everUsable": false,
+   "firstUsableEpochMs": null,
+   "sessions": 0,
+   "statuses": [],
+   "messages": 0
+  },
+  "media": {
+   "currentTime": 8.980438,
+   "paused": false,
+   "readyState": 4,
+   "tag": "AUDIO"
+  }
+ },
+ "detail": {
+  "rec": [
+   [
+    "window.URLSearchParams",
+    1,
+    0,
+    0,
+    1
+   ],
+   [
+    "URLSearchParams.get()",
+    1,
+    0,
+    0,
+    1
+   ],
+   [
+    "EventTarget.addEventListener()",
+    20,
+    19,
+    0,
+    1
+   ],
+   [
+    "window.self",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "window.Headers",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "window.localStorage",
+    38,
+    38,
+    0,
+    0
+   ],
+   [
+    "Storage.getItem()",
+    21,
+    21,
+    0,
+    0
+   ],
+   [
+    "window.Document",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "window.HTMLElement",
+    10,
+    10,
+    0,
+    0
+   ],
+   [
+    "Document.webkitHidden",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.Event",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "window.VTTCue",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "window.fetch",
+    7,
+    7,
+    0,
+    0
+   ],
+   [
+    "Document.querySelectorAll()",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "HTMLScriptElement.src",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "Document.querySelector()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLElement.dataset",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.setTimeout",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "Document.head",
+    6,
+    6,
+    0,
+    0
+   ],
+   [
+    "Element.querySelector()",
+    6,
+    6,
+    0,
+    0
+   ],
+   [
+    "Document.readyState",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "EventTarget.dispatchEvent()",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "window.navigator",
+    23,
+    23,
+    0,
+    0
+   ],
+   [
+    "Navigator.userAgent",
+    5,
+    5,
+    0,
+    0
+   ],
+   [
+    "Document.createElement()",
+    202,
+    40,
+    0,
+    0
+   ],
+   [
+    "Document.pictureInPictureEnabled",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.MediaSource",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.SourceBuffer",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.MediaKeys",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "window.MediaKeySystemAccess",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "Navigator.requestMediaKeySystemAccess()",
+    8,
+    8,
+    0,
+    0
+   ],
+   [
+    "MediaKeySystemAccess.getConfiguration()",
+    3,
+    0,
+    0,
+    3
+   ],
+   [
+    "HTMLMediaElement.canPlayType()",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "window.sessionStorage",
+    12,
+    12,
+    0,
+    0
+   ],
+   [
+    "Navigator.mediaSession",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "MediaSession.setActionHandler()",
+    26,
+    26,
+    0,
+    0
+   ],
+   [
+    "Navigator.connection",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "NetworkInformation.downlink",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "Document.cookie",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.atob",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "Storage.removeItem()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "Headers.set()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "Navigator.platform",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.load()",
+    203,
+    40,
+    0,
+    0
+   ],
+   [
+    "window.Request",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.URL",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "Request.url",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "URL.host",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "URL.pathname",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "Request.method",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "Response.status",
+    1,
+    0,
+    0,
+    1
+   ],
+   [
+    "Response.json()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "Storage.setItem()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.autoplay=",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "Element.id=",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.controls=",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.muted=",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.playbackRate=",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.preload=",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.volume=",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "Document.body",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "Node.appendChild()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.defaultPlaybackRate=",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "MediaKeySystemAccess.keySystem",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "Node.parentNode",
+    9,
+    9,
+    0,
+    0
+   ],
+   [
+    "Element.id",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "HTMLElement.title=",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "window.MediaMetadata",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "window.devicePixelRatio",
+    18,
+    18,
+    0,
+    0
+   ],
+   [
+    "MediaSession.metadata=",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.duration",
+    544,
+    40,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.src=",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.play()",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "Event.type",
+    433,
+    40,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.currentTime",
+    617,
+    34,
+    0,
+    6
+   ],
+   [
+    "HTMLMediaElement.paused",
+    51,
+    1,
+    0,
+    39
+   ],
+   [
+    "HTMLMediaElement.readyState",
+    49,
+    0,
+    0,
+    49
+   ],
+   [
+    "Element.tagName",
+    49,
+    0,
+    0,
+    49
+   ],
+   [
+    "HTMLMediaElement.buffered",
+    7,
+    7,
+    0,
+    0
+   ],
+   [
+    "TimeRanges.start()",
+    5,
+    5,
+    0,
+    0
+   ],
+   [
+    "TimeRanges.end()",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "window.chrome",
+    2,
+    0,
+    0,
+    2
+   ],
+   [
+    "HTMLMediaElement.pause()",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.currentTime=",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "Element.removeAttribute()",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.src",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLElement.title",
+    1,
+    1,
+    0,
+    0
+   ]
+  ],
+  "net": [
+   {
+    "t": 1791587109258,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "api.music.apple.com",
+    "path": "/v1/catalog/us/songs",
+    "by": "mk",
+    "status": 200
+   }
+  ],
+  "m3u8": [],
+  "eme": {
+   "access": [
+    {
+     "keySystem": "com.microsoft.playready",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "error": "NotSupportedError: Unsupported keySystem or supportedConfigurations."
+    },
+    {
+     "keySystem": "com.youtube.playready",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "error": "NotSupportedError: Unsupported keySystem or supportedConfigurations."
+    },
+    {
+     "keySystem": "com.widevine.alpha",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "granted": {
+      "audioCapabilities": [
+       {
+        "contentType": "audio/mp4;codecs=\"mp4a.40.2\"",
+        "encryptionScheme": null,
+        "robustness": ""
+       }
+      ],
+      "distinctiveIdentifier": "not-allowed",
+      "initDataTypes": [
+       "cenc"
+      ],
+      "label": "",
+      "persistentState": "required",
+      "sessionTypes": [
+       "temporary"
+      ],
+      "videoCapabilities": [
+       {
+        "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+        "encryptionScheme": null,
+        "robustness": "SW_SECURE_CRYPTO"
+       }
+      ]
+     }
+    },
+    {
+     "keySystem": "org.w3.clearkey",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "error": "NotSupportedError: Unsupported keySystem or supportedConfigurations."
+    },
+    {
+     "keySystem": "com.apple.fps",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "error": "NotSupportedError: Unsupported keySystem or supportedConfigurations."
+    },
+    {
+     "keySystem": "com.apple.fairplay",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "error": "NotSupportedError: Unsupported keySystem or supportedConfigurations."
+    },
+    {
+     "keySystem": "com.widevine.alpha",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "granted": {
+      "audioCapabilities": [
+       {
+        "contentType": "audio/mp4;codecs=\"mp4a.40.2\"",
+        "encryptionScheme": null,
+        "robustness": ""
+       }
+      ],
+      "distinctiveIdentifier": "not-allowed",
+      "initDataTypes": [
+       "cenc"
+      ],
+      "label": "",
+      "persistentState": "required",
+      "sessionTypes": [
+       "temporary"
+      ],
+      "videoCapabilities": [
+       {
+        "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+        "encryptionScheme": null,
+        "robustness": "SW_SECURE_CRYPTO"
+       }
+      ]
+     }
+    },
+    {
+     "keySystem": "com.widevine.alpha",
+     "configs": [
+      {
+       "initDataTypes": [
+        "cenc",
+        "keyids"
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required"
+      }
+     ],
+     "granted": {
+      "audioCapabilities": [
+       {
+        "contentType": "audio/mp4;codecs=\"mp4a.40.2\"",
+        "encryptionScheme": null,
+        "robustness": ""
+       }
+      ],
+      "distinctiveIdentifier": "not-allowed",
+      "initDataTypes": [
+       "cenc"
+      ],
+      "label": "",
+      "persistentState": "required",
+      "sessionTypes": [
+       "temporary"
+      ],
+      "videoCapabilities": []
+     }
+    }
+   ],
+   "sessions": 0,
+   "messages": [],
+   "statuses": {},
+   "everUsable": false,
+   "firstUsableEpochMs": null,
+   "initData": []
+  },
+  "mse": {
+   "types": [],
+   "schm": [],
+   "frma": [],
+   "appends": 0
+  },
+  "flavors": null,
+  "webPlaybackKeys": null
+ },
+ "exceptions": [],
+ "sinkBefore": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "sinkAfter": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "checks": {
+  "c1_authorizedWithStorefront": false,
+  "c2_fullSongPast35s": false,
+  "c3_widevineKeyUsable": false,
+  "c4_audioToNullSinkOnly": true
+ },
+ "didItRun": {
+  "musickitLoaded": true,
+  "configured": true,
+  "samples": 37,
+  "treeWalked": true
+ },
+ "summary": {
+  "maxCurrentPlaybackTime": 30,
+  "advancing": false,
+  "durationMs": 355155,
+  "isAuthorized": false,
+  "storefront": "us",
+  "previewOnly": false,
+  "pssMedMiB": 518.3,
+  "rssMedMiB": 1491.1,
+  "procs": 13,
+  "firstAudioMs": 1976,
+  "firstUsableMs": null,
+  "scheme": [],
+  "frma": [],
+  "mseTypes": [],
+  "flavors": null,
+  "m3u8": [],
+  "steps": [
+   {
+    "label": "pause",
+    "error": null,
+    "cpt": 0,
+    "state": 4,
+    "media": 0
+   },
+   {
+    "label": "paused+4s",
+    "error": null,
+    "cpt": 0,
+    "state": 4,
+    "media": 0
+   },
+   {
+    "label": "seek-120",
+    "error": null,
+    "cpt": 0,
+    "state": 4,
+    "media": 0
+   },
+   {
+    "label": "play",
+    "error": null,
+    "cpt": 6,
+    "state": 2,
+    "item": "6781024437",
+    "media": 5.954143
+   },
+   {
+    "label": "next",
+    "error": null,
+    "cpt": 9,
+    "state": 2,
+    "item": "6781079518",
+    "media": 8.979429
+   }
+  ]
+ },
+ "verdict": "FAIL"
+}

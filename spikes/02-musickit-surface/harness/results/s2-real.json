@@ -1,0 +1,2651 @@
+{
+ "name": "s2-real",
+ "variant": "real",
+ "instrument": true,
+ "contract": true,
+ "startedAt": "2026-10-09T23:03:37.930Z",
+ "samples": [
+  {
+   "t": 4281,
+   "count": 16,
+   "pssKb": 549877,
+   "rssKb": 1664140,
+   "ussKb": 364196,
+   "cpt": 1,
+   "state": 2,
+   "media": 0.745609,
+   "usable": true
+  },
+  {
+   "t": 6381,
+   "count": 16,
+   "pssKb": 554176,
+   "rssKb": 1668060,
+   "ussKb": 369408,
+   "cpt": 3,
+   "state": 2,
+   "media": 2.823283,
+   "usable": true
+  },
+  {
+   "t": 8457,
+   "count": 16,
+   "pssKb": 553137,
+   "rssKb": 1667280,
+   "ussKb": 368180,
+   "cpt": 5,
+   "state": 2,
+   "media": 4.910774,
+   "usable": true
+  },
+  {
+   "t": 10548,
+   "count": 16,
+   "pssKb": 552291,
+   "rssKb": 1666116,
+   "ussKb": 367664,
+   "cpt": 7,
+   "state": 2,
+   "media": 7.000905,
+   "usable": true
+  },
+  {
+   "t": 12642,
+   "count": 16,
+   "pssKb": 548755,
+   "rssKb": 1668176,
+   "ussKb": 366312,
+   "cpt": 9,
+   "state": 2,
+   "media": 9.101453,
+   "usable": true
+  },
+  {
+   "t": 14716,
+   "count": 18,
+   "pssKb": 659228,
+   "rssKb": 1856312,
+   "ussKb": 470808,
+   "cpt": 11,
+   "state": 2,
+   "media": 11.178516,
+   "usable": true
+  },
+  {
+   "t": 16786,
+   "count": 17,
+   "pssKb": 650676,
+   "rssKb": 1754912,
+   "ussKb": 462428,
+   "cpt": 13,
+   "state": 2,
+   "media": 13.253651,
+   "usable": true
+  },
+  {
+   "t": 18856,
+   "count": 16,
+   "pssKb": 637782,
+   "rssKb": 1640996,
+   "ussKb": 451516,
+   "cpt": 15,
+   "state": 2,
+   "media": 15.324069,
+   "usable": true
+  },
+  {
+   "t": 20949,
+   "count": 16,
+   "pssKb": 638398,
+   "rssKb": 1642308,
+   "ussKb": 451436,
+   "cpt": 17,
+   "state": 2,
+   "media": 17.418862,
+   "usable": true
+  },
+  {
+   "t": 23025,
+   "count": 16,
+   "pssKb": 639023,
+   "rssKb": 1643372,
+   "ussKb": 451628,
+   "cpt": 19,
+   "state": 2,
+   "media": 19.494225,
+   "usable": true
+  },
+  {
+   "t": 25095,
+   "count": 16,
+   "pssKb": 639846,
+   "rssKb": 1644408,
+   "ussKb": 452304,
+   "cpt": 22,
+   "state": 2,
+   "media": 21.565051,
+   "usable": true
+  },
+  {
+   "t": 27166,
+   "count": 16,
+   "pssKb": 639054,
+   "rssKb": 1643088,
+   "ussKb": 452040,
+   "cpt": 24,
+   "state": 2,
+   "media": 23.635961,
+   "usable": true
+  },
+  {
+   "t": 29238,
+   "count": 16,
+   "pssKb": 639354,
+   "rssKb": 1643524,
+   "ussKb": 452204,
+   "cpt": 26,
+   "state": 2,
+   "media": 25.703304,
+   "usable": true
+  },
+  {
+   "t": 31306,
+   "count": 15,
+   "pssKb": 610872,
+   "rssKb": 1532588,
+   "ussKb": 421096,
+   "cpt": 28,
+   "state": 2,
+   "media": 27.776489,
+   "usable": true
+  },
+  {
+   "t": 33371,
+   "count": 14,
+   "pssKb": 596693,
+   "rssKb": 1427388,
+   "ussKb": 409644,
+   "cpt": 30,
+   "state": 2,
+   "media": 29.836953,
+   "usable": true
+  },
+  {
+   "t": 35435,
+   "count": 14,
+   "pssKb": 598647,
+   "rssKb": 1428548,
+   "ussKb": 411068,
+   "cpt": 32,
+   "state": 2,
+   "media": 31.905304,
+   "usable": true
+  },
+  {
+   "t": 37505,
+   "count": 14,
+   "pssKb": 598806,
+   "rssKb": 1428844,
+   "ussKb": 411092,
+   "cpt": 34,
+   "state": 2,
+   "media": 33.971339,
+   "usable": true
+  },
+  {
+   "t": 39568,
+   "count": 14,
+   "pssKb": 598804,
+   "rssKb": 1428992,
+   "ussKb": 410936,
+   "cpt": 36,
+   "state": 2,
+   "media": 36.038439,
+   "usable": true
+  },
+  {
+   "t": 41633,
+   "count": 14,
+   "pssKb": 598996,
+   "rssKb": 1429344,
+   "ussKb": 410968,
+   "cpt": 38,
+   "state": 2,
+   "media": 38.099161,
+   "usable": true
+  },
+  {
+   "t": 43695,
+   "count": 14,
+   "pssKb": 599144,
+   "rssKb": 1429628,
+   "ussKb": 410980,
+   "cpt": 40,
+   "state": 2,
+   "media": 40.165249,
+   "usable": true
+  },
+  {
+   "t": 45757,
+   "count": 14,
+   "pssKb": 600204,
+   "rssKb": 1430852,
+   "ussKb": 411876,
+   "cpt": 42,
+   "state": 2,
+   "media": 42.227612,
+   "usable": true
+  },
+  {
+   "t": 47820,
+   "count": 14,
+   "pssKb": 600376,
+   "rssKb": 1431168,
+   "ussKb": 411904,
+   "cpt": 44,
+   "state": 2,
+   "media": 44.290186,
+   "usable": true
+  },
+  {
+   "t": 49884,
+   "count": 14,
+   "pssKb": 600556,
+   "rssKb": 1431504,
+   "ussKb": 411936,
+   "cpt": 46,
+   "state": 2,
+   "media": 46.353782,
+   "usable": true
+  }
+ ],
+ "steps": [
+  {
+   "label": "pause",
+   "error": null,
+   "cpt": 46,
+   "state": 3,
+   "item": "6781024437",
+   "media": 46.355878
+  },
+  {
+   "label": "paused+4s",
+   "error": null,
+   "cpt": 46,
+   "state": 3,
+   "item": "6781024437",
+   "media": 46.355878
+  },
+  {
+   "label": "seek-120",
+   "error": null,
+   "cpt": 120,
+   "state": 3,
+   "item": "6781024437",
+   "media": 120
+  },
+  {
+   "label": "play",
+   "error": null,
+   "cpt": 126,
+   "state": 2,
+   "item": "6781024437",
+   "media": 125.94756
+  },
+  {
+   "label": "next",
+   "error": null,
+   "cpt": 9,
+   "state": 2,
+   "item": "6781079518",
+   "media": 8.938817
+  }
+ ],
+ "notes": [],
+ "firstAudioMs": 4188,
+ "afterStart": {
+  "phase": "play-called",
+  "errors": [],
+  "events": [
+   "1791587020421 nowPlayingItemDidChange 6781024437",
+   "1791587020615 playbackStateDidChange 2",
+   "1791587020615 playbackStateDidChange 8",
+   "1791587020615 playbackStateDidChange 1",
+   "1791587021402 playbackStateDidChange 2"
+  ],
+  "musickitVersion": "3.2526.0-prerelease.x",
+  "isAuthorized": true,
+  "storefrontId": "us",
+  "storefrontCountryCode": "us",
+  "previewOnly": false,
+  "playbackState": 2,
+  "currentPlaybackTime": 1,
+  "currentPlaybackDuration": 355,
+  "queuePosition": 0,
+  "queueLength": 2,
+  "item": {
+   "id": "6781024437",
+   "name": "Bohemian Rhapsody",
+   "durationInMillis": 355155,
+   "flavor": "28:ctrp256",
+   "assetURLSet": true
+  },
+  "eme": {
+   "everUsable": true,
+   "firstUsableEpochMs": 1791587021387,
+   "sessions": 1,
+   "statuses": [
+    "usable"
+   ],
+   "messages": 1
+  },
+  "media": {
+   "currentTime": 0.653571,
+   "paused": false,
+   "readyState": 4,
+   "tag": "AUDIO"
+  }
+ },
+ "routing": {
+  "streams": [
+   {
+    "id": 69,
+    "app": "Google Chrome",
+    "pid": 2491051
+   }
+  ],
+  "targets": [
+   "spike2-null"
+  ]
+ },
+ "beforeControls": {
+  "phase": "play-called",
+  "errors": [],
+  "events": [
+   "1791587020421 nowPlayingItemDidChange 6781024437",
+   "1791587020615 playbackStateDidChange 2",
+   "1791587020615 playbackStateDidChange 8",
+   "1791587020615 playbackStateDidChange 1",
+   "1791587021402 playbackStateDidChange 2"
+  ],
+  "musickitVersion": "3.2526.0-prerelease.x",
+  "isAuthorized": true,
+  "storefrontId": "us",
+  "storefrontCountryCode": "us",
+  "previewOnly": false,
+  "playbackState": 2,
+  "currentPlaybackTime": 46,
+  "currentPlaybackDuration": 355,
+  "queuePosition": 0,
+  "queueLength": 2,
+  "item": {
+   "id": "6781024437",
+   "name": "Bohemian Rhapsody",
+   "durationInMillis": 355155,
+   "flavor": "28:ctrp256",
+   "assetURLSet": true
+  },
+  "eme": {
+   "everUsable": true,
+   "firstUsableEpochMs": 1791587021387,
+   "sessions": 1,
+   "statuses": [
+    "usable"
+   ],
+   "messages": 1
+  },
+  "media": {
+   "currentTime": 46.354615,
+   "paused": false,
+   "readyState": 4,
+   "tag": "AUDIO"
+  }
+ },
+ "final": {
+  "phase": "play-called",
+  "errors": [],
+  "events": [
+   "1791587020421 nowPlayingItemDidChange 6781024437",
+   "1791587020615 playbackStateDidChange 2",
+   "1791587020615 playbackStateDidChange 8",
+   "1791587020615 playbackStateDidChange 1",
+   "1791587021402 playbackStateDidChange 2",
+   "1791587067818 playbackStateDidChange 3",
+   "1791587073100 playbackStateDidChange 6",
+   "1791587073127 playbackStateDidChange 3",
+   "1791587075606 playbackStateDidChange 2",
+   "1791587081617 nowPlayingItemDidChange 6781079518",
+   "1791587081621 playbackStateDidChange 8",
+   "1791587081621 playbackStateDidChange 1",
+   "1791587081997 playbackStateDidChange 2"
+  ],
+  "musickitVersion": "3.2526.0-prerelease.x",
+  "isAuthorized": true,
+  "storefrontId": "us",
+  "storefrontCountryCode": "us",
+  "previewOnly": false,
+  "playbackState": 2,
+  "currentPlaybackTime": 9,
+  "currentPlaybackDuration": 209,
+  "queuePosition": 1,
+  "queueLength": 2,
+  "item": {
+   "id": "6781079518",
+   "name": "Don't Stop Me Now",
+   "durationInMillis": 209413,
+   "flavor": "28:ctrp256",
+   "assetURLSet": true
+  },
+  "eme": {
+   "everUsable": true,
+   "firstUsableEpochMs": 1791587021387,
+   "sessions": 2,
+   "statuses": [
+    "released",
+    "usable"
+   ],
+   "messages": 2
+  },
+  "media": {
+   "currentTime": 8.939935,
+   "paused": false,
+   "readyState": 4,
+   "tag": "AUDIO"
+  }
+ },
+ "detail": {
+  "rec": [
+   [
+    "window.URLSearchParams",
+    1,
+    0,
+    0,
+    1
+   ],
+   [
+    "URLSearchParams.get()",
+    1,
+    0,
+    0,
+    1
+   ],
+   [
+    "EventTarget.addEventListener()",
+    32,
+    31,
+    0,
+    1
+   ],
+   [
+    "window.self",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "window.Headers",
+    101,
+    40,
+    0,
+    0
+   ],
+   [
+    "window.localStorage",
+    40,
+    40,
+    0,
+    0
+   ],
+   [
+    "Storage.getItem()",
+    26,
+    26,
+    0,
+    0
+   ],
+   [
+    "window.Document",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "window.HTMLElement",
+    6,
+    6,
+    0,
+    0
+   ],
+   [
+    "Document.webkitHidden",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.Event",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "window.VTTCue",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "window.fetch",
+    107,
+    40,
+    0,
+    0
+   ],
+   [
+    "Document.querySelectorAll()",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "HTMLScriptElement.src",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "Document.querySelector()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLElement.dataset",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.setTimeout",
+    5,
+    5,
+    0,
+    0
+   ],
+   [
+    "Document.head",
+    6,
+    6,
+    0,
+    0
+   ],
+   [
+    "Element.querySelector()",
+    6,
+    6,
+    0,
+    0
+   ],
+   [
+    "Document.readyState",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "EventTarget.dispatchEvent()",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "window.navigator",
+    37,
+    37,
+    0,
+    0
+   ],
+   [
+    "Navigator.userAgent",
+    12,
+    12,
+    0,
+    0
+   ],
+   [
+    "Document.createElement()",
+    202,
+    40,
+    0,
+    0
+   ],
+   [
+    "Document.pictureInPictureEnabled",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.MediaSource",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "window.SourceBuffer",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.MediaKeys",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "window.MediaKeySystemAccess",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "Navigator.requestMediaKeySystemAccess()",
+    8,
+    8,
+    0,
+    0
+   ],
+   [
+    "MediaKeySystemAccess.getConfiguration()",
+    3,
+    0,
+    0,
+    3
+   ],
+   [
+    "HTMLMediaElement.canPlayType()",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "window.sessionStorage",
+    21,
+    21,
+    0,
+    0
+   ],
+   [
+    "Navigator.mediaSession",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "MediaSession.setActionHandler()",
+    26,
+    26,
+    0,
+    0
+   ],
+   [
+    "Navigator.connection",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "NetworkInformation.downlink",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "Document.cookie",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.atob",
+    6,
+    6,
+    0,
+    0
+   ],
+   [
+    "Storage.setItem()",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "Headers.set()",
+    24,
+    24,
+    0,
+    0
+   ],
+   [
+    "Navigator.platform",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.load()",
+    202,
+    40,
+    0,
+    0
+   ],
+   [
+    "window.Request",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.URL",
+    116,
+    40,
+    0,
+    0
+   ],
+   [
+    "Request.url",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "URL.host",
+    109,
+    40,
+    0,
+    0
+   ],
+   [
+    "URL.pathname",
+    218,
+    40,
+    0,
+    0
+   ],
+   [
+    "Request.method",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "Response.status",
+    109,
+    0,
+    0,
+    109
+   ],
+   [
+    "Response.json()",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.autoplay=",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "Element.id=",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.controls=",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.muted=",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.playbackRate=",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.preload=",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.volume=",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "Document.body",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "Node.appendChild()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.defaultPlaybackRate=",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "MediaKeySystemAccess.keySystem",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "Node.parentNode",
+    5,
+    5,
+    0,
+    0
+   ],
+   [
+    "Element.id",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.currentTime",
+    1249,
+    32,
+    0,
+    8
+   ],
+   [
+    "Response.ok",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "Response.clone()",
+    5,
+    0,
+    0,
+    5
+   ],
+   [
+    "Response.text()",
+    11,
+    6,
+    0,
+    5
+   ],
+   [
+    "HTMLElement.title=",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "window.MediaMetadata",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "window.devicePixelRatio",
+    12,
+    12,
+    0,
+    0
+   ],
+   [
+    "MediaSession.metadata=",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "MediaKeySystemAccess.createMediaKeys()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "URL(static).createObjectURL()",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.src=",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.play()",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.paused",
+    38,
+    1,
+    0,
+    37
+   ],
+   [
+    "HTMLMediaElement.readyState",
+    37,
+    0,
+    0,
+    37
+   ],
+   [
+    "Element.tagName",
+    37,
+    0,
+    0,
+    37
+   ],
+   [
+    "Event.type",
+    577,
+    40,
+    0,
+    0
+   ],
+   [
+    "MediaSource.activeSourceBuffers",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "MediaSource.addSourceBuffer()",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "SourceBuffer.appendWindowStart",
+    92,
+    40,
+    0,
+    0
+   ],
+   [
+    "Headers.append()",
+    91,
+    40,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.setMediaKeys()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "EventTarget.removeEventListener()",
+    5,
+    5,
+    0,
+    0
+   ],
+   [
+    "Response.arrayBuffer()",
+    92,
+    40,
+    0,
+    0
+   ],
+   [
+    "SourceBuffer.appendBuffer()",
+    91,
+    40,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.buffered",
+    107,
+    40,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.duration",
+    3,
+    3,
+    0,
+    0
+   ],
+   [
+    "MediaKeys.setServerCertificate()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "MediaKeys.createSession()",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "MediaKeySession.generateRequest()",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "window.chrome",
+    2,
+    0,
+    0,
+    2
+   ],
+   [
+    "Event.target",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "TimeRanges.start()",
+    35,
+    35,
+    0,
+    0
+   ],
+   [
+    "TimeRanges.end()",
+    26,
+    26,
+    0,
+    0
+   ],
+   [
+    "MediaKeySession.sessionId",
+    8,
+    8,
+    0,
+    0
+   ],
+   [
+    "MediaKeySession.update()",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "MediaKeySession.keyStatuses",
+    4,
+    0,
+    0,
+    4
+   ],
+   [
+    "MediaKeyStatusMap.forEach()",
+    4,
+    0,
+    0,
+    4
+   ],
+   [
+    "SourceBuffer.buffered",
+    11,
+    11,
+    0,
+    0
+   ],
+   [
+    "SourceBuffer.updating",
+    9,
+    9,
+    0,
+    0
+   ],
+   [
+    "SourceBuffer.remove()",
+    6,
+    6,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.pause()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "HTMLMediaElement.currentTime=",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "SourceBuffer.timestampOffset=",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "window.clearTimeout",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "MediaKeySession.remove()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "MediaKeySession.close()",
+    1,
+    1,
+    0,
+    0
+   ],
+   [
+    "MediaSource.readyState",
+    4,
+    4,
+    0,
+    0
+   ],
+   [
+    "MediaSource.endOfStream()",
+    2,
+    2,
+    0,
+    0
+   ],
+   [
+    "URL(static).revokeObjectURL()",
+    1,
+    1,
+    0,
+    0
+   ]
+  ],
+  "net": [
+   {
+    "t": 1791587019019,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "api.music.apple.com",
+    "path": "/v1/catalog/us/songs",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587019614,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "api.music.apple.com",
+    "path": "/v1/me/account",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587020012,
+    "kind": "fetch",
+    "method": "POST",
+    "host": "play.itunes.apple.com",
+    "path": "/WebObjects/MZPlay.woa/wa/webPlayback",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587020012,
+    "kind": "fetch",
+    "method": "POST",
+    "host": "play.itunes.apple.com",
+    "path": "/WebObjects/MZPlay.woa/wa/webPlayback",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587020422,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587020423,
+    "kind": "fetch",
+    "method": "POST",
+    "host": "play.itunes.apple.com",
+    "path": "/WebObjects/MZPlay.woa/wa/webPlayback",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587020618,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587020619,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "play.itunes.apple.com",
+    "path": "/WebObjects/MZPlay.woa/wa/widevineCert",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587020624,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587020636,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587020676,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587020792,
+    "kind": "fetch",
+    "method": "POST",
+    "host": "play.itunes.apple.com",
+    "path": "/WebObjects/MZPlay.woa/wa/acquireWebPlaybackLicense",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587020862,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021091,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021147,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021204,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021256,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021308,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021362,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021407,
+    "kind": "fetch",
+    "method": "POST",
+    "host": "universal-activity-service.itunes.apple.com",
+    "path": "/play",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587021423,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021482,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021530,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021578,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021626,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021672,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021723,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021798,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021850,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021903,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587021964,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587022015,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587022086,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587022137,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587022190,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587022270,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587022318,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587022381,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587022429,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587022477,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587032092,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587032098,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587042185,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587042190,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587052013,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587052017,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587062104,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587062107,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587067817,
+    "kind": "fetch",
+    "method": "POST",
+    "host": "universal-activity-service.itunes.apple.com",
+    "path": "/play",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587073078,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073083,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073097,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073099,
+    "kind": "fetch",
+    "method": "POST",
+    "host": "universal-activity-service.itunes.apple.com",
+    "path": "/play",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587073100,
+    "kind": "fetch",
+    "method": "POST",
+    "host": "universal-activity-service.itunes.apple.com",
+    "path": "/play",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587073114,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073130,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073143,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073155,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073166,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073177,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073188,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073198,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073208,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073216,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073224,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073230,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073236,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073241,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073246,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073250,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073253,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073256,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073259,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073303,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073343,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073390,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073429,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073462,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073511,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073554,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073603,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587073648,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587075608,
+    "kind": "fetch",
+    "method": "POST",
+    "host": "universal-activity-service.itunes.apple.com",
+    "path": "/play",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587076401,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587081622,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587081623,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587081628,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587081632,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587081634,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587081637,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587081639,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587081678,
+    "kind": "fetch",
+    "method": "POST",
+    "host": "play.itunes.apple.com",
+    "path": "/WebObjects/MZPlay.woa/wa/acquireWebPlaybackLicense",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587081687,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587081741,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587081790,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587081837,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587081886,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587081930,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587081974,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587081999,
+    "kind": "fetch",
+    "method": "POST",
+    "host": "universal-activity-service.itunes.apple.com",
+    "path": "/play",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587082021,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587082069,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587082120,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587082146,
+    "kind": "fetch",
+    "method": "POST",
+    "host": "universal-activity-service.itunes.apple.com",
+    "path": "/play",
+    "by": "mk",
+    "status": 200
+   },
+   {
+    "t": 1791587082170,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587082399,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587082464,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587082514,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   },
+   {
+    "t": 1791587082577,
+    "kind": "fetch",
+    "method": "GET",
+    "host": "aod-ssl.itunes.apple.com",
+    "path": "/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.…",
+    "by": "mk",
+    "status": 206
+   }
+  ],
+  "m3u8": [],
+  "eme": {
+   "access": [
+    {
+     "keySystem": "com.microsoft.playready",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "error": "NotSupportedError: Unsupported keySystem or supportedConfigurations."
+    },
+    {
+     "keySystem": "com.youtube.playready",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "error": "NotSupportedError: Unsupported keySystem or supportedConfigurations."
+    },
+    {
+     "keySystem": "com.widevine.alpha",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "granted": {
+      "audioCapabilities": [
+       {
+        "contentType": "audio/mp4;codecs=\"mp4a.40.2\"",
+        "encryptionScheme": null,
+        "robustness": ""
+       }
+      ],
+      "distinctiveIdentifier": "not-allowed",
+      "initDataTypes": [
+       "cenc"
+      ],
+      "label": "",
+      "persistentState": "required",
+      "sessionTypes": [
+       "temporary"
+      ],
+      "videoCapabilities": [
+       {
+        "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+        "encryptionScheme": null,
+        "robustness": "SW_SECURE_CRYPTO"
+       }
+      ]
+     }
+    },
+    {
+     "keySystem": "org.w3.clearkey",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "error": "NotSupportedError: Unsupported keySystem or supportedConfigurations."
+    },
+    {
+     "keySystem": "com.apple.fps",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "error": "NotSupportedError: Unsupported keySystem or supportedConfigurations."
+    },
+    {
+     "keySystem": "com.apple.fairplay",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "error": "NotSupportedError: Unsupported keySystem or supportedConfigurations."
+    },
+    {
+     "keySystem": "com.widevine.alpha",
+     "configs": [
+      {
+       "initDataTypes": [
+        "keyids",
+        "cenc"
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required",
+       "videoCapabilities": [
+        {
+         "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+         "robustness": "SW_SECURE_CRYPTO"
+        }
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ]
+      }
+     ],
+     "granted": {
+      "audioCapabilities": [
+       {
+        "contentType": "audio/mp4;codecs=\"mp4a.40.2\"",
+        "encryptionScheme": null,
+        "robustness": ""
+       }
+      ],
+      "distinctiveIdentifier": "not-allowed",
+      "initDataTypes": [
+       "cenc"
+      ],
+      "label": "",
+      "persistentState": "required",
+      "sessionTypes": [
+       "temporary"
+      ],
+      "videoCapabilities": [
+       {
+        "contentType": "video/mp4;codecs=\"avc1.42E01E\"",
+        "encryptionScheme": null,
+        "robustness": "SW_SECURE_CRYPTO"
+       }
+      ]
+     }
+    },
+    {
+     "keySystem": "com.widevine.alpha",
+     "configs": [
+      {
+       "initDataTypes": [
+        "cenc",
+        "keyids"
+       ],
+       "audioCapabilities": [
+        {
+         "contentType": "audio/mp4;codecs=\"mp4a.40.2\""
+        }
+       ],
+       "distinctiveIdentifier": "optional",
+       "persistentState": "required"
+      }
+     ],
+     "granted": {
+      "audioCapabilities": [
+       {
+        "contentType": "audio/mp4;codecs=\"mp4a.40.2\"",
+        "encryptionScheme": null,
+        "robustness": ""
+       }
+      ],
+      "distinctiveIdentifier": "not-allowed",
+      "initDataTypes": [
+       "cenc"
+      ],
+      "label": "",
+      "persistentState": "required",
+      "sessionTypes": [
+       "temporary"
+      ],
+      "videoCapabilities": []
+     }
+    }
+   ],
+   "sessions": 2,
+   "messages": [
+    {
+     "t": 1791587020790,
+     "type": "license-request",
+     "bytes": 1704
+    },
+    {
+     "t": 1791587081677,
+     "type": "license-request",
+     "bytes": 2130
+    }
+   ],
+   "statuses": {
+    "00000001942e38b5001dd03bffc5b58e": "released",
+    "00000001942f0fde001d717386aa8d07": "usable"
+   },
+   "everUsable": true,
+   "firstUsableEpochMs": 1791587021387,
+   "initData": [
+    {
+     "type": "cenc",
+     "bytes": 52,
+     "psshSystems": [
+      "edef8ba979d64acea3c827dcd51d21ed"
+     ]
+    },
+    {
+     "type": "cenc",
+     "bytes": 52,
+     "psshSystems": [
+      "edef8ba979d64acea3c827dcd51d21ed"
+     ]
+    }
+   ]
+  },
+  "mse": {
+   "types": [
+    "audio/mp4;codecs=\"mp4a.40.2\"",
+    "audio/mp4;codecs=\"mp4a.40.2\""
+   ],
+   "schm": [
+    "cenc"
+   ],
+   "frma": [
+    "mp4a"
+   ],
+   "appends": 91
+  },
+  "flavors": [],
+  "webPlaybackKeys": [
+   "license",
+   "errorCode",
+   "renew-after",
+   "status"
+  ]
+ },
+ "exceptions": [],
+ "sinkBefore": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "sinkAfter": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "checks": {
+  "c1_authorizedWithStorefront": true,
+  "c2_fullSongPast35s": true,
+  "c3_widevineKeyUsable": true,
+  "c4_audioToNullSinkOnly": true
+ },
+ "didItRun": {
+  "musickitLoaded": true,
+  "configured": true,
+  "samples": 23,
+  "treeWalked": true
+ },
+ "summary": {
+  "maxCurrentPlaybackTime": 46,
+  "advancing": true,
+  "durationMs": 355155,
+  "isAuthorized": true,
+  "storefront": "us",
+  "previewOnly": false,
+  "item": {
+   "id": "6781024437",
+   "name": "Bohemian Rhapsody",
+   "durationInMillis": 355155,
+   "flavor": "28:ctrp256",
+   "assetURLSet": true
+  },
+  "pssMedMiB": 586.2,
+  "rssMedMiB": 1603.2,
+  "procs": 16,
+  "firstAudioMs": 4188,
+  "firstUsableMs": 3457,
+  "scheme": [
+   "cenc"
+  ],
+  "frma": [
+   "mp4a"
+  ],
+  "mseTypes": [
+   "audio/mp4;codecs=\"mp4a.40.2\"",
+   "audio/mp4;codecs=\"mp4a.40.2\""
+  ],
+  "flavors": [],
+  "m3u8": [],
+  "steps": [
+   {
+    "label": "pause",
+    "error": null,
+    "cpt": 46,
+    "state": 3,
+    "item": "6781024437",
+    "media": 46.355878
+   },
+   {
+    "label": "paused+4s",
+    "error": null,
+    "cpt": 46,
+    "state": 3,
+    "item": "6781024437",
+    "media": 46.355878
+   },
+   {
+    "label": "seek-120",
+    "error": null,
+    "cpt": 120,
+    "state": 3,
+    "item": "6781024437",
+    "media": 120
+   },
+   {
+    "label": "play",
+    "error": null,
+    "cpt": 126,
+    "state": 2,
+    "item": "6781024437",
+    "media": 125.94756
+   },
+   {
+    "label": "next",
+    "error": null,
+    "cpt": 9,
+    "state": 2,
+    "item": "6781079518",
+    "media": 8.938817
+   }
+  ]
+ },
+ "verdict": "PASS"
+}
