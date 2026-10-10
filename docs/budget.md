@@ -15,3 +15,5 @@ Engine crate (2026-10-09): `crates/engine` playing Angel One through hls.js, the
 
 
 **Rebalance, 2026-10-09:** UI 85.4 plus the playback engine in one process (QuickJS + CDM + pipeline) at 97.2 comes to about 183 MiB summed PSS, which still fits under 200. The UI slice overran its target and the engine came in under its 130 (40 + 90). The total has not moved. Not yet measured: real musickit.js plus Apple's hls.js during playback, and the UI with album art loaded.
+
+**App skeleton, S2a (2026-10-10):** `bramley` with the engine started lazily: **81.6** PSS idle (release, never played) and **180.0** playing (dev build, no covers). See `s2a-skeleton-RESULTS.md`. S2c owns the gate.
