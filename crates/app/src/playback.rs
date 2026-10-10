@@ -217,6 +217,10 @@ impl Playback {
         true
     }
 
+    pub fn mark_signed_out(&mut self) {
+        self.signed_out = true;
+    }
+
     pub fn shutdown(&mut self) {
         if let Some((tx, _)) = self.link.take() {
             let _ = tx.send(Command::Shutdown);

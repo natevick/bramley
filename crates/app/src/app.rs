@@ -1,14 +1,17 @@
-use std::path::{Path, PathBuf};
+#[cfg(feature = "dev")]
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::mpsc::{Sender, channel};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "dev")]
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
 use crate::Args;
 use crate::cli::{self, Inbox, Request};
-use crate::covers::{self, Grid, Source};
+use crate::covers::{Grid, Source};
 use crate::playback::{Action, Banner, Playback, Spawn};
 use crate::ui;
 
@@ -48,6 +51,7 @@ impl Drop for StatusWriter {
     }
 }
 
+#[cfg(feature = "dev")]
 struct Shot {
     path: PathBuf,
     after: Duration,
@@ -57,14 +61,15 @@ struct Shot {
 pub struct App {
     playback: Playback,
     covers: Grid,
-    source: Option<Source>,
     actions: Vec<Action>,
     inbox: Inbox,
     guarded: bool,
     status: Option<StatusWriter>,
+    #[cfg(feature = "dev")]
     shot: Option<Shot>,
     frames: u64,
     renderer: Option<String>,
+    #[cfg(feature = "dev")]
     born: Instant,
     status_at: Option<Instant>,
 }
@@ -76,6 +81,7 @@ impl App {
         spawn: Spawn,
         signed_out: bool,
         (inbox, guarded): (Inbox, bool),
+        source: Option<Source>,
     ) -> Self {
         let rendering = fastframe_text::detect();
         let mut fonts = fastframe_fonts::FontSetup::default().definitions();
@@ -87,25 +93,14 @@ impl App {
         let actions = args.play.into_iter().map(Action::PlaySong).collect();
         #[cfg(not(feature = "dev"))]
         let actions = Vec::new();
-        #[cfg(feature = "dev")]
-        let art_prefix = args.api_base.clone();
-        #[cfg(not(feature = "dev"))]
-        let art_prefix = None;
-        let source = crate::config_dir().ok().map(|config| Source {
-            api: art_prefix
-                .clone()
-                .unwrap_or_else(|| covers::API_BASE.into()),
-            art_prefix,
-            config,
-        });
         App {
             playback: Playback::new(spawn, signed_out),
-            covers: Grid::default(),
-            source,
+            covers: Grid::new(source),
             actions,
             inbox,
             guarded,
             status: args.status.map(StatusWriter::new),
+            #[cfg(feature = "dev")]
             shot: args.screenshot.map(|path| Shot {
                 path,
                 after: args.after,
@@ -113,12 +108,13 @@ impl App {
             }),
             frames: 0,
             renderer: None,
+            #[cfg(feature = "dev")]
             born: Instant::now(),
             status_at: None,
         }
     }
 
-    fn status_json(&self) -> Value {
+    pub fn status_json(&self) -> Value {
         let shown = self.playback.shown();
         json!({
             "pid": std::process::id(),
@@ -137,7 +133,8 @@ impl App {
             "framesPainted": self.frames,
             "glRenderer": self.renderer,
             "texturesUploaded": self.covers.uploaded(),
-            "decodedBytesHeld": self.covers.held(),
+            "decodedInFlight": self.covers.in_flight(),
+            "decodedBytesKept": self.covers.kept(),
             "coversRequested": self.covers.requested(),
             "coversFailed": self.covers.failures(),
             "coversError": self.covers.failed(),
@@ -176,6 +173,45 @@ impl App {
         any
     }
 
+    pub fn tick(&mut self, ctx: &egui::Context) {
+        let changed = self.pump(ctx);
+        if self.covers.rejected() {
+            self.playback.mark_signed_out();
+        }
+        self.covers.follow(ctx, covers_allowed(&self.playback));
+        if changed
+            || self
+                .status_at
+                .is_none_or(|at| at.elapsed() >= REPAINT_EVERY)
+        {
+            self.write_status();
+        }
+        #[cfg(feature = "dev")]
+        self.drive_shot(ctx);
+        ctx.request_repaint_after(REPAINT_EVERY);
+    }
+
+    pub fn draw(&mut self, ui: &mut egui::Ui) {
+        self.frames += 1;
+        let shown = self.playback.shown();
+        egui::Panel::bottom("now-playing").show(ui, |ui| {
+            ui.add_space(8.0);
+            ui::now_playing(ui, &shown, self.playback.started(), &mut self.actions);
+            ui.add_space(8.0);
+        });
+        egui::CentralPanel::default().show(ui, |ui| {
+            if let Some(banner) = self.playback.banner() {
+                ui::banner(ui, &banner);
+            }
+            ui.heading("Bramley");
+            self.covers.show(ui);
+        });
+        for action in self.actions.drain(..) {
+            self.playback.apply(action);
+        }
+    }
+
+    #[cfg(feature = "dev")]
     fn drive_shot(&mut self, ctx: &egui::Context) {
         let Some(shot) = self.shot.as_mut() else {
             return;
@@ -209,38 +245,11 @@ impl eframe::App for App {
                 .gl()
                 .map(|gl| unsafe { gl.get_parameter_string(eframe::glow::RENDERER) });
         }
-        let signed_in = covers_allowed(&self.playback);
-        self.covers.follow(ctx, signed_in, &mut self.source);
-        let changed = self.pump(ctx);
-        if changed
-            || self
-                .status_at
-                .is_none_or(|at| at.elapsed() >= REPAINT_EVERY)
-        {
-            self.write_status();
-        }
-        self.drive_shot(ctx);
-        ctx.request_repaint_after(REPAINT_EVERY);
+        self.tick(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.frames += 1;
-        let shown = self.playback.shown();
-        egui::Panel::bottom("now-playing").show(ui, |ui| {
-            ui.add_space(8.0);
-            ui::now_playing(ui, &shown, self.playback.started(), &mut self.actions);
-            ui.add_space(8.0);
-        });
-        egui::CentralPanel::default().show(ui, |ui| {
-            if let Some(banner) = self.playback.banner() {
-                ui::banner(ui, &banner);
-            }
-            ui.heading("Bramley");
-            self.covers.show(ui);
-        });
-        for action in self.actions.drain(..) {
-            self.playback.apply(action);
-        }
+        self.draw(ui);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -253,6 +262,7 @@ pub fn covers_allowed(playback: &Playback) -> bool {
     playback.banner() != Some(Banner::SignInNeeded)
 }
 
+#[cfg(feature = "dev")]
 fn write_png(path: &Path, image: &egui::ColorImage) -> Result<()> {
     let file =
         std::fs::File::create(path).with_context(|| format!("creating {}", path.display()))?;

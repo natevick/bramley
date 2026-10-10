@@ -16,10 +16,10 @@ fastframe-log = { git = "https://github.com/natevick/fastframe", rev = "e32305a8
 fastframe-instance = { git = "https://github.com/natevick/fastframe", rev = "e32305a83234733677f81580a6d8e56e2b3a9624" }
 fastframe-text = { git = "https://github.com/natevick/fastframe", rev = "e32305a83234733677f81580a6d8e56e2b3a9624" }
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
-png = "0.18"
+png = { version = "0.18", optional = true }
 serde_json = "1"
 ureq = "3"
 
 [features]
-dev = []
+dev = ["dep:png"]
 gate-sabotage = []

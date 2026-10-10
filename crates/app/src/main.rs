@@ -9,6 +9,7 @@ mod ui;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, OnceLock};
+#[cfg(feature = "dev")]
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -26,7 +27,9 @@ static GATE_SABOTAGE_MARKER: &str = "bramley-unshipped-feature:app/gate-sabotage
 
 #[derive(Default)]
 pub struct Args {
+    #[cfg(feature = "dev")]
     screenshot: Option<PathBuf>,
+    #[cfg(feature = "dev")]
     after: Duration,
     status: Option<PathBuf>,
     #[cfg(feature = "dev")]
@@ -42,7 +45,9 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
     while let Some(flag) = it.next() {
         let mut value = || it.next().with_context(|| format!("{flag} needs a value"));
         match flag.as_str() {
+            #[cfg(feature = "dev")]
             "--screenshot" => a.screenshot = Some(value()?.into()),
+            #[cfg(feature = "dev")]
             "--after" => a.after = Duration::try_from_secs_f64(value()?.parse()?)?,
             "--status" => a.status = Some(value()?.into()),
             #[cfg(feature = "dev")]
@@ -73,6 +78,24 @@ fn read_token(dir: &Path, name: &str) -> Result<String> {
         "" => bail!("{} is empty", path.display()),
         token => Ok(token.to_owned()),
     }
+}
+
+fn signed_out(dir: &Path) -> bool {
+    read_token(dir, "music-user-token").is_err()
+}
+
+fn cover_source(args: &Args) -> Option<covers::Source> {
+    #[cfg(feature = "dev")]
+    let art_prefix = args.api_base.clone();
+    #[cfg(not(feature = "dev"))]
+    let (art_prefix, _) = (None, args);
+    Some(covers::Source {
+        api: art_prefix
+            .clone()
+            .unwrap_or_else(|| covers::API_BASE.into()),
+        art_prefix,
+        config: config_dir().ok()?,
+    })
 }
 
 fn boot(dir: &Path, start: impl FnOnce(Tokens) -> Result<Link>) -> Result<Link> {
@@ -129,8 +152,8 @@ fn main() -> Result<()> {
     let _guard = match slot.claim(&cli::wire(&[]), cli::handler(inbox_tx, waker.clone())) {
         Claim::First(guard) => guard,
         Claim::Running(reply) => {
-            if args.status.is_some() || args.screenshot.is_some() {
-                eprintln!("bramley: --status and --screenshot ignored: Bramley is already running");
+            if args.status.is_some() {
+                eprintln!("bramley: --status ignored: Bramley is already running");
             }
             if let Err((code, why)) = cli::outcome(&reply) {
                 eprintln!("bramley: {why}");
@@ -152,8 +175,8 @@ fn main() -> Result<()> {
     let output_device = std::env::var("PULSE_SINK").ok().filter(|s| !s.is_empty());
     #[cfg(feature = "dev")]
     let output_device = args.output_device.clone().or(output_device);
-    let user_token = config_dir()?.join("music-user-token");
-    let signed_out = !std::fs::metadata(user_token).is_ok_and(|m| m.len() > 0);
+    let signed_out = signed_out(&config_dir()?);
+    let source = cover_source(&args);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 720.0])
@@ -168,7 +191,7 @@ fn main() -> Result<()> {
             let _ = waker.set(cc.egui_ctx.clone());
             let spawn = spawner(cc.egui_ctx.clone(), output_device);
             let channel = (inbox, guarded);
-            let app = app::App::new(&cc.egui_ctx, args, spawn, signed_out, channel);
+            let app = app::App::new(&cc.egui_ctx, args, spawn, signed_out, channel, source);
             Ok(Box::new(app))
         }),
     )

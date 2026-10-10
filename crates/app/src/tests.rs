@@ -354,7 +354,7 @@ impl FakeApp {
             let spawned = ends.clone();
             let spawn = spawning(move || live(&spawned));
             let args = crate::Args::default();
-            let mut app = crate::app::App::new(&ctx, args, spawn, signed_out, (inbox, true));
+            let mut app = crate::app::App::new(&ctx, args, spawn, signed_out, (inbox, true), None);
             waker.set(ctx.clone()).unwrap();
             let mut shown = false;
             let mut pass = true;
@@ -645,7 +645,7 @@ fn artwork_fills_the_template_at_the_cell_pixel_size() {
 }
 
 #[test]
-fn only_https_mzstatic_artwork_is_fetched_unless_dev_names_a_prefix() {
+fn only_https_mzstatic_artwork_is_fetched_unless_dev_names_the_exact_origin() {
     let ok = "https://is1-ssl.mzstatic.com/image/thumb/x/96x96bb.jpg";
     assert!(covers::allowed_art(ok, None));
     for bad in [
@@ -659,26 +659,92 @@ fn only_https_mzstatic_artwork_is_fetched_unless_dev_names_a_prefix() {
     ] {
         assert!(!covers::allowed_art(bad, None), "{bad}");
     }
-    let fixture = "http://127.0.0.1:9/art/1.jpg";
-    assert!(covers::allowed_art(fixture, Some("http://127.0.0.1:9")));
-    assert!(!covers::allowed_art(fixture, None));
+    let base = Some("http://127.0.0.1:9");
+    assert!(covers::allowed_art("http://127.0.0.1:9/art/1.jpg", base));
+    assert!(!covers::allowed_art("http://127.0.0.1:9/art/1.jpg", None));
+    for bad in [
+        "http://127.0.0.1:9000/a.jpg",
+        "http://127.0.0.1:9@evil.example/a.jpg",
+        "https://127.0.0.1:9/a.jpg",
+    ] {
+        assert!(!covers::allowed_art(bad, base), "{bad}");
+    }
 }
 
 #[cfg(not(feature = "dev"))]
 #[test]
-fn the_api_base_override_is_refused_outside_dev() {
-    let args = ["--api-base", "http://127.0.0.1:9"].map(String::from);
-    assert!(crate::parse_args(args.into_iter()).is_err());
+fn the_api_base_override_and_screenshots_are_refused_outside_dev() {
+    for flag in ["--api-base", "--screenshot", "--after"] {
+        let args = [flag, "1"].map(String::from);
+        assert!(crate::parse_args(args.into_iter()).is_err(), "{flag}");
+    }
 }
 
-type Requests = Arc<Mutex<Vec<(String, Option<String>)>>>;
+#[test]
+fn a_blank_user_token_is_signed_out_like_boot_sees_it() {
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../target/tmp/signed-out-test-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let token = dir.join("music-user-token");
+    let mut seen = Vec::new();
+    for body in [" \n", "user-token-opaque"] {
+        std::fs::write(&token, body).unwrap();
+        seen.push(crate::signed_out(&dir));
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+    seen.push(crate::signed_out(&dir));
+    assert_eq!(seen, [true, false, true]);
+}
+
+const FIXTURE_TOKEN: &str = "dev-token-fixture-0123456789";
+const FIXTURE_USER: &str = "user-token-fixture-9876543210";
+
+type Requests = Arc<Mutex<Vec<(String, Option<String>, Option<String>)>>>;
+
+#[derive(Clone, Copy)]
+struct Serve {
+    me: u16,
+    chart: u16,
+    big: bool,
+    redirect: bool,
+    bad_albums: bool,
+    slow_chart: bool,
+}
+
+const SERVE: Serve = Serve {
+    me: 200,
+    chart: 200,
+    big: false,
+    redirect: false,
+    bad_albums: false,
+    slow_chart: false,
+};
 
 struct Fixture {
     base: String,
     requests: Requests,
 }
 
-fn fixture(chart_status: u16, big: bool) -> Fixture {
+impl Fixture {
+    fn paths(&self) -> Vec<String> {
+        self.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| r.0.clone())
+            .collect()
+    }
+}
+
+fn header(line: &str, name: &str) -> Option<String> {
+    let (key, value) = line.split_once(':')?;
+    key.eq_ignore_ascii_case(name)
+        .then(|| value.trim().to_owned())
+}
+
+fn fixture(serve: Serve) -> Fixture {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let requests = Arc::new(Mutex::new(Vec::new()));
@@ -690,35 +756,48 @@ fn fixture(chart_status: u16, big: bool) -> Fixture {
             let mut line = String::new();
             reader.read_line(&mut line).unwrap();
             let path = line.split_whitespace().nth(1).unwrap_or("").to_owned();
-            let mut auth = None;
+            let (mut auth, mut user) = (None, None);
             loop {
-                let mut header = String::new();
-                reader.read_line(&mut header).unwrap();
-                if header.trim().is_empty() {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line.trim().is_empty() {
                     break;
                 }
-                if let Some((name, value)) = header.split_once(':')
-                    && name.eq_ignore_ascii_case("authorization")
-                {
-                    auth = Some(value.trim().to_owned());
-                }
+                auth = auth.or(header(&line, "authorization"));
+                user = user.or(header(&line, "music-user-token"));
             }
-            seen.lock().unwrap().push((path.clone(), auth));
-            let (status, body) = if path.starts_with("/v1/") {
-                let id = |i: usize| {
-                    if big && i == 7 {
-                        "7big".into()
-                    } else {
-                        i.to_string()
-                    }
+            seen.lock().unwrap().push((path.clone(), auth, user));
+            let refusal = json!({"errors": [{"detail": format!("rejected {FIXTURE_TOKEN}")}]});
+            let (status, extra, body) = if path == "/v1/me/storefront" {
+                if serve.me == 0 {
+                    continue;
+                }
+                (serve.me, String::new(), b"{}".to_vec())
+            } else if path.starts_with("/v1/") {
+                if serve.slow_chart {
+                    std::thread::sleep(Duration::from_millis(300));
+                }
+                let url = |i: usize| match i {
+                    7 if serve.big => format!("{art_base}/art/7big/{{w}}x{{h}}bb.jpg"),
+                    3 if serve.bad_albums => format!("{art_base}/art/3/{{w}}x{{h}}{{c}}.jpg"),
+                    _ => format!("{art_base}/art/{i}/{{w}}x{{h}}bb.jpg"),
                 };
                 let albums: Vec<_> = (0..50)
-                    .map(id)
-                    .map(|i| json!({"attributes": {"artwork": {"url": format!("{art_base}/art/{i}/{{w}}x{{h}}bb.jpg")}}}))
+                    .map(|i| match i {
+                        4 if serve.bad_albums => json!({"attributes": {}}),
+                        _ => json!({"attributes": {"artwork": {"url": url(i)}}}),
+                    })
                     .collect();
                 let chart = json!({"results": {"albums": [{"data": albums}]}});
-                (chart_status, chart.to_string().into_bytes())
-            } else {
+                let body = if serve.chart == 200 { chart } else { refusal };
+                (serve.chart, String::new(), body.to_string().into_bytes())
+            } else if serve.redirect && path.starts_with("/art/9/") {
+                (
+                    302,
+                    format!("Location: {art_base}/elsewhere/9.jpg\r\n"),
+                    Vec::new(),
+                )
+            } else if path.starts_with("/art/") {
                 let size: u32 = path
                     .rsplit('/')
                     .next()
@@ -742,10 +821,12 @@ fn fixture(chart_status: u16, big: bool) -> Fixture {
                         image::ImageFormat::Jpeg,
                     )
                     .unwrap();
-                (200, jpeg)
+                (200, String::new(), jpeg)
+            } else {
+                (404, String::new(), Vec::new())
             };
             let head = format!(
-                "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                "HTTP/1.1 {status} X\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
                 body.len()
             );
             let _ = stream
@@ -756,10 +837,7 @@ fn fixture(chart_status: u16, big: bool) -> Fixture {
     Fixture { base, requests }
 }
 
-const FIXTURE_TOKEN: &str = "dev-token-fixture-0123456789";
-
-fn load_covers(chart_status: u16, art_prefix: bool, big: bool, signed_in: bool) -> (Grid, Fixture) {
-    let fx = fixture(chart_status, big);
+fn fixture_source(fx: &Fixture, art_prefix: bool) -> (Source, std::path::PathBuf) {
     let config = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
         "../../target/tmp/covers-test-{}-{}",
         std::process::id(),
@@ -767,86 +845,288 @@ fn load_covers(chart_status: u16, art_prefix: bool, big: bool, signed_in: bool) 
     ));
     std::fs::create_dir_all(&config).unwrap();
     std::fs::write(config.join("developer-token"), FIXTURE_TOKEN).unwrap();
+    std::fs::write(config.join("music-user-token"), FIXTURE_USER).unwrap();
+    let api = fx.base.clone();
     let source = Source {
-        api: fx.base.clone(),
+        api,
         art_prefix: art_prefix.then(|| fx.base.clone()),
         config: config.clone(),
     };
-    let ctx = egui::Context::default();
-    let mut grid = Grid::default();
-    grid.follow(&ctx, signed_in, &mut Some(source));
-    let until = Instant::now() + Duration::from_secs(if signed_in { 20 } else { 1 });
-    while grid.uploaded() + grid.failures() < 50 && Instant::now() < until {
-        grid.receive(&ctx);
+    (source, config)
+}
+
+fn settle(grid: &mut Grid, ctx: &egui::Context) {
+    let until = Instant::now() + Duration::from_secs(20);
+    while grid.uploaded() + grid.failures() < 50 && !grid.rejected() && Instant::now() < until {
+        grid.receive(ctx);
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+
+fn load_covers(serve: Serve, art_prefix: bool) -> (Grid, Fixture, egui::Context) {
+    let fx = fixture(serve);
+    let (source, config) = fixture_source(&fx, art_prefix);
+    let ctx = egui::Context::default();
+    let mut grid = Grid::new(Some(source));
+    grid.follow(&ctx, true);
+    settle(&mut grid, &ctx);
     std::fs::remove_dir_all(&config).unwrap();
-    (grid, fx)
+    (grid, fx, ctx)
 }
 
 #[test]
-fn fifty_covers_become_textures_and_no_decoded_pixels_are_held() {
-    let (grid, fx) = load_covers(200, true, false, true);
-    assert_eq!(grid.failed(), None);
-    assert_eq!(grid.uploaded(), 50);
-    let decoded = 50 * 96 * 96 * 4;
-    let held = if cfg!(feature = "gate-sabotage") {
-        decoded
+fn fifty_covers_become_textures_and_nothing_decoded_stays_once_a_frame_ends() {
+    let (mut grid, fx, ctx) = load_covers(SERVE, true);
+    assert_eq!(
+        (grid.failed(), grid.uploaded(), grid.in_flight()),
+        (None, 50, 0)
+    );
+    let kept = if cfg!(feature = "gate-sabotage") {
+        50 * 96 * 96 * 4
     } else {
         0
     };
-    assert_eq!(grid.held(), held);
-    let requests = fx.requests.lock().unwrap();
-    let bearer = format!("Bearer {FIXTURE_TOKEN}");
-    assert_eq!(requests[0].0, "/v1/catalog/us/charts?types=albums&limit=50");
-    assert_eq!(requests[0].1.as_deref(), Some(bearer.as_str()));
-    assert_eq!(requests.len(), 51);
-    for (path, auth) in &requests[1..] {
-        assert!(path.ends_with("/96x96bb.jpg"), "{path}");
-        assert_eq!(auth, &None, "the token went to the art host");
-    }
-    let (mut grid, ctx) = (grid, egui::Context::default());
-    grid.follow(&ctx, false, &mut None);
+    assert_eq!(grid.kept(), kept);
+    let requests = fx.requests.lock().unwrap().clone();
+    let (bearer, user) = (
+        Some(format!("Bearer {FIXTURE_TOKEN}")),
+        Some(FIXTURE_USER.to_owned()),
+    );
     assert_eq!(
-        (grid.uploaded(), grid.held()),
-        (0, 0),
+        requests[0],
+        ("/v1/me/storefront".into(), bearer.clone(), user)
+    );
+    assert_eq!(
+        requests[1],
+        (
+            "/v1/catalog/us/charts?types=albums&limit=50".into(),
+            bearer,
+            None
+        )
+    );
+    assert_eq!(requests.len(), 52);
+    for (path, auth, user) in &requests[2..] {
+        assert!(path.ends_with("/96x96bb.jpg"), "{path}");
+        assert_eq!((auth, user), (&None, &None), "a token went to the art host");
+    }
+    let mut frame = ctx.run_ui(Default::default(), |_| {});
+    let uploads = frame.textures_delta.set.len();
+    frame.textures_delta.clear();
+    assert!(uploads >= 50, "{uploads}");
+    let mut pending = ctx.tex_manager().write().take_delta();
+    let left = pending.set.len();
+    pending.clear();
+    assert_eq!(left, 0, "decoded pixels still pending after the frame");
+    grid.follow(&ctx, false);
+    assert_eq!(
+        (grid.uploaded(), grid.in_flight(), grid.kept()),
+        (0, 0, 0),
         "sign-in lost kept covers"
     );
-    grid.follow(&ctx, true, &mut None);
-    assert_eq!(grid.uploaded(), 0);
 }
 
 #[test]
-fn a_refused_chart_shows_an_error_without_the_token() {
-    let (grid, _fx) = load_covers(401, true, false, true);
+fn covers_need_a_storefront_200_and_a_refusal_reads_as_sign_in() {
+    for (me, rejected, error) in [
+        (401, true, None),
+        (403, true, None),
+        (0, false, Some("sign-in check")),
+    ] {
+        let (grid, fx, _) = load_covers(Serve { me, ..SERVE }, true);
+        assert_eq!((grid.rejected(), grid.uploaded()), (rejected, 0), "{me}");
+        assert_eq!(
+            grid.failed().map(|e| e.split(':').next().unwrap()),
+            error,
+            "{me}"
+        );
+        assert_eq!(fx.paths(), ["/v1/me/storefront"], "{me}");
+    }
+}
+
+#[test]
+fn a_refused_chart_shows_apples_reason_without_the_token() {
+    let (grid, _fx, _) = load_covers(
+        Serve {
+            chart: 500,
+            ..SERVE
+        },
+        true,
+    );
     let why = grid.failed().unwrap();
-    assert!(why.contains("401"), "{why}");
+    assert!(why.contains("HTTP 500: rejected"), "{why}");
     assert!(!why.contains(FIXTURE_TOKEN), "{why}");
-    assert_eq!(grid.uploaded(), 0);
+    assert_eq!((grid.uploaded(), grid.failures()), (0, 50));
 }
 
 #[test]
-fn artwork_off_the_allowed_host_is_never_requested() {
-    let (grid, fx) = load_covers(200, false, false, true);
-    assert!(grid.failed().unwrap().contains("refused artwork URL"));
-    assert_eq!(grid.uploaded(), 0);
-    assert_eq!(fx.requests.lock().unwrap().len(), 1);
+fn bad_or_off_host_albums_are_skipped_without_their_urls() {
+    let (grid, _fx, _) = load_covers(
+        Serve {
+            bad_albums: true,
+            ..SERVE
+        },
+        true,
+    );
+    assert_eq!((grid.uploaded(), grid.failures()), (48, 2));
+    let (off_host, fx, _) = load_covers(SERVE, false);
+    assert_eq!((off_host.uploaded(), off_host.failures()), (0, 50));
+    assert_eq!(fx.paths().len(), 2);
+    for why in [grid.failed().unwrap(), off_host.failed().unwrap()] {
+        assert!(!why.contains("http") && !why.contains('{'), "{why}");
+    }
 }
 
 #[test]
-fn signed_out_requests_nothing_and_shows_no_covers() {
-    let (grid, fx) = load_covers(200, true, false, false);
-    assert_eq!((grid.requested(), grid.uploaded()), (0, 0));
-    assert!(fx.requests.lock().unwrap().is_empty());
-    let (signed_out, _) = fake(true);
-    assert!(!crate::app::covers_allowed(&signed_out));
-    let (signed_in, _) = fake(false);
-    assert!(crate::app::covers_allowed(&signed_in));
+fn an_oversized_or_redirected_cover_fails_alone() {
+    let (big, _fx, _) = load_covers(Serve { big: true, ..SERVE }, true);
+    assert_eq!((big.uploaded(), big.failures()), (49, 1));
+    assert!(big.failed().unwrap().starts_with("cover 7:"));
+    let (moved, fx, _) = load_covers(
+        Serve {
+            redirect: true,
+            ..SERVE
+        },
+        true,
+    );
+    assert_eq!((moved.uploaded(), moved.failures()), (49, 1));
+    let why = moved.failed().unwrap();
+    assert!(
+        why.starts_with("cover 9: redirected (HTTP 302)") && !why.contains("http:"),
+        "{why}"
+    );
+    assert!(
+        !fx.paths().iter().any(|p| p.starts_with("/elsewhere")),
+        "the redirect was followed"
+    );
 }
 
 #[test]
-fn an_oversized_cover_is_refused_and_counted_as_failed() {
-    let (grid, _fx) = load_covers(200, true, true, true);
-    assert_eq!((grid.uploaded(), grid.failures()), (49, 1));
-    assert!(grid.failed().unwrap().starts_with("cover 7:"));
+fn losing_sign_in_mid_load_cancels_every_later_request() {
+    let fx = fixture(Serve {
+        slow_chart: true,
+        ..SERVE
+    });
+    let (source, config) = fixture_source(&fx, true);
+    let ctx = egui::Context::default();
+    let mut grid = Grid::new(Some(source));
+    grid.follow(&ctx, true);
+    std::thread::sleep(Duration::from_millis(100));
+    grid.follow(&ctx, false);
+    std::thread::sleep(Duration::from_millis(800));
+    std::fs::remove_dir_all(&config).unwrap();
+    assert!(
+        !fx.paths().iter().any(|p| p.starts_with("/art/")),
+        "{:?}",
+        fx.paths()
+    );
+}
+
+#[test]
+fn a_zoom_change_refetches_covers_at_the_new_pixel_size() {
+    let (mut grid, fx, ctx) = load_covers(SERVE, true);
+    let config = fixture_source(&fx, true).1;
+    ctx.set_zoom_factor(2.0);
+    ctx.run_ui(Default::default(), |_| {})
+        .textures_delta
+        .clear();
+    grid.follow(&ctx, true);
+    settle(&mut grid, &ctx);
+    std::fs::remove_dir_all(&config).unwrap();
+    assert_eq!(grid.uploaded(), 50);
+    assert_eq!(
+        fx.paths()
+            .iter()
+            .filter(|p| p.ends_with("/192x192bb.jpg"))
+            .count(),
+        50
+    );
+}
+
+fn cover_meshes(ctx: &egui::Context, app: &mut crate::app::App) -> usize {
+    let mut out = ctx.run_ui(Default::default(), |ui| {
+        app.tick(ui.ctx());
+        app.draw(ui);
+    });
+    out.textures_delta.clear();
+    let primitives = ctx.tessellate(out.shapes, out.pixels_per_point);
+    let textured = |p: &egui::ClippedPrimitive| matches!(&p.primitive, egui::epaint::Primitive::Mesh(m) if m.texture_id != egui::TextureId::default());
+    primitives.iter().filter(|p| textured(p)).count()
+}
+
+fn app_on(
+    serve: Serve,
+) -> (
+    crate::app::App,
+    Ends,
+    Sender<crate::cli::Envelope>,
+    egui::Context,
+    std::path::PathBuf,
+) {
+    let fx = fixture(serve);
+    let (source, config) = fixture_source(&fx, true);
+    let ends: Ends = Rc::default();
+    let spawned = ends.clone();
+    let (inbox_tx, inbox) = channel();
+    let ctx = egui::Context::default();
+    let spawn = spawning(move || live(&spawned));
+    let app = crate::app::App::new(
+        &ctx,
+        crate::Args::default(),
+        spawn,
+        false,
+        (inbox, true),
+        Some(source),
+    );
+    (app, ends, inbox_tx, ctx, config)
+}
+
+#[test]
+fn a_sign_in_needed_snapshot_hides_the_covers_in_the_frame_it_arrives() {
+    let (mut app, ends, inbox, ctx, config) = app_on(SERVE);
+    let until = Instant::now() + Duration::from_secs(20);
+    while app.status_json()["texturesUploaded"] != 50 && Instant::now() < until {
+        cover_meshes(&ctx, &mut app);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::fs::remove_dir_all(&config).unwrap();
+    assert!(cover_meshes(&ctx, &mut app) >= 50);
+    let (reply, _answer) = channel();
+    let play = crate::cli::Request::Do(Action::PlaySong("1".into()));
+    inbox
+        .send((play, Instant::now() + Duration::from_secs(5), reply))
+        .unwrap();
+    cover_meshes(&ctx, &mut app);
+    let refused = Some(PlayerError::SignInNeeded("expired".into()));
+    ends.borrow()[0]
+        .1
+        .send(snap(PlayState::Stopped, 0.0, 2, refused))
+        .unwrap();
+    assert_eq!(cover_meshes(&ctx, &mut app), 0);
+    let status = app.status_json();
+    assert_eq!(
+        (
+            status["banner"].as_str(),
+            status["texturesUploaded"].as_u64()
+        ),
+        (Some("SignInNeeded"), Some(0))
+    );
+}
+
+#[test]
+fn a_storefront_401_shows_the_sign_in_banner_and_no_covers() {
+    let (mut app, _ends, _inbox, ctx, config) = app_on(Serve { me: 401, ..SERVE });
+    let until = Instant::now() + Duration::from_secs(10);
+    while app.status_json()["banner"].is_null() && Instant::now() < until {
+        cover_meshes(&ctx, &mut app);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::fs::remove_dir_all(&config).unwrap();
+    let status = app.status_json();
+    assert_eq!(
+        (
+            status["banner"].as_str(),
+            status["texturesUploaded"].as_u64()
+        ),
+        (Some("SignInNeeded"), Some(0))
+    );
 }
