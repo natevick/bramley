@@ -329,6 +329,7 @@ type Seen = (usize, Vec<Command>, bool);
 
 struct FakeApp {
     inject: Sender<crate::cli::Envelope>,
+    waker: std::sync::Arc<std::sync::OnceLock<egui::Context>>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     thread: std::thread::JoinHandle<Seen>,
     _guard: fastframe_instance::Guard,
@@ -339,6 +340,7 @@ impl FakeApp {
         let (inject, inbox) = channel();
         let waker = std::sync::Arc::new(std::sync::OnceLock::new());
         let handler = crate::cli::handler(inject.clone(), waker.clone());
+        let woke = waker.clone();
         let fastframe_instance::Claim::First(_guard) = slot.claim("[]", handler) else {
             panic!("the test slot is already held");
         };
@@ -376,6 +378,7 @@ impl FakeApp {
         });
         FakeApp {
             inject,
+            waker: woke,
             stop,
             thread,
             _guard,
@@ -501,6 +504,7 @@ fn cli_play_while_signed_out_is_refused_and_spawns_nothing() {
     app.inject
         .send((crate::cli::Request::Show, late, reply))
         .unwrap();
+    app.waker.get().unwrap().request_repaint();
     let answer = answer.recv_timeout(Duration::from_secs(1));
     assert!(answer.unwrap().contains("\"error\""));
     assert_eq!(app.finish(), (0, Vec::new(), false));
