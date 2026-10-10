@@ -58,25 +58,28 @@ pub fn eme_check(key_system: &str, configs: &str) -> Option<J> {
             .and_then(|x| x.as_array())
             .cloned()
             .unwrap_or_default();
-        let audio: Vec<J> = audio_in
-            .iter()
-            .filter(|cap| {
-                let ct = cap
-                    .get("contentType")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("");
-                let rob = cap.get("robustness").and_then(|x| x.as_str()).unwrap_or("");
-                let scheme = cap.get("encryptionScheme").and_then(|x| x.as_str());
-                audio_type_supported(ct)
-                    && (rob.is_empty() || rob == "SW_SECURE_CRYPTO")
-                    && matches!(scheme, None | Some("cenc") | Some("cbcs"))
-            })
-            .cloned()
-            .collect();
-        if !audio_in.is_empty() && audio.is_empty() {
-            continue;
-        }
-        if !video_in.is_empty() {
+        let supported = |caps: &[J], type_ok: fn(&str) -> bool| -> Vec<J> {
+            caps.iter()
+                .filter(|cap| {
+                    let ct = cap
+                        .get("contentType")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("");
+                    let rob = cap.get("robustness").and_then(|x| x.as_str()).unwrap_or("");
+                    let scheme = cap.get("encryptionScheme").and_then(|x| x.as_str());
+                    type_ok(ct)
+                        && (rob.is_empty() || rob == "SW_SECURE_CRYPTO")
+                        && matches!(scheme, None | Some("cenc") | Some("cbcs"))
+                })
+                .cloned()
+                .collect()
+        };
+        let audio = supported(&audio_in, audio_type_supported);
+        let video = supported(&video_in, |ct| {
+            !parse_type(ct).1.is_empty() && video_type_answer(ct)
+        });
+        if (!audio_in.is_empty() && audio.is_empty()) || (!video_in.is_empty() && video.is_empty())
+        {
             continue;
         }
         if audio.is_empty() {
@@ -86,7 +89,7 @@ pub fn eme_check(key_system: &str, configs: &str) -> Option<J> {
             "label": c.get("label").cloned().unwrap_or(json!("")),
             "initDataTypes": supported_init,
             "audioCapabilities": audio,
-            "videoCapabilities": [],
+            "videoCapabilities": video,
             "distinctiveIdentifier": "not-allowed",
             "persistentState": persistent_state,
             "sessionTypes": ["temporary"],
@@ -95,13 +98,34 @@ pub fn eme_check(key_system: &str, configs: &str) -> Option<J> {
     None
 }
 
+fn is_aac_lc(codec: &str) -> bool {
+    codec == "mp4a.40.2" || codec == "mp4a.40"
+}
+
 pub fn audio_type_supported(ct: &str) -> bool {
+    let (mime, codecs) = parse_type(ct);
+    mime == "audio/mp4" && codecs.iter().all(|c| is_aac_lc(c))
+}
+
+fn video_type_answer(ct: &str) -> bool {
+    let (mime, codecs) = parse_type(ct);
+    mime == "video/mp4" && codecs.iter().all(|c| c == "avc1.42e01e" || is_aac_lc(c))
+}
+
+pub fn can_play_type(ct: &str) -> &'static str {
+    if audio_type_supported(ct) {
+        "probably"
+    } else if video_type_answer(ct) {
+        "maybe"
+    } else {
+        ""
+    }
+}
+
+fn parse_type(ct: &str) -> (String, Vec<String>) {
     let lower = ct.to_ascii_lowercase();
     let mut parts = lower.split(';');
-    let mime = parts.next().unwrap_or("").trim();
-    if mime != "audio/mp4" {
-        return false;
-    }
+    let mime = parts.next().unwrap_or("").trim().to_string();
     let mut codecs: Vec<String> = Vec::new();
     for p in parts {
         let p = p.trim();
@@ -113,5 +137,5 @@ pub fn audio_type_supported(ct: &str) -> bool {
                 .collect();
         }
     }
-    codecs.iter().all(|c| c == "mp4a.40.2" || c == "mp4a.40")
+    (mime, codecs)
 }

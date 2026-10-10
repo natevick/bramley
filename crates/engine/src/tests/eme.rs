@@ -137,7 +137,7 @@ fn key_system_access_grants_only_audio_widevine_temporary_sessions() {
     );
     assert!(eme_check("org.w3.clearkey", audio).is_none());
     assert!(
-        eme_check("com.widevine.alpha", r#"[{"videoCapabilities":[{"contentType":"video/mp4; codecs=\"avc1.42E01E\""}],"audioCapabilities":[{"contentType":"audio/mp4; codecs=\"mp4a.40.2\""}]}]"#)
+        eme_check("com.widevine.alpha", r#"[{"videoCapabilities":[{"contentType":"video/mp4; codecs=\"avc1.640028\""}],"audioCapabilities":[{"contentType":"audio/mp4; codecs=\"mp4a.40.2\""}]}]"#)
             .is_none()
     );
     assert!(eme_check("com.widevine.alpha", r#"[{"audioCapabilities":[{"contentType":"audio/mp4; codecs=\"mp4a.40.2\"","robustness":"HW_SECURE_ALL"}]}]"#).is_none());
@@ -168,7 +168,7 @@ fn eme_check_grants_required_persistent_state_and_keyids_but_not_unsupported_vid
     );
     let with_video = AUDIO_PERSISTENT.replace(
         r#""audioCapabilities""#,
-        r#""videoCapabilities":[{"contentType":"video/mp4;codecs=\"avc1.42E01E\"","robustness":"SW_SECURE_CRYPTO"}],"audioCapabilities""#,
+        r#""videoCapabilities":[{"contentType":"video/mp4;codecs=\"avc1.42E01E\"","robustness":"SW_SECURE_DECODE"}],"audioCapabilities""#,
     );
     assert!(eme_check("com.widevine.alpha", &with_video).is_none());
     let two_configs = format!(
@@ -220,6 +220,53 @@ fn set_server_certificate_reaches_the_cdm_and_rejects_an_empty_one() {
         json!(["set:true", "empty:TypeError", "not-a-buffer:TypeError"])
     );
     assert_eq!(cdm.0.borrow().certificate, [1, 2, 3]);
+}
+
+#[test]
+fn eme_check_grants_avc1_video_only_at_sw_secure_crypto() {
+    let config = |codec: &str, robustness: &str| {
+        format!(
+            r#"[{{"initDataTypes":["keyids","cenc"],"distinctiveIdentifier":"optional","persistentState":"required","videoCapabilities":[{{"contentType":"video/mp4;codecs=\"{codec}\"","robustness":"{robustness}"}}],"audioCapabilities":[{{"contentType":"audio/mp4;codecs=\"mp4a.40.2\""}}]}}]"#
+        )
+    };
+    for robustness in ["SW_SECURE_CRYPTO", ""] {
+        let granted = eme_check("com.widevine.alpha", &config("avc1.42E01E", robustness))
+            .unwrap_or_else(|| panic!("{robustness:?} refused"));
+        assert_eq!(
+            granted["videoCapabilities"][0]["contentType"],
+            "video/mp4;codecs=\"avc1.42E01E\""
+        );
+    }
+    for (codec, robustness) in [
+        ("avc1.42E01E", "SW_SECURE_DECODE"),
+        ("avc1.42E01E", "HW_SECURE_CRYPTO"),
+        ("avc1.42E01E", "HW_SECURE_ALL"),
+        ("avc1.640028", "SW_SECURE_CRYPTO"),
+        ("hev1.1.6.L93.B0", "SW_SECURE_CRYPTO"),
+        ("vp09.00.10.08", "SW_SECURE_CRYPTO"),
+    ] {
+        assert!(
+            eme_check("com.widevine.alpha", &config(codec, robustness)).is_none(),
+            "{codec} {robustness}"
+        );
+    }
+}
+
+#[test]
+fn can_play_type_answers_maybe_only_for_avc1_mp4_video() {
+    use crate::eme::can_play_type;
+    for (t, answer) in [
+        ("audio/mp4; codecs=\"mp4a.40.2\"", "probably"),
+        ("video/mp4", "maybe"),
+        ("video/mp4;codecs=\"avc1.42E01E\"", "maybe"),
+        ("video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\"", "maybe"),
+        ("video/mp4;codecs=\"avc1.640028\"", ""),
+        ("video/mp4;codecs=\"hev1.1.6.L93.B0\"", ""),
+        ("video/webm;codecs=\"vp9\"", ""),
+        ("application/vnd.apple.mpegurl", ""),
+    ] {
+        assert_eq!(can_play_type(t), answer, "{t}");
+    }
 }
 
 fn media_script(body: &str) -> String {

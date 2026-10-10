@@ -442,3 +442,32 @@ fn appending_a_document_fragment_moves_its_children() {
     );
     assert_eq!(log, ["0:2:true:11"]);
 }
+
+#[test]
+fn video_answers_maybe_on_both_elements_but_video_source_buffers_fail_loudly() {
+    let (mut e, sink) = engine();
+    let log = run(
+        &mut e,
+        &sink,
+        r#"
+        const avc = 'video/mp4;codecs="avc1.42E01E"';
+        for (const tag of ["video", "audio"]) L(tag + ":" + document.createElement(tag).canPlayType(avc) + ":" + (document.createElement(tag).canPlayType('video/mp4;codecs="hev1.1.6.L93.B0"') || "no"));
+        L("mse:" + MediaSource.isTypeSupported(avc));
+        const ms = new MediaSource();
+        document.createElement("audio").src = URL.createObjectURL(ms);
+        await new Promise(r => ms.addEventListener("sourceopen", r, { once: true }));
+        for (const t of [avc, "video/mp4", 'video/webm;codecs="vp9"']) { try { ms.addSourceBuffer(t); L("added"); } catch (err) { L(err.name); } }
+    "#,
+    );
+    assert_eq!(
+        log,
+        [
+            "video:maybe:no",
+            "audio:maybe:no",
+            "mse:false",
+            "NotSupportedError",
+            "NotSupportedError",
+            "NotSupportedError"
+        ]
+    );
+}

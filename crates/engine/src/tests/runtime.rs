@@ -118,3 +118,26 @@ fn redact_removes_known_secrets_and_anything_jwt_shaped() {
         "a <redacted> b <jwt>, eyJnot-a-jwt c"
     );
 }
+
+#[test]
+fn failing_platform_callbacks_print_redacted_errors() {
+    let test = "tests::runtime::failing_platform_callbacks_print_redacted_errors";
+    let child = in_child(test, &[], || {
+        let config = crate::EngineConfig {
+            redact: vec!["s3cr3t-user-token".into()],
+            ..Default::default()
+        };
+        let e = crate::Engine::new(config).unwrap();
+        e.eval_script(
+            "t.js",
+            "__platform.statusJson = () => { throw new Error('leaked s3cr3t-user-token'); };",
+        )
+        .unwrap();
+        e.status();
+    });
+    if let Some(c) = child {
+        assert!(c.status.success(), "{}", c.stderr);
+        assert!(c.stderr.contains("statusJson failed"), "{}", c.stderr);
+        assert!(!c.stderr.contains("s3cr3t"), "{}", c.stderr);
+    }
+}

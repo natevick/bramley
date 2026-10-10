@@ -668,7 +668,7 @@
     get audioTracks() { return undefined; }
     get videoTracks() { return undefined; }
     addTextTrack(kind, label, lang) { hc("HTMLMediaElement.addTextTrack"); const t = new TextTrack(kind, label, lang); this._textTracks._t.push(t); queueTask(() => dispatch(this._textTracks, Object.assign(new Event("addtrack"), { track: t }))); return t; }
-    canPlayType(t) { hc("HTMLMediaElement.canPlayType:" + String(t).slice(0, 80)); return mimeSupported(String(t)) ? "probably" : ""; }
+    canPlayType(t) { hc("HTMLMediaElement.canPlayType:" + String(t).slice(0, 80)); return OP.can_play_type(String(t)); }
     play() {
       hc("HTMLMediaElement.play");
       if (this._error && this._error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) return Promise.reject(new DOMException("The element has no supported sources.", "NotSupportedError"));

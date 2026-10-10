@@ -15,7 +15,7 @@ use crate::EngineConfig;
 use crate::audio::{AudioSink, PulseSink};
 use crate::buffer::{MediaSourceNative, SOURCE_BUFFER_QUOTA_BYTES, SourceBufferNative};
 use crate::cdm::{CdmBackend, CdmEvent, Widevine};
-use crate::eme::{audio_type_supported, eme_check};
+use crate::eme::{audio_type_supported, can_play_type, eme_check};
 use crate::media::{MediaEngine, SinkFactory};
 use crate::mp4;
 use crate::net::{self, Completion, HttpRequest};
@@ -381,6 +381,7 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
             _ => {}
         }
     });
+    op!("__op_can_play_type", |mime: String| can_play_type(&mime));
     op!("__op_type_supported", |mime: String| audio_type_supported(
         &mime
     ));
@@ -450,6 +451,7 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
 
 fn call<'js, A: IntoArgs<'js>>(
     ctx: &Ctx<'js>,
+    n: &N,
     obj: &str,
     name: &str,
     args: A,
@@ -462,7 +464,8 @@ fn call<'js, A: IntoArgs<'js>>(
     match r.catch(ctx) {
         Ok(v) => Some(v),
         Err(e) => {
-            eprintln!("ENGINE call {obj}.{name} failed: {e}");
+            let msg = crate::redact(&e.to_string(), &n.borrow().redact);
+            eprintln!("ENGINE call {obj}.{name} failed: {msg}");
             None
         }
     }
@@ -492,6 +495,7 @@ fn handle_completion(ctx: &Ctx, n: &N, c: Completion) {
             let meta = json!({"status": r.status, "statusText": r.status_text, "url": r.url, "headers": r.headers, "error": r.error}).to_string();
             call(
                 ctx,
+                n,
                 "__platform",
                 "dispatchHttp",
                 (r.id, meta, buffer_or_null(ctx, Some(r.body))),
@@ -526,12 +530,12 @@ fn handle_completion(ctx: &Ctx, n: &N, c: Completion) {
                 }
             };
             n.borrow_mut().script_log.push(entry);
-            call(ctx, "__platform", "dispatchScript", (id, ok, err));
+            call(ctx, n, "__platform", "dispatchScript", (id, ok, err));
         }
     }
 }
 
-fn dispatch_cdm(ctx: &Ctx, keys_id: u32, e: CdmEvent) {
+fn dispatch_cdm(ctx: &Ctx, n: &N, keys_id: u32, e: CdmEvent) {
     let (meta, body) = match e {
         CdmEvent::Initialized(ok) => (json!({"type": "initialized", "ok": ok}), None),
         CdmEvent::NewSession { promise, sid } => (
@@ -564,6 +568,7 @@ fn dispatch_cdm(ctx: &Ctx, keys_id: u32, e: CdmEvent) {
     };
     call(
         ctx,
+        n,
         "__platform",
         "dispatchCdm",
         (keys_id, meta.to_string(), buffer_or_null(ctx, body)),
@@ -693,13 +698,13 @@ impl Engine {
             .flat_map(|(id, c)| c.poll().into_iter().map(move |e| (*id, e)))
             .collect();
         for (id, e) in cdm_events {
-            self.ctx.with(|ctx| dispatch_cdm(&ctx, id, e));
+            self.ctx.with(|ctx| dispatch_cdm(&ctx, &self.n, id, e));
             self.drain();
         }
         let mut next_ms = 5.0f64;
         for _ in 0..500 {
             let r: f64 = self.ctx.with(|ctx| {
-                call(&ctx, "__platform", "runTimers", ())
+                call(&ctx, &self.n, "__platform", "runTimers", ())
                     .and_then(|v| v.as_number())
                     .unwrap_or(-1.0)
             });
@@ -734,7 +739,7 @@ impl Engine {
         };
         for (id, payload) in media_events {
             self.ctx.with(|ctx| {
-                call(&ctx, "__platform", "dispatchMedia", (id, payload));
+                call(&ctx, &self.n, "__platform", "dispatchMedia", (id, payload));
             });
             self.drain();
         }
@@ -780,7 +785,7 @@ impl Engine {
         let platform = self
             .ctx
             .with(|ctx| {
-                call(&ctx, "__platform", "statusJson", ())
+                call(&ctx, &self.n, "__platform", "statusJson", ())
                     .and_then(|v| v.as_string().and_then(|s| s.to_string().ok()))
             })
             .and_then(|s| serde_json::from_str(&s).ok())
