@@ -51,6 +51,10 @@ impl Playback {
         }
     }
 
+    pub fn seq(&self) -> u64 {
+        self.seq
+    }
+
     pub fn started(&self) -> bool {
         self.link.is_some()
     }

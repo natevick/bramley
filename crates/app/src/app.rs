@@ -74,6 +74,7 @@ impl App {
             "position": shown.position,
             "duration": shown.duration,
             "applied": shown.applied,
+            "seq": self.playback.seq(),
             "banner": self.playback.banner().map(|b| format!("{b:?}")),
             "framesPainted": self.frames,
             "glRenderer": self.renderer,

@@ -62,6 +62,7 @@ def main():
         facts.update(finalState=(final or {}).get('state'), finalPosition=(final or {}).get('position'), itemId=(final or {}).get('itemId'), banner=(final or {}).get('banner'))
         if not final or final.get('state') != 'Playing' or (final.get('position') or 0) <= 15 or final.get('itemId') != '6781024437':
             fail.append('not playing 6781024437 past 15 s')
+        if final and final.get('applied', 0) < final.get('seq', 1): fail.append('final state is optimistic: applied < seq')
         if len(playing) < 2 or playing[-1]['position'] - playing[0]['position'] < 2: fail.append('position did not advance')
     verdict = 'VOID' if void else 'FAIL' if fail else 'PASS'
     print(json.dumps({'name': name, 'mode': mode, 'verdict': verdict, 'void': void, 'fail': fail, **facts}, indent=1))

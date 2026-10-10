@@ -84,7 +84,7 @@ fn actions_map_to_commands() {
         Command::Next,
         Command::Previous,
     ];
-    assert_eq!(sent, expected);
+    assert_eq!((sent, p.seq()), (expected.to_vec(), 7));
 }
 
 #[test]
