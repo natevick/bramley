@@ -29,4 +29,7 @@ Binary: `cargo build --release -p bramley` → `target/release/bramley`. It must
   - `volume 500` exits 2.
 - In the signed-out run, a second launch with `--status` exits 0 and says the flags are ignored (round 2).
 - **Bad sink** (round 2): `PULSE_SINK` names a sink that doesn't exist. 25 s after `play`, the banner is an Error, and the app has no PipeWire output stream at all (so nothing reaches the default sink).
+- **Unguarded** (round 2): with the app's `XDG_RUNTIME_DIR/bramley` a plain file, the app still starts. Its status has `instanceGuarded: false`, and stderr has both fastframe-instance's "running unguarded" WARN and Bramley's WARNING line.
+- **Logger leak** (round 2): the signed-in play run is repeated with `RUST_LOG=trace`. `app.log` must contain trace lines from ureq or rustls; otherwise the check is VOID. The leak grep must find no token, JWT or license payload in it.
+- A runtime dir under `TMPDIR` (`TMPDIR=XDG_RUNTIME_DIR=/run/user/1000`) must not be refused: `bramley now` exits 3 with no app running.
 - `scripts/check-shipped-features.sh` exits 0 on release and 1 on `--features dev`.

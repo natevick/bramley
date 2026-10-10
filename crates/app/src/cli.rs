@@ -67,10 +67,13 @@ fn catalog_id(id: &str) -> Result<String> {
     Ok(id.to_owned())
 }
 
+pub fn shared_fallback(dir: &std::path::Path, tmp: &std::path::Path) -> bool {
+    dir == tmp.join(format!("{APP_ID}-instance"))
+}
+
 pub fn slot() -> Result<Slot> {
     let slot = Slot::new(APP_ID);
-    #[cfg(not(target_os = "macos"))]
-    if slot.dir().starts_with(std::env::temp_dir()) {
+    if shared_fallback(slot.dir(), &std::env::temp_dir()) {
         bail!("no home or runtime directory for a private instance slot");
     }
     Ok(slot)

@@ -611,3 +611,19 @@ fn requests_drained_in_time_are_both_applied() {
     assert_eq!(outcomes, vec![None, None]);
     assert_eq!(sent, vec![Command::Pause, Command::Next]);
 }
+
+#[test]
+fn only_the_shared_temp_fallback_slot_is_refused() {
+    use crate::cli::shared_fallback;
+    use std::path::Path;
+    let runtime = Path::new("/run/user/1000");
+    assert!(!shared_fallback(&runtime.join("bramley"), runtime));
+    assert!(!shared_fallback(
+        Path::new("/home/u/.local/share/bramley/instance"),
+        Path::new("/home/u")
+    ));
+    assert!(shared_fallback(
+        Path::new("/tmp/bramley-instance"),
+        Path::new("/tmp")
+    ));
+}
