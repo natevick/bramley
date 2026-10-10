@@ -343,17 +343,40 @@ fn plays_a_full_apple_music_song_through_musickit_js() {
         "{media}"
     );
     assert_eq!(before_controls["platform"]["eme"]["usableSeen"], true);
+    let schemes: Vec<&Value> = before_controls["sourceBuffers"]
+        .as_object()
+        .unwrap()
+        .values()
+        .map(|sb| &sb["init"]["protected"]["scheme"])
+        .collect();
+    assert_eq!(schemes, [&Value::from("cenc")]);
+    let paused_at = s["controls"]["steps"][0]["wallSec"].as_f64().unwrap();
+    let cpt_at = |wall: f64| {
+        s["samples"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|x| x[0].as_f64() <= Some(wall))
+            .filter_map(|x| x[1].as_f64())
+            .next_back()
+            .unwrap_or(0.0)
+    };
+    let advance = cpt_at(paused_at) - cpt_at(paused_at - 10.0);
+    assert!(advance >= 8.0, "stalled before the controls: {advance}");
     assert_eq!(targets, [SINK], "our stream must reach the null sink only");
     assert_eq!(default_sink(), before, "the default sink must not change");
     let steps = s["controls"]["steps"].as_array().unwrap();
-    let cpt = |i: usize| {
-        steps[i]["js"]["currentPlaybackTime"]
-            .as_f64()
-            .unwrap_or(-1.0)
-    };
+    let native = |i: usize| steps[i]["nativeTime"].as_f64().unwrap_or(-1.0);
     assert_eq!(s["controls"]["done"], true, "{steps:?}");
-    assert!((cpt(1) - cpt(0)).abs() <= 0.5, "pause drifted: {steps:?}");
-    assert!((cpt(2) - 120.0).abs() <= 0.5, "seek missed 120: {steps:?}");
-    assert!(cpt(3) > 120.0, "resume did not advance: {steps:?}");
+    assert!(
+        (native(1) - native(0)).abs() <= 0.5,
+        "pause drifted: {steps:?}"
+    );
+    assert!(
+        (native(2) - 120.0).abs() <= 0.5,
+        "seek missed 120: {steps:?}"
+    );
+    assert!(native(3) >= 124.0, "resume did not advance: {steps:?}");
     assert_eq!(steps[5]["js"]["item"]["id"], "6781079518", "{steps:?}");
+    assert!(native(5) >= 7.0 && native(5) <= 13.0, "{steps:?}");
 }

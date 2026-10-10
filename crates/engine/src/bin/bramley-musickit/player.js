@@ -21,6 +21,7 @@
       S.phase = "configured";
     } catch (e) { err("configure", e); S.phase = "configure-failed"; return; }
     m = MusicKit.getInstance();
+    m.bitrate = MusicKit.PlaybackBitrate.HIGH;
     for (const ev of ["playbackStateDidChange", "nowPlayingItemDidChange", "mediaPlaybackError", "authorizationStatusDidChange"]) {
       m.addEventListener(ev, e => { if (S.events.length < 200) S.events.push([Math.round(performance.now()), ev, String(e && (e.state ?? e.name ?? (e.item && e.item.id) ?? ""))]); });
     }

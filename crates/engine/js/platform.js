@@ -1122,10 +1122,13 @@
   const httpPending = new Map();
   let httpSeq = 1;
   const xhrStats = { opened: 0, completed: 0, errors: 0, posts: 0, statuses: {}, endpoints: {} };
-  function noteEndpoint(method, url) {
+  function noteEndpoint(method, url, outcome) {
     const u = parseUrl(url);
     const key = method + " " + (u ? u.protocol + "//" + u.hostname + u.pathname.replace(/[^/]{40,}/g, "…") : "?");
-    if (key in xhrStats.endpoints || Object.keys(xhrStats.endpoints).length < 100) xhrStats.endpoints[key] = (xhrStats.endpoints[key] || 0) + 1;
+    if (!(key in xhrStats.endpoints) && Object.keys(xhrStats.endpoints).length >= 100) return;
+    const e = xhrStats.endpoints[key] || (xhrStats.endpoints[key] = { sent: 0, statuses: {} });
+    if (outcome === undefined) e.sent++;
+    else e.statuses[outcome] = (e.statuses[outcome] || 0) + 1;
   }
   function dataUrl(url) {
     const m = /^data:([^,]*?)(;base64)?,(.*)$/s.exec(url);
@@ -1299,6 +1302,9 @@
     if (!p) return;
     httpPending.delete(id);
     const meta = JSON.parse(metaJson);
+    const outcome = meta.error ? "error" : meta.status;
+    if (p.kind === "xhr") noteEndpoint(p.xhr._method, p.xhr._url, outcome);
+    else noteEndpoint(p.req.method, p.req.url, outcome);
     if (p.kind === "xhr") { p.xhr._complete(meta, body); return; }
     if (meta.error) { xhrStats.errors++; p.rej(new TypeError("Failed to fetch: " + meta.error)); return; }
     xhrStats.completed++;

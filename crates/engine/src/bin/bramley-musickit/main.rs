@@ -79,6 +79,13 @@ fn corrupt(token: &str) -> String {
     parts.join(".")
 }
 
+fn native_time(engine: &Engine) -> J {
+    engine.status()["medias"]
+        .as_object()
+        .and_then(|m| m.values().find(|m| !m["keysId"].is_null()))
+        .map_or(J::Null, |m| m["currentTime"].clone())
+}
+
 #[derive(Default)]
 struct Controls {
     stage: usize,
@@ -94,8 +101,7 @@ impl Controls {
         let cpt = js["currentPlaybackTime"].as_f64().unwrap_or(-1.0);
         let item = js["item"]["id"].clone();
         let step = |name: &str, call: &str, me: &mut Controls| -> Result<()> {
-            me.steps
-                .push(json!({"step": name, "wallSec": start.elapsed().as_secs_f64(), "js": js}));
+            me.steps.push(json!({"step": name, "wallSec": start.elapsed().as_secs_f64(), "js": js, "nativeTime": native_time(engine)}));
             if !call.is_empty() {
                 engine.eval_script("controls", call)?;
             }
@@ -103,12 +109,14 @@ impl Controls {
             me.stage += 1;
             Ok(())
         };
-        if self.stage > 0 {
+        let traced = self.trace.last().and_then(|t| t[0].as_f64()).unwrap_or(0.0);
+        if self.stage > 0 && start.elapsed().as_secs_f64() - traced >= 0.05 {
             self.trace.push(json!([
                 start.elapsed().as_secs_f64(),
                 cpt,
                 js["playbackState"],
-                item
+                item,
+                native_time(engine)
             ]));
         }
         match self.stage {
