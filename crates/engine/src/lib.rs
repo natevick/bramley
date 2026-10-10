@@ -22,6 +22,9 @@ static SABOTAGE_MARKER: &str = "bramley-unshipped-feature:engine/sabotage\0";
 #[used]
 static DIAGNOSTICS_MARKER: &str = "bramley-unshipped-feature:engine/diagnostics\0";
 
+#[used]
+static LINKED_MARKER: &str = "bramley-linked:engine\0";
+
 pub fn user_agent() -> String {
     format!(
         "Bramley/{} ({})",
