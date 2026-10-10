@@ -112,7 +112,23 @@ Run against `s2b-covers-PREREG.md`, in one weston session (`scratch/s2b/session.
 - **The whole app while playing:** 169.5 PSS, inflated by this session's drift; 142.6 USS.
 - **Screenshot:** taken with the dev build of the same commit (`--screenshot` is dev-only now): 50 covers, Playing at 0:41.
 
+**Token trace (4dcb35d):**
+- **Setup:** a signed-in release run under `RUST_LOG=trace`.
+- **It ran:** one `/v1/me/storefront` request, logged by ureq with `"2 HEADERS ARE REDACTED"` (Authorization and Music-User-Token). The chart request shows 1.
+- **Result:** 0 hits for either token in the log and status files, 0 JWT-shaped strings and 0 `music-user-token` mentions. The log stays out of the repo because it holds mzstatic URLs.
+
+**Apple's statuses for `/v1/me/storefront` (curl, 2026-10-10):**
+- a corrupted developer token gives **401**;
+- a garbage user token gives **403**;
+- valid tokens give 200.
+
+So mapping 401 to SignInNeeded, as specified for this round, conflicts with S4b's "a developer-token 401 never reads as sign in". Flagged; not changed.
+
 ## Known limits
+- **`coversRequested` resets with the grid.** After a rejection, the status reads 0. The expired control's server log is the real count: 1 storefront request.
+- **Not pre-registered:** the round-2 and round-3 controls weren't written into the PREREG before they ran. Their pass conditions came from the coordinator's review messages. These are signed-out, release refusing `--screenshot`, the expired token, and the guard's exposure metric.
+- **No retry:** a storefront or chart network failure is never retried. Acceptance F10 needs automatic recovery.
+- **Zoom:** each zoom step re-runs the storefront check plus 51 requests, and the grid blanks while it reloads.
 - **Panic catch:** a decoder panic counts as a failure, but nothing in the tests can trigger one, so that path is untested.
 - **Re-sign-in:** if sign-in comes back, the grid refetches on its own. Nothing can turn it back on until S3b.
 - **Machine verdicts:** the verdict files hold data, and PASS/VOID was judged by hand. S2c and S13 own computed verdicts. Don't reuse this harness as a gate.
