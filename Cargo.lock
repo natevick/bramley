@@ -1210,7 +1210,7 @@ dependencies = [
 [[package]]
 name = "fastframe-fonts"
 version = "0.4.1"
-source = "git+https://github.com/crmne/fastframe?rev=23d87e048185ef317f272e2a67416f516b2f2b04#23d87e048185ef317f272e2a67416f516b2f2b04"
+source = "git+https://github.com/natevick/fastframe?rev=e32305a83234733677f81580a6d8e56e2b3a9624#e32305a83234733677f81580a6d8e56e2b3a9624"
 dependencies = [
  "directories",
  "egui",
@@ -1223,7 +1223,7 @@ dependencies = [
 [[package]]
 name = "fastframe-instance"
 version = "0.4.1"
-source = "git+https://github.com/crmne/fastframe?rev=23d87e048185ef317f272e2a67416f516b2f2b04#23d87e048185ef317f272e2a67416f516b2f2b04"
+source = "git+https://github.com/natevick/fastframe?rev=e32305a83234733677f81580a6d8e56e2b3a9624#e32305a83234733677f81580a6d8e56e2b3a9624"
 dependencies = [
  "directories",
  "getrandom 0.4.3",
@@ -1233,7 +1233,7 @@ dependencies = [
 [[package]]
 name = "fastframe-log"
 version = "0.4.1"
-source = "git+https://github.com/crmne/fastframe?rev=23d87e048185ef317f272e2a67416f516b2f2b04#23d87e048185ef317f272e2a67416f516b2f2b04"
+source = "git+https://github.com/natevick/fastframe?rev=e32305a83234733677f81580a6d8e56e2b3a9624#e32305a83234733677f81580a6d8e56e2b3a9624"
 dependencies = [
  "env_logger",
  "jiff",
@@ -1243,7 +1243,7 @@ dependencies = [
 [[package]]
 name = "fastframe-text"
 version = "0.4.1"
-source = "git+https://github.com/crmne/fastframe?rev=23d87e048185ef317f272e2a67416f516b2f2b04#23d87e048185ef317f272e2a67416f516b2f2b04"
+source = "git+https://github.com/natevick/fastframe?rev=e32305a83234733677f81580a6d8e56e2b3a9624#e32305a83234733677f81580a6d8e56e2b3a9624"
 dependencies = [
  "egui",
  "zbus",

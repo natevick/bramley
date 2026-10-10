@@ -10,10 +10,11 @@ anyhow = "1"
 bramley-engine = { path = "../engine" }
 eframe = { version = "0.36.1", default-features = false, features = ["accesskit", "glow", "default_fonts", "wayland", "x11"] }
 egui = "0.36.1"
-fastframe-fonts = { git = "https://github.com/crmne/fastframe", rev = "23d87e048185ef317f272e2a67416f516b2f2b04" }
-fastframe-log = { git = "https://github.com/crmne/fastframe", rev = "23d87e048185ef317f272e2a67416f516b2f2b04" }
-fastframe-instance = { git = "https://github.com/crmne/fastframe", rev = "23d87e048185ef317f272e2a67416f516b2f2b04" }
-fastframe-text = { git = "https://github.com/crmne/fastframe", rev = "23d87e048185ef317f272e2a67416f516b2f2b04" }
+# natevick/fastframe maps the fallback faces; drop when crmne/fastframe#23 merges.
+fastframe-fonts = { git = "https://github.com/natevick/fastframe", rev = "e32305a83234733677f81580a6d8e56e2b3a9624" }
+fastframe-log = { git = "https://github.com/natevick/fastframe", rev = "e32305a83234733677f81580a6d8e56e2b3a9624" }
+fastframe-instance = { git = "https://github.com/natevick/fastframe", rev = "e32305a83234733677f81580a6d8e56e2b3a9624" }
+fastframe-text = { git = "https://github.com/natevick/fastframe", rev = "e32305a83234733677f81580a6d8e56e2b3a9624" }
 png = "0.18"
 serde_json = "1"
 
