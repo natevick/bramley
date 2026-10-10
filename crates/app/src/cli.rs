@@ -16,7 +16,7 @@ pub const REFUSED: i32 = 5;
 const APPLY_TIME: Duration = Duration::from_secs(3);
 const REPLY_MARGIN: Duration = Duration::from_secs(1);
 const LATE: &str = "the app did not answer in time; the command was not applied";
-const COMMANDS: &str = "usage: bramley [play [id] | pause | toggle | next | prev | seek <seconds> | volume <0-100> | now | queue add <id> | search <term>]";
+const COMMANDS: &str = "usage: bramley [play [id] | pause | toggle | next | prev | seek <seconds> | volume <0-100> | now | queue add <id> | search <term> | sign-in | sign-out]";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Request {
@@ -24,6 +24,8 @@ pub enum Request {
     Now,
     Toggle,
     Search(String),
+    SignIn,
+    SignOut,
     Do(Action),
 }
 
@@ -55,6 +57,8 @@ pub fn parse(args: &[String]) -> Result<Request> {
         },
         ["queue", "add", id] => Request::Do(Action::QueueAdd(catalog_id(id)?)),
         ["search", term @ ..] if !term.is_empty() => Request::Search(term.join(" ")),
+        ["sign-in"] => Request::SignIn,
+        ["sign-out"] => Request::SignOut,
         _ => bail!("{COMMANDS}"),
     })
 }
@@ -109,12 +113,17 @@ pub fn client(slot: &Slot, args: &[String], out: &mut impl Write, err: &mut impl
         let _ = writeln!(err, "bramley: {message}");
         code
     };
-    if let Err(e) = parse(args) {
-        return fail(USAGE, &format!("{e}"));
-    }
+    let request = match parse(args) {
+        Err(e) => return fail(USAGE, &format!("{e}")),
+        Ok(request) => request,
+    };
     match slot.send(&wire(args)) {
         Ok(reply) => {
             let _ = writeln!(out, "{reply}");
+            let url = serde_json::from_str::<Value>(&reply).unwrap_or_default()["signInUrl"].take();
+            if let (Request::SignIn, Some(url)) = (request, url.as_str()) {
+                let _ = writeln!(out, "{url}");
+            }
             match outcome(&reply) {
                 Ok(()) => 0,
                 Err((code, why)) => fail(code, &why),
@@ -176,7 +185,7 @@ pub fn command(
     let refused = |why| Some(("refused", why));
     let action = match request {
         _ if Instant::now() > deadline => return Some(("error", LATE)),
-        Request::Show | Request::Now => return None,
+        Request::Show | Request::Now | Request::SignIn | Request::SignOut => return None,
         Request::Search(_) => return Some(("error", "search runs on the API worker")),
         Request::Toggle => play_or_pause(playback.shown().state),
         Request::Do(action) => action,

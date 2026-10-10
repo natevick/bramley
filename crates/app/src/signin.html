@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bramley sign-in</title>
+<style>
+body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 16px;background:#fafafa;color:#222}
+button{font:inherit;padding:.6rem 1.2rem;border-radius:8px;border:1px solid #888;background:#fff;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+@media (prefers-color-scheme:dark){body{background:#161616;color:#eee}button{background:#262626;color:#eee}}
+</style>
+<h1>Bramley</h1>
+<p>Sign in once so Bramley can play your music on Apple Music. The sign-in window is Apple's own. Bramley only receives the access token it hands back.</p>
+<button id="go" disabled>Sign in</button>
+<p id="status">Loading MusicKit…</p>
+<script>window.BRAMLEY_DEV_TOKEN = __DEV_TOKEN__;</script>
+<script src="https://js-cdn.music.apple.com/musickit/v3/musickit.js" async></script>
+<script>
+const go = document.getElementById("go"), status = document.getElementById("status");
+document.addEventListener("musickitloaded", async () => {
+  try {
+    await MusicKit.configure({ developerToken: window.BRAMLEY_DEV_TOKEN, app: { name: "Bramley", build: "0.0.1" } });
+    go.disabled = false; status.textContent = "Ready.";
+  } catch (e) { status.textContent = "MusicKit failed to configure: " + e; }
+});
+go.onclick = async () => {
+  go.disabled = true; status.textContent = "Waiting for Apple sign-in…";
+  try {
+    const token = await MusicKit.getInstance().authorize();
+    const r = await fetch("token", { method: "POST", body: token });
+    status.textContent = r.ok ? "Done. You can close this tab." : "Bramley did not accept the token (" + r.status + ").";
+  } catch (e) { status.textContent = "Sign-in did not complete: " + e; go.disabled = false; }
+};
+</script>
+</html>

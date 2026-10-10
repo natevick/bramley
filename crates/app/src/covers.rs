@@ -54,6 +54,7 @@ pub struct Source {
     pub api: String,
     pub art_prefix: Option<String>,
     pub config: PathBuf,
+    pub user: crate::credentials::Credentials,
 }
 
 pub fn px(points: f32, pixels_per_point: f32) -> u32 {
@@ -211,7 +212,7 @@ fn load_chart(
     tally: &Tally,
 ) -> Result<Option<Chart>> {
     let developer = crate::read_token(&source.config, "developer-token")?;
-    let Ok(user) = crate::read_token(&source.config, "music-user-token") else {
+    let Some(user) = source.user.load() else {
         return Ok(None);
     };
     let bearer = format!("Bearer {developer}");
@@ -321,7 +322,7 @@ impl Grid {
         }
     }
 
-    fn reset(&mut self) {
+    pub fn reset(&mut self) {
         self.tally.cancel.store(true, Ordering::SeqCst);
         *self = Grid::new(self.source.take());
     }

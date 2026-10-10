@@ -10,20 +10,32 @@ fn clock(seconds: f64) -> String {
     format!("{}:{:02}", s / 60, s % 60)
 }
 
-pub fn banner(ui: &mut egui::Ui, banner: &Banner) {
+pub fn banner(ui: &mut egui::Ui, banner: &Banner) -> bool {
     let text = match banner {
         Banner::SignInNeeded => {
             "Sign in needed: Bramley has no Apple Music sign-in it can use.".to_owned()
         }
+        Banner::SigningIn(url) => {
+            format!("Finish signing in to Apple Music in your browser: {url}")
+        }
         Banner::Error(e) => format!("Playback error: {e}"),
     };
+    let mut sign_in = false;
     egui::Frame::new()
         .fill(ACCENT)
         .inner_margin(10.0)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new(text).color(Color32::WHITE).strong());
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(text).color(Color32::WHITE).strong());
+                sign_in = *banner == Banner::SignInNeeded && ui.button("Sign in").clicked();
+            });
         });
+    sign_in
+}
+
+pub fn notice(ui: &mut egui::Ui, notice: &str) {
+    ui.label(RichText::new(notice).color(ACCENT).strong());
 }
 
 pub fn now_playing(ui: &mut egui::Ui, shown: &Snapshot, started: bool, actions: &mut Vec<Action>) {

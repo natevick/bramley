@@ -1,7 +1,7 @@
 #[cfg(feature = "dev")]
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::{Sender, TryRecvError, channel};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -12,8 +12,9 @@ use serde_json::{Value, json};
 use crate::Args;
 use crate::cli::{self, Inbox, Request};
 use crate::covers::{self, Grid, Source};
+use crate::credentials::Credentials;
 use crate::playback::{Action, Banner, Playback, Spawn};
-use crate::ui;
+use crate::{signin, ui};
 
 const REPAINT_EVERY: Duration = Duration::from_secs(1);
 
@@ -61,6 +62,9 @@ struct Shot {
 pub struct App {
     pub(crate) api: Option<Sender<bramley_api::Job>>,
     playback: Playback,
+    user: Credentials,
+    sign_in: Option<(signin::Server, bool)>,
+    notice: Option<&'static str>,
     covers: Grid,
     actions: Vec<Action>,
     inbox: Inbox,
@@ -80,7 +84,7 @@ impl App {
         ctx: &egui::Context,
         args: Args,
         spawn: Spawn,
-        signed_out: bool,
+        (user, signed_out): (Credentials, bool),
         (inbox, guarded): (Inbox, bool),
         source: Option<Source>,
     ) -> Self {
@@ -97,6 +101,9 @@ impl App {
         App {
             api: None,
             playback: Playback::new(spawn, signed_out),
+            user,
+            sign_in: None,
+            notice: None,
             covers: Grid::new(source),
             actions,
             inbox,
@@ -132,6 +139,8 @@ impl App {
             "engine": self.playback.engine(),
             "instanceGuarded": self.guarded,
             "banner": self.banner().map(|b| format!("{b:?}")),
+            "signInUrl": self.waiting(),
+            "notice": self.notice,
             "framesPainted": self.frames,
             "glRenderer": self.renderer,
             "texturesUploaded": self.covers.uploaded(),
@@ -152,7 +161,10 @@ impl App {
     }
 
     pub fn pump(&mut self, ctx: &egui::Context) -> bool {
-        self.playback.receive() | self.covers.receive(ctx) | self.answer_requests(ctx)
+        self.playback.receive()
+            | self.covers.receive(ctx)
+            | self.answer_requests(ctx)
+            | self.follow_sign_in()
     }
 
     fn answer_requests(&mut self, ctx: &egui::Context) -> bool {
@@ -168,7 +180,12 @@ impl App {
                 });
                 let worker = match self.api.take() {
                     Some(api) => Ok(api),
-                    None => bramley_api::worker(bramley_api::Client::new(crate::api_tokens)),
+                    None => {
+                        let user = self.user.clone();
+                        bramley_api::worker(bramley_api::Client::new(move || {
+                            crate::api_tokens(&user)
+                        }))
+                    }
                 };
                 let unsent = match worker {
                     Ok(api) => api
@@ -185,7 +202,11 @@ impl App {
                 continue;
             }
             let show = request == Request::Show;
-            let outcome = cli::command(&mut self.playback, request, deadline);
+            let outcome = match request {
+                Request::SignIn => self.start_sign_in().err().map(|why| ("error", why)),
+                Request::SignOut => self.sign_out().err().map(|why| ("error", why)),
+                request => cli::command(&mut self.playback, request, deadline),
+            };
             if show && outcome.is_none() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
@@ -200,7 +221,69 @@ impl App {
         any
     }
 
+    fn waiting(&self) -> Option<&str> {
+        let (server, _) = self.sign_in.as_ref().filter(|(_, done)| !done)?;
+        Some(&server.url)
+    }
+
+    fn start_sign_in(&mut self) -> Result<(), &'static str> {
+        if self.waiting().is_some() {
+            return Ok(());
+        }
+        let developer = crate::read_token(self.user.dir(), "developer-token")
+            .map_err(|_| "sign-in needs Bramley's developer token, which is missing")?;
+        let user = self.user.clone();
+        let keep = move |token: &str| {
+            let kept = user.save(token);
+            if !kept {
+                eprintln!("bramley: the sign-in could not be stored");
+            }
+            kept
+        };
+        let server = signin::start(&developer, signin::LIFETIME, keep)
+            .map_err(|_| "the sign-in page could not start")?;
+        println!("bramley: sign in to Apple Music at {}", server.url);
+        #[cfg(not(test))]
+        signin::open_browser(&server.url);
+        (self.sign_in, self.notice) = (Some((server, false)), None);
+        Ok(())
+    }
+
+    fn follow_sign_in(&mut self) -> bool {
+        let Some((server, done)) = self.sign_in.as_mut() else {
+            return false;
+        };
+        match server.done.try_recv() {
+            Err(TryRecvError::Empty) => return false,
+            Ok(()) => {
+                *done = true;
+                self.playback.signed_in();
+                self.covers.reset();
+            }
+            Err(TryRecvError::Disconnected) => {
+                if !*done {
+                    self.notice = Some("the sign-in page expired; sign in again");
+                }
+                self.sign_in = None;
+            }
+        }
+        true
+    }
+
+    fn sign_out(&mut self) -> Result<(), &'static str> {
+        self.sign_in = None;
+        self.playback.shutdown();
+        self.playback.mark_signed_out();
+        self.covers.reset();
+        self.notice =
+            (!self.user.clear()).then_some("sign-out could not remove the stored sign-in");
+        self.notice.map_or(Ok(()), Err)
+    }
+
     fn banner(&self) -> Option<Banner> {
+        if let Some(url) = self.waiting() {
+            return Some(Banner::SigningIn(url.to_owned()));
+        }
         let developer = self.covers.developer_rejected();
         let rejected = || Banner::Error(covers::DEVELOPER_REJECTED.into());
         self.playback.banner().or_else(|| developer.then(rejected))
@@ -232,13 +315,29 @@ impl App {
             ui::now_playing(ui, &shown, self.playback.started(), &mut self.actions);
             ui.add_space(8.0);
         });
+        let (mut sign_in, mut sign_out) = (false, false);
         egui::CentralPanel::default().show(ui, |ui| {
             if let Some(banner) = self.banner() {
-                ui::banner(ui, &banner);
+                sign_in = ui::banner(ui, &banner);
             }
-            ui.heading("Bramley");
+            if let Some(notice) = self.notice {
+                ui::notice(ui, notice);
+            }
+            ui.horizontal(|ui| {
+                ui.heading("Bramley");
+                sign_out = covers_allowed(&self.playback) && ui.button("Sign out").clicked();
+            });
             self.covers.show(ui);
         });
+        let outcome = match (sign_in, sign_out) {
+            (true, _) => self.start_sign_in(),
+            (_, true) => self.sign_out(),
+            _ => Ok(()),
+        };
+        if let Err(why) = outcome {
+            self.notice = Some(why);
+            eprintln!("bramley: {why}");
+        }
         for action in self.actions.drain(..) {
             self.playback.apply(action);
         }

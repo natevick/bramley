@@ -49,6 +49,7 @@ struct Pending {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Banner {
     SignInNeeded,
+    SigningIn(String),
     Error(String),
 }
 
@@ -215,6 +216,13 @@ impl Playback {
             }
         }
         true
+    }
+
+    pub fn signed_in(&mut self) {
+        self.shutdown();
+        self.starting = None;
+        (self.signed_out, self.snap) = (false, Snapshot::default());
+        (self.pending, self.queued) = (None, Vec::new());
     }
 
     pub fn mark_signed_out(&mut self) {

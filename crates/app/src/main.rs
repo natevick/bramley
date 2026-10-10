@@ -1,7 +1,9 @@
 mod app;
 mod cli;
 mod covers;
+mod credentials;
 mod playback;
+mod signin;
 #[cfg(test)]
 mod tests;
 mod ui;
@@ -16,6 +18,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use bramley_engine::{Player, PlayerConfig, Tokens, redact};
 use fastframe_instance::Claim;
 
+use crate::credentials::Credentials;
 use crate::playback::{Link, SignedOut, Spawn};
 
 #[cfg(feature = "dev")]
@@ -97,18 +100,19 @@ fn read_token(dir: &Path, name: &str) -> Result<String> {
     }
 }
 
-fn api_tokens() -> Result<bramley_api::Tokens, String> {
-    let dir = config_dir().map_err(|e| format!("{e:#}"))?;
-    let developer = read_token(&dir, "developer-token").map_err(|e| format!("{e:#}"))?;
-    let user = read_token(&dir, "music-user-token").ok();
-    Ok(bramley_api::Tokens { developer, user })
+fn api_tokens(user: &Credentials) -> Result<bramley_api::Tokens, String> {
+    let developer = read_token(user.dir(), "developer-token").map_err(|e| format!("{e:#}"))?;
+    Ok(bramley_api::Tokens {
+        developer,
+        user: user.load(),
+    })
 }
 
-fn signed_out(dir: &Path) -> bool {
-    read_token(dir, "music-user-token").is_err()
+fn signed_out(user: &Credentials) -> bool {
+    user.load().is_none()
 }
 
-fn cover_source(args: &Args) -> Option<covers::Source> {
+fn cover_source(args: &Args, user: &Credentials) -> Option<covers::Source> {
     #[cfg(feature = "dev")]
     let art_prefix = args.api_base.clone();
     #[cfg(not(feature = "dev"))]
@@ -119,29 +123,28 @@ fn cover_source(args: &Args) -> Option<covers::Source> {
             .unwrap_or_else(|| covers::API_BASE.into()),
         art_prefix,
         config: config_dir().ok()?,
+        user: user.clone(),
     })
 }
 
-fn boot(dir: &Path, start: impl FnOnce(Tokens) -> Result<Link>) -> Result<Link> {
-    let user = read_token(dir, "music-user-token").map_err(|_| anyhow!(SignedOut))?;
-    let developer = read_token(dir, "developer-token")?;
+fn boot(user: &Credentials, start: impl FnOnce(Tokens) -> Result<Link>) -> Result<Link> {
+    let user_token = user.load().ok_or_else(|| anyhow!(SignedOut))?;
+    let (developer, user) = (read_token(user.dir(), "developer-token")?, user_token);
     let secrets = [developer.clone(), user.clone()];
     start(Tokens { developer, user }).map_err(|e| anyhow!(redact(&format!("{e:#}"), &secrets)))
 }
 
-fn spawner(ctx: egui::Context, output_device: Option<String>) -> Spawn {
+fn spawner(ctx: egui::Context, output_device: Option<String>, user: Credentials) -> Spawn {
     Box::new(move || {
         let (tx, rx) = channel();
-        let (ctx, output_device) = (ctx.clone(), output_device.clone());
+        let (ctx, output_device, user) = (ctx.clone(), output_device.clone(), user.clone());
         std::thread::spawn(move || {
-            let started = config_dir().and_then(|dir| {
-                boot(&dir, |tokens| {
-                    let mut cfg = PlayerConfig::default();
-                    cfg.engine.audio_sink_name = "bramley".into();
-                    cfg.engine.output_device = output_device;
-                    let waker = ctx.clone();
-                    Player::spawn(cfg, tokens, move || waker.request_repaint())
-                })
+            let started = boot(&user, |tokens| {
+                let mut cfg = PlayerConfig::default();
+                cfg.engine.audio_sink_name = "bramley".into();
+                cfg.engine.output_device = output_device;
+                let waker = ctx.clone();
+                Player::spawn(cfg, tokens, move || waker.request_repaint())
             });
             let _ = tx.send(started);
             ctx.request_repaint();
@@ -217,8 +220,9 @@ fn main() -> Result<()> {
     let output_device = std::env::var("PULSE_SINK").ok().filter(|s| !s.is_empty());
     #[cfg(feature = "dev")]
     let output_device = args.output_device.clone().or(output_device);
-    let signed_out = signed_out(&config_dir()?);
-    let source = cover_source(&args);
+    let user = Credentials::system(&config_dir()?);
+    let signed_out = signed_out(&user);
+    let source = cover_source(&args, &user);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 720.0])
@@ -231,9 +235,16 @@ fn main() -> Result<()> {
         options,
         Box::new(move |cc| {
             let _ = waker.set(cc.egui_ctx.clone());
-            let spawn = spawner(cc.egui_ctx.clone(), output_device);
+            let spawn = spawner(cc.egui_ctx.clone(), output_device, user.clone());
             let channel = (inbox, guarded);
-            let app = app::App::new(&cc.egui_ctx, args, spawn, signed_out, channel, source);
+            let app = app::App::new(
+                &cc.egui_ctx,
+                args,
+                spawn,
+                (user, signed_out),
+                channel,
+                source,
+            );
             Ok(Box::new(app))
         }),
     )

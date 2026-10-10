@@ -16,12 +16,24 @@ fastframe-fonts = { git = "https://github.com/natevick/fastframe", rev = "e32305
 fastframe-log = { git = "https://github.com/natevick/fastframe", rev = "e32305a83234733677f81580a6d8e56e2b3a9624" }
 fastframe-instance = { git = "https://github.com/natevick/fastframe", rev = "e32305a83234733677f81580a6d8e56e2b3a9624" }
 fastframe-text = { git = "https://github.com/natevick/fastframe", rev = "e32305a83234733677f81580a6d8e56e2b3a9624" }
-log = "0.4"
+getrandom = "0.3"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
+keyring-core = "1"
+log = "0.4"
 png = { version = "0.18", optional = true }
 serde_json = "1"
 ureq = "3"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus-secret-service-keyring-store = { version = "1.0.1", features = ["rt-async-io-crypto-rust"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-native-keyring-store = { version = "1.1", default-features = false }
+
 [features]
 dev = ["dep:png"]
 gate-sabotage = []
+
