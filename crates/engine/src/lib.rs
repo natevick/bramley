@@ -5,10 +5,14 @@ mod eme;
 mod media;
 mod mp4;
 mod net;
+mod player;
 mod runtime;
 
 use std::path::PathBuf;
 
+#[cfg(feature = "diagnostics")]
+pub use player::Diagnostics;
+pub use player::{Command, PlayState, Player, PlayerConfig, PlayerError, Queue, Snapshot, Tokens};
 pub use runtime::Engine;
 
 pub fn user_agent() -> String {

@@ -1,50 +1,51 @@
 use std::path::PathBuf;
+use std::sync::mpsc::{RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use bramley_engine::{Engine, EngineConfig, redact};
+use bramley_engine::{
+    Command, Diagnostics, Player, PlayerConfig, PlayerError, Queue, Snapshot, Tokens, redact,
+};
 use serde_json::{Value as J, json};
 
-const PLAYER: &str = include_str!("player.js");
-const MUSICKIT_URL: &str = "https://js-cdn.music.apple.com/musickit/v3/musickit.js";
-
 struct Args {
-    config: EngineConfig,
+    config: PlayerConfig,
     status: PathBuf,
     max_seconds: f64,
     songs: Vec<String>,
     controls_at: Option<f64>,
     no_user_token: bool,
     corrupt_developer_token: bool,
-    truncate_musickit: bool,
 }
 
 fn parse_args() -> Result<Args> {
     let mut a = Args {
-        config: EngineConfig::default(),
+        config: PlayerConfig {
+            snapshot_interval: Duration::from_millis(50),
+            ..PlayerConfig::default()
+        },
         status: "musickit-status.json".into(),
         max_seconds: 120.0,
         songs: vec!["6781024437".into(), "6781079518".into()],
         controls_at: None,
         no_user_token: false,
         corrupt_developer_token: false,
-        truncate_musickit: false,
     };
-    a.config.audio_sink_name = "bramley-musickit".into();
+    a.config.engine.audio_sink_name = "bramley-musickit".into();
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
         let mut value = || it.next().with_context(|| format!("{flag} needs a value"));
         match flag.as_str() {
-            "--cdm" => a.config.cdm_path = value()?.into(),
-            "--output-device" => a.config.output_device = Some(value()?),
-            "--sink-name" => a.config.audio_sink_name = value()?,
+            "--cdm" => a.config.engine.cdm_path = value()?.into(),
+            "--output-device" => a.config.engine.output_device = Some(value()?),
+            "--sink-name" => a.config.engine.audio_sink_name = value()?,
             "--status" => a.status = value()?.into(),
             "--max-seconds" => a.max_seconds = value()?.parse()?,
             "--songs" => a.songs = value()?.split(',').map(String::from).collect(),
             "--controls-at" => a.controls_at = Some(value()?.parse()?),
             "--no-user-token" => a.no_user_token = true,
             "--corrupt-developer-token" => a.corrupt_developer_token = true,
-            "--truncate-musickit" => a.truncate_musickit = true,
+            "--truncate-musickit" => a.config.truncate_musickit = true,
             other => bail!("unknown arg {other}"),
         }
     }
@@ -81,13 +82,6 @@ fn corrupt(token: &str) -> String {
     parts.join(".")
 }
 
-fn native_time(engine: &Engine) -> J {
-    engine.status()["medias"]
-        .as_object()
-        .and_then(|m| m.values().find(|m| !m["keysId"].is_null()))
-        .map_or(J::Null, |m| m["currentTime"].clone())
-}
-
 #[derive(Default)]
 struct Controls {
     stage: usize,
@@ -98,14 +92,21 @@ struct Controls {
 }
 
 impl Controls {
-    fn advance(&mut self, engine: &Engine, js: &J, start: Instant) -> Result<()> {
+    fn advance(
+        &mut self,
+        snap: &Snapshot,
+        d: &Diagnostics,
+        start: Instant,
+        player: &Sender<Command>,
+    ) -> Result<()> {
+        let js = &d.js;
+        let native = json!(snap.position);
         let held = self.since.map_or(Duration::ZERO, |s| s.elapsed());
         let cpt = js["currentPlaybackTime"].as_f64().unwrap_or(-1.0);
-        let item = js["item"]["id"].clone();
-        let step = |name: &str, call: &str, me: &mut Controls| -> Result<()> {
-            me.steps.push(json!({"step": name, "wallSec": start.elapsed().as_secs_f64(), "js": js, "nativeTime": native_time(engine)}));
-            if !call.is_empty() {
-                engine.eval_script("controls", call)?;
+        let step = |name: &str, command: Option<Command>, me: &mut Controls| -> Result<()> {
+            me.steps.push(json!({"step": name, "wallSec": start.elapsed().as_secs_f64(), "js": js, "nativeTime": native}));
+            if let Some(command) = command {
+                player.send(command).context("player stopped")?;
             }
             me.since = Some(Instant::now());
             me.stage += 1;
@@ -117,30 +118,39 @@ impl Controls {
                 start.elapsed().as_secs_f64(),
                 cpt,
                 js["playbackState"],
-                item,
-                native_time(engine)
+                js["item"]["id"],
+                native
             ]));
         }
         match self.stage {
-            0 if cpt > 35.0 => {
-                self.before = engine.status();
-                step("pause", "__player.pause()", self)?
+            0 if cpt > 35.0 && d.engine.is_some() => {
+                self.before = d.engine.clone().unwrap_or_default();
+                step("pause", Some(Command::Pause), self)?
             }
-            1 if held >= Duration::from_secs(4) => step("paused-4s", "__player.seek(120)", self)?,
+            1 if held >= Duration::from_secs(4) => {
+                step("paused-4s", Some(Command::Seek(120.0)), self)?
+            }
             2 if held >= Duration::from_millis(2500) => {
-                step("seeked-120", "__player.play()", self)?
+                step("seeked-120", Some(Command::Play), self)?
             }
-            3 if held >= Duration::from_secs(5) => step("resumed-5s", "__player.next()", self)?,
-            4 if held >= Duration::from_secs(8) => step("next-8s", "", self)?,
-            5 if held >= Duration::from_secs(4) => step("next-12s", "", self)?,
+            3 if held >= Duration::from_secs(5) => step("resumed-5s", Some(Command::Next), self)?,
+            4 if held >= Duration::from_secs(8) => step("next-8s", None, self)?,
+            5 if held >= Duration::from_secs(4) => step("next-12s", None, self)?,
             _ => {}
         }
         Ok(())
     }
 }
 
+struct Report {
+    engine: J,
+    js: J,
+    samples: Vec<J>,
+    controls: Controls,
+}
+
 fn main() -> Result<()> {
-    let mut args = parse_args()?;
+    let args = parse_args()?;
     let developer = read_token("developer-token")?;
     let user = if args.no_user_token {
         String::new()
@@ -152,71 +162,81 @@ fn main() -> Result<()> {
     } else {
         developer.clone()
     };
-    args.config.redact = vec![developer, presented.clone(), user.clone()];
-    let secrets = args.config.redact.clone();
+    let secrets = vec![developer.clone(), presented.clone(), user.clone()];
+    let mut config = args.config.clone();
+    config.engine.redact = vec![developer];
     println!("PID {}", std::process::id());
-    let mut engine = Engine::new(args.config.clone())?;
-    engine.enable_diagnostics();
-    if args.truncate_musickit {
-        engine.sabotage_truncate_scripts();
-    }
-    let config = json!({"developerToken": presented, "userToken": user, "songs": args.songs, "musickitUrl": MUSICKIT_URL, "build": env!("CARGO_PKG_VERSION")});
-    engine
-        .eval_script(
-            "config.js",
-            &format!("globalThis.__bramley_musickit = {config};"),
-        )
-        .map_err(|e| anyhow::anyhow!(redact(&e.to_string(), &secrets)))?;
-    engine.eval_script("player.js", PLAYER)?;
+    let (player, snapshots) = Player::spawn(
+        config,
+        Tokens {
+            developer: presented,
+            user,
+        },
+        || {},
+    );
+    player.send(Command::SetQueue {
+        queue: Queue::Songs(args.songs.clone()),
+        start: 0,
+    })?;
+    player.send(Command::Play)?;
     let start = Instant::now();
-    let mut controls = Controls::default();
-    let mut samples: Vec<J> = Vec::new();
-    let mut last_status = start - Duration::from_secs(5);
+    let mut latest = Snapshot::default();
+    let mut r = Report {
+        engine: json!({}),
+        js: J::Null,
+        samples: Vec::new(),
+        controls: Controls::default(),
+    };
     loop {
-        let wait = engine.tick();
+        let fresh = match snapshots.recv_timeout(Duration::from_millis(50)) {
+            Ok(snap) => {
+                latest = snap;
+                true
+            }
+            Err(RecvTimeoutError::Timeout) => false,
+            Err(RecvTimeoutError::Disconnected) => bail!("player stopped"),
+        };
         let elapsed = start.elapsed().as_secs_f64();
-        let poll = controls.stage > 0 || last_status.elapsed() >= Duration::from_secs(1);
-        if poll {
-            let js = engine.eval_json("__player.state()")?;
-            if let Some(reason) = js["signInNeeded"].as_str() {
-                write_status(&engine, &args, &js, &controls, &samples, &secrets);
+        let Some(d) = latest.diagnostics.clone() else {
+            continue;
+        };
+        r.js = d.js.clone();
+        let d = if fresh {
+            d
+        } else {
+            Diagnostics { engine: None, ..d }
+        };
+        if args.controls_at.is_some_and(|at| elapsed >= at) {
+            r.controls.advance(&latest, &d, start, &player)?;
+        }
+        if let Some(engine) = d.engine {
+            r.engine = engine;
+            r.samples.push(json!([
+                elapsed,
+                d.js["currentPlaybackTime"],
+                d.js["playbackState"],
+                d.js["item"]["id"]
+            ]));
+            write_status(&args, &r, &secrets);
+            if let Some(PlayerError::SignInNeeded(reason)) = &latest.error {
                 bail!("sign-in needed: {}", redact(reason, &secrets));
             }
-            if args.controls_at.is_some_and(|at| elapsed >= at) {
-                controls.advance(&engine, &js, start)?;
-            }
-            if last_status.elapsed() >= Duration::from_secs(1) {
-                last_status = Instant::now();
-                samples.push(json!([
-                    elapsed,
-                    js["currentPlaybackTime"],
-                    js["playbackState"],
-                    js["item"]["id"]
-                ]));
-                write_status(&engine, &args, &js, &controls, &samples, &secrets);
-            }
-            if controls.stage == 6 || elapsed > args.max_seconds {
-                write_status(&engine, &args, &js, &controls, &samples, &secrets);
-                break;
-            }
         }
-        std::thread::sleep(wait);
+        if r.controls.stage == 6 || elapsed > args.max_seconds {
+            write_status(&args, &r, &secrets);
+            break;
+        }
     }
+    let _ = player.send(Command::Shutdown);
+    while snapshots.recv().is_ok() {}
     Ok(())
 }
 
-fn write_status(
-    engine: &Engine,
-    args: &Args,
-    js: &J,
-    controls: &Controls,
-    samples: &[J],
-    secrets: &[String],
-) {
-    let mut v = engine.status();
-    v["player"] = js.clone();
-    v["samples"] = json!(samples);
-    v["controls"] = json!({"steps": controls.steps, "trace": controls.trace, "beforeControls": controls.before, "done": controls.stage == 6});
+fn write_status(args: &Args, r: &Report, secrets: &[String]) {
+    let mut v = r.engine.clone();
+    v["player"] = r.js.clone();
+    v["samples"] = json!(r.samples);
+    v["controls"] = json!({"steps": r.controls.steps, "trace": r.controls.trace, "beforeControls": r.controls.before, "done": r.controls.stage == 6});
     let text = redact(&serde_json::to_string_pretty(&v).unwrap(), secrets);
     let tmp = args.status.with_extension("tmp");
     if std::fs::write(&tmp, text).is_ok() {

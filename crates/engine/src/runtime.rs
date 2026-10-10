@@ -764,6 +764,15 @@ impl Engine {
         }
     }
 
+    pub fn current_time(&self) -> Option<f64> {
+        let st = self.n.borrow();
+        st.medias
+            .iter()
+            .filter(|(_, m)| m.keys_id.is_some())
+            .min_by_key(|(id, _)| **id)
+            .map(|(_, m)| m.current_time())
+    }
+
     pub fn status(&self) -> J {
         let st = self.n.borrow();
         let medias: serde_json::Map<String, J> = st

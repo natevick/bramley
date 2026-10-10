@@ -384,3 +384,47 @@ fn plays_a_full_apple_music_song_through_musickit_js() {
     assert_eq!(steps[5]["js"]["item"]["id"], "6781079518", "{steps:?}");
     assert!(native(5) >= 7.0 && native(5) <= 13.0, "{steps:?}");
 }
+
+#[cfg(bramley_tokens)]
+#[test]
+#[ignore = "asks Apple Music for a song id that does not exist"]
+fn a_bad_song_id_is_a_playback_error_within_15_seconds() {
+    use bramley_engine::{Command, Player, PlayerConfig, PlayerError, Queue, Tokens};
+    let dir = std::env::var_os("BRAMLEY_CONFIG_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(std::env::var("HOME").unwrap()).join(".config/bramley")
+        });
+    let read = |name: &str| {
+        std::fs::read_to_string(dir.join(name))
+            .unwrap()
+            .trim()
+            .to_string()
+    };
+    let tokens = Tokens {
+        developer: read("developer-token"),
+        user: read("music-user-token"),
+    };
+    let start = Instant::now();
+    let (player, snapshots) = Player::spawn(PlayerConfig::default(), tokens, || {});
+    player
+        .send(Command::SetQueue {
+            queue: Queue::Songs(vec!["1".into()]),
+            start: 0,
+        })
+        .unwrap();
+    player.send(Command::Play).unwrap();
+    let error = loop {
+        let left = Duration::from_secs(15).saturating_sub(start.elapsed());
+        let snap = snapshots.recv_timeout(left).expect("no error within 15 s");
+        if let Some(error) = snap.error {
+            break error;
+        }
+    };
+    assert!(
+        matches!(&error, PlayerError::Playback(m) if m.contains("NOT_FOUND")),
+        "{error:?}"
+    );
+    eprintln!("{error:?} after {:.1} s", start.elapsed().as_secs_f64());
+    player.send(Command::Shutdown).unwrap();
+}

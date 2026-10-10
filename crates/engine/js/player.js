@@ -1,10 +1,11 @@
 (function () {
   "use strict";
-  const C = globalThis.__bramley_musickit;
-  delete globalThis.__bramley_musickit;
-  const S = { phase: "start", errors: [], events: [], signInNeeded: null };
+  const C = globalThis.__bramley_player;
+  delete globalThis.__bramley_player;
+  const S = { phase: "start", errors: [], events: [], signInNeeded: null, playbackError: null };
+  const describe = e => e && (e.name || "") + " " + (e.message || e.description || e.errorCode || String(e));
   const err = (where, e) => {
-    S.errors.push((where + ": " + (e && (e.name || "") + " " + (e.message || e.description || e.errorCode || String(e)) + (e && e.stack ? " @ " + e.stack : ""))));
+    S.errors.push(where + ": " + describe(e) + (e && e.stack ? " @ " + e.stack : ""));
     if (S.errors.length > 30) S.errors.shift();
   };
   function seedUserTokenIntoMusicKitStorage(developerToken, userToken) {
@@ -21,6 +22,9 @@
   }
 
   let m = null;
+  let signedIn;
+  const ready = new Promise(resolve => { signedIn = resolve; });
+  let queued = ready;
   document.addEventListener("musickitloaded", async () => {
     S.phase = "loaded";
     try {
@@ -39,12 +43,9 @@
     for (const ev of ["playbackStateDidChange", "nowPlayingItemDidChange", "mediaPlaybackError", "authorizationStatusDidChange"]) {
       m.addEventListener(ev, e => { if (S.events.length < 200) S.events.push([Math.round(performance.now()), ev, String(e && (e.state ?? e.name ?? (e.item && e.item.id) ?? ""))]); });
     }
-    try {
-      await m.setQueue({ songs: C.songs });
-      S.phase = "queued";
-      await m.play();
-      S.phase = "play-called";
-    } catch (e) { err("play", e); S.phase = "play-failed"; }
+    m.addEventListener("mediaPlaybackError", e => { S.playbackError = S.playbackError || describe(e); });
+    S.phase = "ready";
+    signedIn();
   });
 
   const script = document.createElement("script");
@@ -53,10 +54,11 @@
   S.phase = "loading-musickit";
   document.head.appendChild(script);
 
+  const fail = name => e => { err(name, e); S.playbackError = S.playbackError || name + ": " + describe(e); };
+  const act = (name, f) => { queued.then(f).catch(fail(name)); };
   const g = f => { try { return f(); } catch (e) { return "ERR " + e.message; } };
-  const act = (name, f) => { try { Promise.resolve(f()).catch(e => err(name, e)); } catch (e) { err(name, e); } };
   const state = () => {
-    const r = { phase: S.phase, errors: S.errors.slice(), events: S.events.slice(-40), signInNeeded: S.signInNeeded, musickitDefined: typeof MusicKit !== "undefined" };
+    const r = { phase: S.phase, errors: S.errors.slice(), events: S.events.slice(-40), signInNeeded: S.signInNeeded, playbackError: S.playbackError, musickitDefined: typeof MusicKit !== "undefined" };
     if (!m) return r;
     r.isAuthorized = g(() => m.isAuthorized);
     r.storefrontId = g(() => m.storefrontId);
@@ -65,16 +67,22 @@
     r.currentPlaybackTime = g(() => m.currentPlaybackTime);
     r.currentPlaybackDuration = g(() => m.currentPlaybackDuration);
     r.queuePosition = g(() => m.queue.position);
-    r.item = g(() => m.nowPlayingItem && { id: m.nowPlayingItem.id, durationInMillis: m.nowPlayingItem.attributes && m.nowPlayingItem.attributes.durationInMillis });
+    r.item = g(() => m.nowPlayingItem && { id: m.nowPlayingItem.id, title: m.nowPlayingItem.title, durationInMillis: m.nowPlayingItem.attributes && m.nowPlayingItem.attributes.durationInMillis });
     return r;
   };
   Object.defineProperty(globalThis, "__player", {
     value: {
       state,
-      pause: () => act("pause", () => m.pause()),
+      setQueue: options => {
+        S.playbackError = null;
+        queued = ready.then(() => m.setQueue(options)).catch(fail("setQueue"));
+      },
       play: () => act("play", () => m.play()),
+      pause: () => act("pause", () => m.pause()),
       seek: t => act("seek", () => m.seekToTime(t)),
       next: () => act("next", () => m.skipToNextItem()),
+      previous: () => act("previous", () => m.skipToPreviousItem()),
+      volume: v => act("volume", () => { m.volume = v; }),
     },
   });
 })();
