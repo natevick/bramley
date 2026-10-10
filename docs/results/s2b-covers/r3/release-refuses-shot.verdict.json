@@ -1,0 +1,8 @@
+{
+ "name": "release-refuses-shot",
+ "mode": "refuseshot",
+ "binary": "bramley-s2b",
+ "exit": 1,
+ "unknownArgument": true,
+ "pngWritten": false
+}

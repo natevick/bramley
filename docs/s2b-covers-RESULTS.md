@@ -51,7 +51,7 @@ Run against `s2b-covers-PREREG.md`, in one weston session (`scratch/s2b/session.
 ## Round 2: signed-in gate and decode limits (a99e0a0)
 - **What changed:** covers are fetched and shown only when signed in, and decoding runs under `image::Limits`.
 - **Harness:** `scripts/app/covers-session.py` with `scripts/app/covers-runs.txt`, in one session. Binary sha256 prefix a6b6b539ce503f52.
-- **Verdicts:** `docs/results/s2b-covers/*.verdict.json`. They hold no logs, no art URLs and no tokens.
+- **Verdicts:** `docs/results/s2b-covers/r2/*.verdict.json` (the session summary was copied by hand as `session.verdict.json`; from round 3 the script writes that name itself). They hold no logs, no art URLs and no tokens.
 - **Validity:** VALID on the same did-it-run rules. `ref` read 83.0 / 83.1 / 82.9.
 
 | Check | Result |
@@ -83,11 +83,46 @@ Run against `s2b-covers-PREREG.md`, in one weston session (`scratch/s2b/session.
 - The whole app plays at **164.7–166.2 MiB PSS** with 50 covers visible.
 - The screenshot was regenerated at `target/screens/s2b-covers-playing.png`: 50 covers, Playing at 0:42.
 
+## Round 3: review fixes (4dcb35d)
+- **Binaries:** release `bramley-s2b` sha256 prefix 7e77a8b8441d72cd; dev `bramley-s2b-dev` 8bca5a944fc66da4.
+- **Verdicts:** `docs/results/s2b-covers/r3/`.
+- **First session: VOID.** The reference read 88.3 and 89.0 against 83.3 (drift 5.35 > 5). Load average was about 10 from other work on the box. Its evidence is kept in the worktree's `scratch/s2b/session5-void/`.
+- **Re-run: VALID.** The reference read 87.7 both times, 4.4 from 83.3. Its USS was 60.8 (recorded 60.9), so the drift sits in shared pages.
+
+| Check | Result |
+|---|---|
+| Guard self-test | killed 0.26 s after its last clean poll; the default sink was unchanged; plays now wait for at least one clean poll |
+| Release `--screenshot` | exit 1, "unknown argument --screenshot", no PNG |
+| The same check on the dev build (control) | no "unknown argument": the check can fail |
+| Signed out, developer token present | SignInNeeded, 0 requests, 0 textures, alive at the end |
+| Expired token (dev build, local server answering 401) | the server saw only `/v1/me/storefront`; SignInNeeded; 0 textures; alive at the end |
+| Signed in | 52 requests (storefront, chart, 50 covers), 50 uploaded, 0 failed, 0 in flight |
+
+**Memory, MiB (PSS / USS):**
+
+| Run | ref | pin | s2b |
+|---|---|---|---|
+| idle 1 | 87.7 / 60.8 | 67.1 / 40.2 | 71.7 / 44.8 |
+| idle 2 | 87.7 / 60.8 | 67.4 / 40.5 | 71.7 / 44.8 |
+| playing | | 167.8 / 140.9 | 169.5 / 142.6 |
+
+- **Metric rename:** `decodedBytesHeld` (rounds 1 and 2) is now `decodedInFlight`. gate-sabotage's did-it-run check is `decodedBytesKept`, which is derived from what it really keeps (unit-tested; not run live this round).
+- **Per cover:** 4.45 / 50 = **0.09 MiB** in PSS and in USS.
+- **Covers while playing:** +1.7 MiB.
+- **The whole app while playing:** 169.5 PSS, inflated by this session's drift; 142.6 USS.
+- **Screenshot:** taken with the dev build of the same commit (`--screenshot` is dev-only now): 50 covers, Playing at 0:41.
+
+## Known limits
+- **Panic catch:** a decoder panic counts as a failure, but nothing in the tests can trigger one, so that path is untested.
+- **Re-sign-in:** if sign-in comes back, the grid refetches on its own. Nothing can turn it back on until S3b.
+- **Machine verdicts:** the verdict files hold data, and PASS/VOID was judged by hand. S2c and S13 own computed verdicts. Don't reuse this harness as a gate.
+- **Public screenshot:** there is no synthetic-cover screenshot for a public PR yet.
+
 ## Re-run
 ```
-cargo build --release -p bramley --features gate-sabotage && cp target/release/bramley target/reference/bramley-s2b-sabotage
+cargo build --release -p bramley --features dev && cp target/release/bramley target/reference/bramley-s2b-dev
 cargo build --release -p bramley && cp target/release/bramley target/reference/bramley-s2b
-# target/reference also needs bramley-main-4961e27 (main), bramley-pin-e32305a (b824098) and bramley-s2b-r1 (d7596da)
+# target/reference also needs bramley-main-4961e27 (main) and bramley-pin-e32305a (b824098)
 sg render -c "python3 -I scripts/app/covers-session.py --out target/app-runs/s2b-covers $(cat scripts/app/covers-runs.txt)"
 ```
-Round 1 ran the same driver from the worktree's `scratch/` before it moved into the repo.
+Round 1 ran the same driver from the worktree's `scratch/` before it moved into the repo. Round 2 also used `bramley-s2b-r1` and `bramley-s2b-sabotage`.

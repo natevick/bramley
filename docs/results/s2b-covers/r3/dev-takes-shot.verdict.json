@@ -1,0 +1,8 @@
+{
+ "name": "dev-takes-shot",
+ "mode": "refuseshot",
+ "binary": "bramley-s2b-dev",
+ "exit": 1,
+ "unknownArgument": false,
+ "pngWritten": false
+}

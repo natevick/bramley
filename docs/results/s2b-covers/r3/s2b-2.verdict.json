@@ -1,0 +1,93 @@
+{
+ "name": "s2b-2",
+ "mode": "idle",
+ "binary": "bramley-s2b",
+ "sha256": "7e77a8b8441d72cd",
+ "pss": 71.7,
+ "uss": 44.8,
+ "rss": 104.2,
+ "anon": 26.4,
+ "samples": 20,
+ "maxKids": 0,
+ "positions": [
+  null,
+  null
+ ],
+ "states": [
+  "Stopped"
+ ],
+ "coversReady": {
+  "texturesUploaded": 50,
+  "decodedInFlight": 0,
+  "decodedBytesKept": 0,
+  "coversRequested": 52,
+  "coversFailed": 0
+ },
+ "smaps": {
+  "lib": 33.01,
+  "binary": 12.97,
+  "heap": 11.64,
+  "anon": 10.55,
+  "other:NotoSansCJK-Regular.ttc": 0.62,
+  "other:NotoSansEthiopic-Regular.ttf": 0.23,
+  "other:NotoSansArabic-Regular.ttf": 0.23,
+  "other:NotoSansGujarati-Regular.ttf": 0.18,
+  "other:NotoSansSymbols2-Regular.ttf": 0.15,
+  "other:NotoSansSinhala-Regular.ttf": 0.14,
+  "other:NotoSansSymbols-Regular.ttf": 0.12,
+  "other:NotoSansMath-Regular.ttf": 0.12,
+  "other:NotoSansJavanese-Regular.ttf": 0.12,
+  "other:NotoSansYi-Regular.ttf": 0.12,
+  "other:NotoSansKannada-Regular.ttf": 0.12,
+  "other:NotoSansBengali-Regular.ttf": 0.12,
+  "other:NotoSansDevanagari-Regular.ttf": 0.12,
+  "other:NotoSansMyanmar-Regular.ttf": 0.12,
+  "other:index": 0.12,
+  "other:NotoSansMalayalam-Regular.ttf": 0.11,
+  "other:NotoSansKhmer-Regular.ttf": 0.11,
+  "other:NotoSansTelugu-Regular.ttf": 0.1,
+  "other:NotoSansCherokee-Regular.ttf": 0.09,
+  "stack": 0.08,
+  "other:NotoSansTamil-Regular.ttf": 0.07,
+  "other:NotoSansGeorgian-Regular.ttf": 0.05,
+  "other:NotoSansGurmukhi-Regular.ttf": 0.05,
+  "other:NotoSansThai-Regular.ttf": 0.04,
+  "memfd": 0.03,
+  "other:NotoSansArmenian-Regular.ttf": 0.03,
+  "other:NotoSansLao-Regular.ttf": 0.03,
+  "other:NotoSansHebrew-Regular.ttf": 0.03,
+  "dri": 0.0,
+  "other:[vvar]": 0.0,
+  "other:[vvar_vclock]": 0.0,
+  "other:[vdso]": 0.0,
+  "other:[vsyscall]": 0.0
+ },
+ "gpuBefore": {
+  "mem_info_vram_used": 226557952,
+  "mem_info_gtt_used": 61054976
+ },
+ "gpuAfter": {
+  "mem_info_vram_used": 249028608,
+  "mem_info_gtt_used": 77848576
+ },
+ "guardSeen": [],
+ "guardPolls": 130,
+ "guardKilled": null,
+ "defaultBefore": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "defaultAfter": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "final": {
+  "state": "Stopped",
+  "position": null,
+  "applied": 0,
+  "seq": 0,
+  "banner": null,
+  "engineStarted": false,
+  "framesPainted": 77,
+  "glRenderer": "AMD Radeon RX 5700 XT (radeonsi, navi10, ACO, DRM 3.64, 7.0.0-31-generic)",
+  "texturesUploaded": 50,
+  "decodedInFlight": 0,
+  "decodedBytesKept": 0,
+  "coversRequested": 52,
+  "coversFailed": 0
+ }
+}

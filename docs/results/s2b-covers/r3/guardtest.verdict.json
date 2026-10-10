@@ -1,0 +1,38 @@
+{
+ "name": "guardtest",
+ "mode": "guardtest",
+ "binary": "bramley-s2b",
+ "sha256": "7e77a8b8441d72cd",
+ "gpuBefore": {
+  "mem_info_vram_used": 220880896,
+  "mem_info_gtt_used": 60956672
+ },
+ "guard": {
+  "killed": "stream linked to ['bramley-s2b-null-4107403']",
+  "killAfterLastCleanPollS": 0.26,
+  "appGone": true
+ },
+ "guardSeen": [
+  "bramley-s2b-null-4107403"
+ ],
+ "guardPolls": 12,
+ "guardKilled": "stream linked to ['bramley-s2b-null-4107403']",
+ "defaultBefore": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "defaultAfter": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "final": {
+  "state": null,
+  "position": null,
+  "applied": null,
+  "seq": null,
+  "banner": null,
+  "engineStarted": null,
+  "framesPainted": null,
+  "glRenderer": null,
+  "texturesUploaded": null,
+  "decodedInFlight": null,
+  "decodedBytesKept": null,
+  "coversRequested": null,
+  "coversFailed": null
+ },
+ "playAckExit": 0
+}

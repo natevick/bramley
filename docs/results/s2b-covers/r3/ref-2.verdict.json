@@ -1,0 +1,61 @@
+{
+ "name": "ref-2",
+ "mode": "idle",
+ "binary": "bramley-main-4961e27",
+ "sha256": "1a72eb4b2880ac5a",
+ "pss": 87.7,
+ "uss": 60.8,
+ "rss": 120.1,
+ "anon": 46.6,
+ "samples": 20,
+ "maxKids": 0,
+ "positions": [
+  null,
+  null
+ ],
+ "states": [
+  "Stopped"
+ ],
+ "smaps": {
+  "lib": 32.98,
+  "anon": 28.42,
+  "heap": 13.97,
+  "binary": 12.04,
+  "other:index": 0.12,
+  "stack": 0.09,
+  "memfd": 0.03,
+  "dri": 0.0,
+  "other:[vvar]": 0.0,
+  "other:[vvar_vclock]": 0.0,
+  "other:[vdso]": 0.0,
+  "other:[vsyscall]": 0.0
+ },
+ "gpuBefore": {
+  "mem_info_vram_used": 226557952,
+  "mem_info_gtt_used": 61054976
+ },
+ "gpuAfter": {
+  "mem_info_vram_used": 244834304,
+  "mem_info_gtt_used": 75751424
+ },
+ "guardSeen": [],
+ "guardPolls": 129,
+ "guardKilled": null,
+ "defaultBefore": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "defaultAfter": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "final": {
+  "state": "Stopped",
+  "position": null,
+  "applied": 0,
+  "seq": 0,
+  "banner": null,
+  "engineStarted": false,
+  "framesPainted": 35,
+  "glRenderer": "AMD Radeon RX 5700 XT (radeonsi, navi10, ACO, DRM 3.64, 7.0.0-31-generic)",
+  "texturesUploaded": null,
+  "decodedInFlight": null,
+  "decodedBytesKept": null,
+  "coversRequested": null,
+  "coversFailed": null
+ }
+}
