@@ -15,6 +15,13 @@ pub use player::Diagnostics;
 pub use player::{Command, PlayState, Player, PlayerConfig, PlayerError, Queue, Snapshot, Tokens};
 pub use runtime::Engine;
 
+#[cfg(feature = "sabotage")]
+#[used]
+static SABOTAGE_MARKER: &str = "bramley-unshipped-feature:engine/sabotage\0";
+#[cfg(feature = "diagnostics")]
+#[used]
+static DIAGNOSTICS_MARKER: &str = "bramley-unshipped-feature:engine/diagnostics\0";
+
 pub fn user_agent() -> String {
     format!(
         "Bramley/{} ({})",

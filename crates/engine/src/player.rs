@@ -136,7 +136,7 @@ impl Player {
             move || {
                 let engine = Engine::new(cfg.engine)?;
                 #[cfg(feature = "diagnostics")]
-                engine.enable_diagnostics();
+                engine.enable_diagnostics()?;
                 #[cfg(feature = "sabotage")]
                 if cfg.truncate_musickit {
                     engine.sabotage_truncate_scripts();

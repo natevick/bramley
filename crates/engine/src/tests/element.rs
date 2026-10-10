@@ -406,7 +406,7 @@ fn media_elements_get_a_native_player_only_once_a_source_attaches() {
 #[test]
 fn unknown_globals_and_host_properties_are_logged() {
     let (mut e, sink) = engine();
-    e.enable_diagnostics();
+    e.enable_diagnostics().unwrap();
     run(
         &mut e,
         &sink,
@@ -428,6 +428,18 @@ fn unknown_globals_and_host_properties_are_logged() {
     assert!(
         unknown.get("HTMLBodyElement.appendChild").is_none(),
         "{unknown}"
+    );
+}
+
+#[test]
+fn misses_are_not_logged_unless_diagnostics_are_loaded() {
+    let (mut e, sink) = engine();
+    run(&mut e, &sink, "L(typeof NoSuchGlobal);");
+    assert_eq!(e.status()["platform"]["unknown"], serde_json::Value::Null);
+    assert_eq!(
+        e.eval_json("Object.getPrototypeOf(globalThis) === Object.prototype")
+            .unwrap(),
+        true
     );
 }
 

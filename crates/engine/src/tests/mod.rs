@@ -242,3 +242,30 @@ pub fn in_child(test: &str, wrapper: &[&str], body: impl FnOnce()) -> Option<Chi
         stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
     })
 }
+
+#[test]
+fn every_cargo_feature_carries_an_unshipped_marker() {
+    let dir = env!("CARGO_MANIFEST_DIR");
+    let manifest = std::fs::read_to_string(format!("{dir}/Cargo.toml")).unwrap();
+    let lib = std::fs::read_to_string(format!("{dir}/src/lib.rs")).unwrap();
+    let section = manifest.split("\n[features]\n").nth(1).unwrap();
+    let features: Vec<&str> = section
+        .split("\n[")
+        .next()
+        .unwrap()
+        .lines()
+        .filter_map(|l| l.split_once('=').map(|(name, _)| name.trim()))
+        .filter(|name| *name != "default")
+        .collect();
+    assert!(
+        !features.is_empty(),
+        "no features parsed from {dir}/Cargo.toml"
+    );
+    for f in features {
+        let marker = format!("\"bramley-unshipped-feature:engine/{f}\\0\"");
+        assert!(
+            lib.contains(&marker),
+            "feature {f} has no {marker} in lib.rs"
+        );
+    }
+}

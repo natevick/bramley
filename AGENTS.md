@@ -15,4 +15,5 @@ State the pass condition in a `*-PREREG.md` before running. Prove the harness ca
 - UI emits actions; network, playback and JS-runtime work runs off the UI thread.
 - Platform code goes behind `cfg` or target modules.
 - Never log tokens, license payloads or authorization responses.
+- Each non-shipped cargo feature gets a `#[cfg(feature)] #[used]` marker, `bramley-unshipped-feature:<crate>/<feature>`, in its crate root. `scripts/check-shipped-features.sh <binary>` must exit 0 on anything shipped.
 - Keep work out of `/tmp`, which runs out of inodes on the dev box. Use the repo or `$HOME`.

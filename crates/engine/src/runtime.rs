@@ -655,10 +655,8 @@ impl Engine {
     }
 
     #[cfg(any(test, feature = "diagnostics"))]
-    pub fn enable_diagnostics(&self) {
-        self.ctx.with(|ctx| {
-            call(&ctx, &self.n, "__platform", "enableDiagnostics", ());
-        });
+    pub fn enable_diagnostics(&self) -> Result<()> {
+        self.eval_script("diagnostics.js", include_str!("../js/diagnostics.js"))
     }
 
     pub fn eval_script(&self, name: &str, source: &str) -> Result<()> {
