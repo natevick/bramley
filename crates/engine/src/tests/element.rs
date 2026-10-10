@@ -471,3 +471,26 @@ fn video_answers_maybe_on_both_elements_but_video_source_buffers_fail_loudly() {
         ]
     );
 }
+
+#[test]
+fn the_first_init_segment_sets_a_nan_duration_so_remove_works() {
+    let (mut e, sink) = engine();
+    let log = run(
+        &mut e,
+        &sink,
+        &script(
+            r#"
+            const a = fresh();
+            audio.addEventListener("durationchange", () => L("durationchange"));
+            audio.src = URL.createObjectURL(a.ms);
+            const sb = await fill(a.ms, a.opened, bytes);
+            await later(5);
+            L("duration-set:" + !isNaN(a.ms.duration));
+            sb.remove(0, 1);
+            await new Promise(r => sb.addEventListener("updateend", r, { once: true }));
+            L("removed:" + sb.buffered.start(0).toFixed(1));
+        "#,
+        ),
+    );
+    assert_eq!(log, ["durationchange", "duration-set:true", "removed:1.0"]);
+}

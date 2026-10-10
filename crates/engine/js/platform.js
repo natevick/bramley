@@ -802,6 +802,7 @@
           if (this._ms) this._ms.endOfStream("decode");
           return;
         }
+        if (r.init && this._ms && isNaN(this._ms._duration)) this._ms._durationChange(r.initDuration === null ? Infinity : r.initDuration);
         if (r.hasInitData) {
           const media = this._ms && this._ms._media;
           const initData = OP.sb_init_data(this._id);
@@ -864,7 +865,9 @@
     set duration(d) {
       hc("MediaSource.duration=");
       if (this._readyState !== "open") throw new DOMException("MediaSource not open", "InvalidStateError");
-      d = Number(d);
+      this._durationChange(Number(d));
+    }
+    _durationChange(d) {
       if (d === this._duration) return;
       this._duration = d;
       OP.ms_set_duration(this._id, d);

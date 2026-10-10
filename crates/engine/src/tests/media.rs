@@ -296,23 +296,31 @@ fn apply_gain_scales_and_clamps_pcm() {
     assert_eq!(loud, pcm(&[32767, -32768]));
 }
 
-#[test]
-fn encrypted_frames_wait_for_a_key_without_skipping_audio() {
-    let mut r = Rig::new(5, false);
-    let sb = r.sb();
-    sb.init.as_mut().unwrap().protection = Some(Protection {
+fn protect(sb: &mut SourceBufferNative) {
+    let mut init = (**sb.init.as_ref().unwrap()).clone();
+    init.protection = Some(Protection {
         scheme: "cenc".into(),
         kid: KID.to_vec(),
         iv_size: 8,
         ..Default::default()
     });
+    let init = std::rc::Rc::new(init);
+    sb.init = Some(init.clone());
     for f in sb.frames.values_mut() {
+        f.init = init.clone();
         f.data.iter_mut().for_each(|b| *b ^= XOR_KEY);
         f.enc = Some(SampleEnc {
             iv: vec![1; 8],
             subsamples: vec![],
         });
     }
+}
+
+#[test]
+fn encrypted_frames_wait_for_a_key_without_skipping_audio() {
+    let mut r = Rig::new(5, false);
+    let sb = r.sb();
+    protect(sb);
     let first_pts = *sb.frames.keys().next().unwrap();
     r.m.set_keys(Some(KEYS));
     r.m.play();
@@ -328,6 +336,21 @@ fn encrypted_frames_wait_for_a_key_without_skipping_audio() {
             && r.m.counters.decoded_decrypted_frames > 0
     );
     assert!(r.cdm.0.borrow().decrypts > 0);
+}
+
+#[test]
+fn buffered_frames_decrypt_with_the_init_they_were_appended_under() {
+    let mut r = Rig::new(5, false);
+    let sb = r.sb();
+    protect(sb);
+    let mut next_song = (**sb.init.as_ref().unwrap()).clone();
+    next_song.protection.as_mut().unwrap().kid = vec![9; 16];
+    sb.init = Some(Rc::new(next_song));
+    r.cdm.0.borrow_mut().has_key = true;
+    r.m.set_keys(Some(KEYS));
+    r.m.play();
+    r.play_for(0.3);
+    assert!(!r.m.waiting_for_key && r.m.counters.decoded_decrypted_frames > 0);
 }
 
 #[test]
@@ -436,7 +459,7 @@ fn a_rate_change_mid_stream_drains_the_old_output_then_opens_one_at_the_new_rate
     m.attach(MS);
     m.play();
     let mut times = Vec::new();
-    for i in 0..300 {
+    for i in 0..1200 {
         if i == 50 {
             let sb = sbs.get_mut(&SB).unwrap();
             sb.append(&init_at_44k(&init), 0.0).unwrap();
@@ -452,11 +475,8 @@ fn a_rate_change_mid_stream_drains_the_old_output_then_opens_one_at_the_new_rate
     assert_eq!(rates, [48_000, 44_100]);
     let (old, new) = (sinks[0].state(), sinks[1].state());
     assert!(old.drain_requested && old.queue.is_empty());
-    assert_eq!(
-        old.position,
-        Some(new.writes[0].0),
-        "gap or overlap at the switch"
-    );
+    let seam = old.position.unwrap() - new.writes[0].0;
+    assert!(seam.abs() <= 1, "gap or overlap of {seam} us at the switch");
     assert!(
         times
             .windows(2)

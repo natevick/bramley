@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use anyhow::{Result, anyhow};
 
@@ -13,6 +14,7 @@ pub struct Frame {
     pub dur_us: i64,
     pub data: Vec<u8>,
     pub enc: Option<SampleEnc>,
+    pub init: Rc<TrackInit>,
 }
 
 impl Frame {
@@ -24,7 +26,7 @@ impl Frame {
 pub struct SourceBufferNative {
     pub mime: String,
     pending: Vec<u8>,
-    pub init: Option<TrackInit>,
+    pub init: Option<Rc<TrackInit>>,
     pub frames: BTreeMap<i64, Frame>,
     pub init_data: Option<Vec<u8>>,
     pub appended_bytes: u64,
@@ -121,7 +123,7 @@ impl SourceBufferNative {
                 if !init.pssh.is_empty() {
                     self.init_data = Some(init.pssh.clone());
                 }
-                self.init = Some(init);
+                self.init = Some(Rc::new(init));
                 result.init_segment = true;
             } else if b.is("moof") {
                 let Some(mdat) = tops.get(i + 1).filter(|x| x.is("mdat")) else {
@@ -134,17 +136,18 @@ impl SourceBufferNative {
                 };
                 let init = self
                     .init
-                    .as_ref()
+                    .clone()
                     .ok_or_else(|| anyhow!("media segment before init segment"))?;
                 let ts = init.timescale;
                 let (window_start, window_end) = self.append_window_us;
-                let frames: Vec<Frame> = mp4::parse_fragment(&buf, b, init)?
+                let frames: Vec<Frame> = mp4::parse_fragment(&buf, b, &init)?
                     .into_iter()
                     .map(|s| Frame {
                         pts_us: mp4::ticks_to_us(s.dts, ts).saturating_add(offset_us),
                         dur_us: mp4::ticks_to_us(s.dur as i64, ts),
                         data: s.data,
                         enc: s.enc,
+                        init: init.clone(),
                     })
                     .filter(|f| f.pts_us >= window_start && f.end_us() <= window_end)
                     .collect();

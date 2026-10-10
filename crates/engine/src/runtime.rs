@@ -252,7 +252,7 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
             return json!({"error": "no such SourceBuffer"}).to_string();
         };
         match sb.append(&bytes, if ts_offset.is_finite() { ts_offset } else { 0.0 }) {
-            Ok(r) => json!({"init": r.init_segment, "frames": r.media_frames, "hasInitData": r.init_segment && sb.init_data.is_some()}).to_string(),
+            Ok(r) => json!({"init": r.init_segment, "frames": r.media_frames, "hasInitData": r.init_segment && sb.init_data.is_some(), "initDuration": sb.init.as_ref().and_then(|i| i.duration_secs)}).to_string(),
             Err(e) => json!({"error": format!("{e:#}")}).to_string(),
         }
     });

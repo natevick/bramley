@@ -502,8 +502,7 @@ impl MediaEngine {
         cdms: &mut HashMap<u32, Box<dyn CdmBackend>>,
         now: Instant,
     ) {
-        let Some(init) = sb.init.as_ref() else { return };
-        if self.output_failed || self.ensure_decoder(init).is_err() {
+        if self.output_failed || sb.init.is_none() {
             return;
         }
         if let Some(c) = self.held.take() {
@@ -521,8 +520,11 @@ impl MediaEngine {
             if frame.pts_us - self.cursor_us > 100_000 {
                 break;
             }
+            if self.ensure_decoder(&frame.init).is_err() {
+                return;
+            }
             let encrypted = frame.enc.is_some();
-            match self.decrypt(frame, init, cdms) {
+            match self.decrypt(frame, &frame.init, cdms) {
                 None | Some(Decrypted::NoKey) => {
                     self.wait_for_key();
                     break;

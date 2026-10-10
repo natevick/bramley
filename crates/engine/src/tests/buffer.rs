@@ -96,3 +96,24 @@ fn the_append_window_drops_frames_outside_it_after_the_timestamp_offset() {
     assert!((11.0..11.03).contains(&start), "{ranges:?}");
     assert!((12.45..=12.5).contains(&end), "{ranges:?}");
 }
+
+#[test]
+fn a_new_init_segment_applies_only_to_frames_appended_after_it() {
+    let (init, media) = fixture_segments();
+    let mut sb = SourceBufferNative::new("audio/mp4".into(), usize::MAX);
+    sb.append(&init, 0.0).unwrap();
+    sb.append(&media[0], 0.0).unwrap();
+    let first = sb.init.clone().unwrap();
+    sb.append(&init, 0.0).unwrap();
+    sb.append(&media[0], 10.0).unwrap();
+    let second = sb.init.clone().unwrap();
+    assert!(!std::rc::Rc::ptr_eq(&first, &second));
+    for f in sb.frames.values() {
+        let expected = if f.pts_us < 10_000_000 {
+            &first
+        } else {
+            &second
+        };
+        assert!(std::rc::Rc::ptr_eq(&f.init, expected), "{}", f.pts_us);
+    }
+}
