@@ -4,9 +4,10 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::Args;
+use crate::cli::{self, Inbox, Request};
 use crate::playback::{Action, Playback, Spawn};
 use crate::ui;
 
@@ -55,6 +56,7 @@ struct Shot {
 pub struct App {
     playback: Playback,
     actions: Vec<Action>,
+    inbox: Inbox,
     status: Option<StatusWriter>,
     shot: Option<Shot>,
     frames: u64,
@@ -69,6 +71,7 @@ impl App {
         args: Args,
         spawn: Spawn,
         signed_out: bool,
+        inbox: Inbox,
     ) -> Self {
         let rendering = fastframe_text::detect();
         let mut fonts = fastframe_fonts::FontSetup::default().definitions();
@@ -84,6 +87,7 @@ impl App {
         App {
             playback: Playback::new(spawn, signed_out),
             actions,
+            inbox,
             status: args.status.map(StatusWriter::new),
             shot: args.screenshot.map(|path| Shot {
                 path,
@@ -97,12 +101,9 @@ impl App {
         }
     }
 
-    fn write_status(&mut self) {
-        let Some(tx) = self.status.as_ref().and_then(|w| w.tx.as_ref()) else {
-            return;
-        };
+    fn status_json(&self) -> Value {
         let shown = self.playback.shown();
-        let status = json!({
+        json!({
             "pid": std::process::id(),
             "engineStarted": self.playback.started(),
             "state": format!("{:?}", shown.state),
@@ -116,9 +117,34 @@ impl App {
             "banner": self.playback.banner().map(|b| format!("{b:?}")),
             "framesPainted": self.frames,
             "glRenderer": self.renderer,
-        });
-        let _ = tx.send(status.to_string());
+        })
+    }
+
+    fn write_status(&mut self) {
+        let Some(tx) = self.status.as_ref().and_then(|w| w.tx.as_ref()) else {
+            return;
+        };
+        let _ = tx.send(self.status_json().to_string());
         self.status_at = Some(Instant::now());
+    }
+
+    fn answer_requests(&mut self, ctx: &egui::Context) -> bool {
+        let mut any = false;
+        while let Ok((request, reply)) = self.inbox.try_recv() {
+            any = true;
+            if request == Request::Show {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            }
+            let refused = cli::command(&mut self.playback, request);
+            let mut answer = self.status_json();
+            if let Some(why) = refused {
+                answer["refused"] = json!(why);
+            }
+            let _ = reply.send(answer.to_string());
+        }
+        any
     }
 
     fn drive_shot(&mut self, ctx: &egui::Context) {
@@ -154,7 +180,7 @@ impl eframe::App for App {
                 .gl()
                 .map(|gl| unsafe { gl.get_parameter_string(eframe::glow::RENDERER) });
         }
-        let changed = self.playback.receive();
+        let changed = self.playback.receive() | self.answer_requests(ctx);
         if changed
             || self
                 .status_at

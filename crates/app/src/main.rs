@@ -1,4 +1,5 @@
 mod app;
+mod cli;
 mod playback;
 #[cfg(test)]
 mod tests;
@@ -6,10 +7,12 @@ mod ui;
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use bramley_engine::{Player, PlayerConfig, Tokens, redact};
+use fastframe_instance::{Claim, Slot};
 
 use crate::playback::{Link, SignedOut, Spawn};
 
@@ -93,11 +96,25 @@ fn spawner(ctx: egui::Context, output_device: Option<String>) -> Spawn {
 }
 
 fn main() -> Result<()> {
-    let args = parse_args(std::env::args().skip(1))?;
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let slot = Slot::new(cli::APP_ID);
+    if cli::is_command(&argv) {
+        let (mut out, mut err) = (std::io::stdout(), std::io::stderr());
+        std::process::exit(cli::client(&slot, &argv, &mut out, &mut err));
+    }
+    let args = parse_args(argv.into_iter())?;
+    let (inbox_tx, inbox) = channel();
+    let waker = Arc::new(OnceLock::new());
+    let _guard = match slot.claim(&cli::wire(&[]), cli::handler(inbox_tx, waker.clone())) {
+        Claim::First(guard) => guard,
+        Claim::Running(_) => return Ok(()),
+        Claim::Declined | Claim::Unanswered => {
+            bail!("another Bramley is running but did not answer")
+        }
+    };
+    let output_device = std::env::var("PULSE_SINK").ok();
     #[cfg(feature = "dev")]
-    let output_device = args.output_device.clone();
-    #[cfg(not(feature = "dev"))]
-    let output_device = None;
+    let output_device = args.output_device.clone().or(output_device);
     let user_token = config_dir()?.join("music-user-token");
     let signed_out = !std::fs::metadata(user_token).is_ok_and(|m| m.len() > 0);
     let options = eframe::NativeOptions {
@@ -111,8 +128,9 @@ fn main() -> Result<()> {
         "bramley",
         options,
         Box::new(move |cc| {
+            let _ = waker.set(cc.egui_ctx.clone());
             let spawn = spawner(cc.egui_ctx.clone(), output_device);
-            Ok(Box::new(app::App::new(cc, args, spawn, signed_out)))
+            Ok(Box::new(app::App::new(cc, args, spawn, signed_out, inbox)))
         }),
     )
     .map_err(|e| anyhow::anyhow!("{e}"))

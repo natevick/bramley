@@ -302,3 +302,159 @@ fn every_app_feature_carries_a_marker_and_release_unwinds() {
         "a player panic must reach the banner"
     );
 }
+
+fn words(line: &str) -> Vec<String> {
+    line.split_whitespace().map(str::to_owned).collect()
+}
+
+fn slot(name: &str) -> fastframe_instance::Slot {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2);
+    let dir = root
+        .unwrap()
+        .join(format!("target/cli/{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    fastframe_instance::Slot::at(dir, crate::cli::APP_ID)
+}
+
+fn run(slot: &fastframe_instance::Slot, line: &str) -> (i32, serde_json::Value, String) {
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code = crate::cli::client(slot, &words(line), &mut out, &mut err);
+    let reply = serde_json::from_slice(&out).unwrap_or_default();
+    (code, reply, String::from_utf8(err).unwrap())
+}
+
+fn fake_app(
+    slot: &fastframe_instance::Slot,
+    signed_out: bool,
+    requests: usize,
+) -> std::thread::JoinHandle<(usize, Vec<Command>)> {
+    use fastframe_instance::Claim;
+    let (tx, inbox) = channel();
+    let waker = std::sync::Arc::new(std::sync::OnceLock::new());
+    let Claim::First(guard) = slot.claim("[]", crate::cli::handler(tx, waker)) else {
+        panic!("the test slot is already held");
+    };
+    std::thread::spawn(move || {
+        let _guard = guard;
+        let (mut p, ends) = fake(signed_out);
+        for _ in 0..requests {
+            let (request, reply) = inbox.recv_timeout(Duration::from_secs(5)).unwrap();
+            p.receive();
+            let refused = crate::cli::command(&mut p, request);
+            let answer = serde_json::json!({"seq": p.seq(), "refused": refused});
+            reply.send(answer.to_string()).unwrap();
+        }
+        let sent = ends.borrow().first().map(|e| e.0.try_iter().collect());
+        (ends.borrow().len(), sent.unwrap_or_default())
+    })
+}
+
+#[test]
+fn cli_arguments_parse_into_requests_and_bad_ones_are_usage_errors() {
+    use crate::cli::{Request, parse};
+    let cases = [
+        ("", Request::Show),
+        ("now", Request::Now),
+        ("play", Request::Do(Action::Play)),
+        (
+            "play 6781024437",
+            Request::Do(Action::PlaySong("6781024437".into())),
+        ),
+        ("pause", Request::Do(Action::Pause)),
+        ("toggle", Request::Toggle),
+        ("next", Request::Do(Action::Next)),
+        ("prev", Request::Do(Action::Previous)),
+        ("seek 120", Request::Do(Action::Seek(120.0))),
+        ("volume 40", Request::Do(Action::Volume(0.4))),
+        ("queue add 7", Request::Do(Action::QueueAdd("7".into()))),
+        (
+            "search bohemian rhapsody",
+            Request::Search("bohemian rhapsody".into()),
+        ),
+    ];
+    for (line, request) in cases {
+        assert_eq!(parse(&words(line)).unwrap(), request, "{line:?}");
+    }
+    for line in [
+        "seek -1",
+        "seek NaN",
+        "seek inf",
+        "volume 101",
+        "volume -1",
+        "play 1;rm",
+        "queue add",
+        "queue 7",
+        "search",
+        "pause now",
+        "stop",
+    ] {
+        assert!(parse(&words(line)).is_err(), "{line:?} parsed");
+    }
+}
+
+#[test]
+fn cli_exit_codes_without_a_running_app() {
+    use crate::cli::{NOT_RUNNING, UNAVAILABLE, USAGE};
+    let slot = slot("none");
+    let (code, _, err) = run(&slot, "now");
+    assert_eq!(code, NOT_RUNNING);
+    assert!(err.contains("not running"), "{err}");
+    assert_eq!(run(&slot, "volume 500").0, USAGE);
+    let (code, _, err) = run(&slot, "search bohemian rhapsody");
+    assert_eq!(code, UNAVAILABLE);
+    assert!(err.contains("not yet available"), "{err}");
+}
+
+#[test]
+fn cli_round_trip_acks_each_command_with_the_seq_it_was_assigned() {
+    let slot = slot("live");
+    let app = fake_app(&slot, false, 7);
+    let (code, reply, err) = run(&slot, "pause");
+    assert_eq!(
+        (code, reply["seq"].as_u64()),
+        (crate::cli::REFUSED, Some(0))
+    );
+    assert!(err.contains("nothing is playing"), "{err}");
+    for (line, seq) in [
+        ("play 6781024437", 2),
+        ("pause", 3),
+        ("toggle", 4),
+        ("seek 120", 5),
+        ("volume 40", 6),
+        ("queue add 7", 7),
+    ] {
+        let (code, reply, err) = run(&slot, line);
+        assert_eq!(
+            (code, reply["seq"].as_u64()),
+            (0, Some(seq)),
+            "{line}: {err}"
+        );
+    }
+    let (spawned, sent) = app.join().unwrap();
+    let queue = Queue::Songs(vec!["6781024437".into()]);
+    let expected = [
+        Command::SetQueue { queue, start: 0 },
+        Command::Play,
+        Command::Pause,
+        Command::Play,
+        Command::Seek(120.0),
+        Command::Volume(0.4),
+        Command::PlayLater(Queue::Songs(vec!["7".into()])),
+    ];
+    assert_eq!((spawned, sent), (1, expected.to_vec()));
+}
+
+#[test]
+fn cli_play_while_signed_out_is_refused_and_spawns_nothing() {
+    let slot = slot("signed-out");
+    let app = fake_app(&slot, true, 1);
+    let (code, reply, err) = run(&slot, "play 6781024437");
+    assert_eq!(
+        (code, reply["seq"].as_u64()),
+        (crate::cli::REFUSED, Some(0))
+    );
+    assert!(err.contains("sign in needed"), "{err}");
+    assert_eq!(app.join().unwrap(), (0, Vec::new()));
+}

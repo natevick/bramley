@@ -22,13 +22,21 @@ impl std::error::Error for SignedOut {}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
-    #[cfg_attr(not(any(feature = "dev", test)), expect(dead_code))]
     PlaySong(String),
     Play,
     Pause,
     Seek(f64),
     Next,
     Previous,
+    Volume(f32),
+    QueueAdd(String),
+}
+
+pub fn play_or_pause(state: PlayState) -> Action {
+    match state {
+        PlayState::Playing | PlayState::Loading => Action::Pause,
+        PlayState::Stopped | PlayState::Paused => Action::Play,
+    }
 }
 
 struct Pending {
@@ -77,22 +85,25 @@ impl Playback {
         self.link.is_some() || self.starting.is_some()
     }
 
-    pub fn apply(&mut self, action: Action) {
+    pub fn apply(&mut self, action: Action) -> bool {
         let (command, state, position) = match action {
             Action::PlaySong(id) => return self.play_song(id),
-            _ if !self.started() => return,
+            _ if !self.started() => return false,
             Action::Play => (Command::Play, Some(PlayState::Playing), None),
             Action::Pause => (Command::Pause, Some(PlayState::Paused), None),
             Action::Seek(t) => (Command::Seek(t), None, Some(t)),
             Action::Next => (Command::Next, None, Some(0.0)),
             Action::Previous => (Command::Previous, None, Some(0.0)),
+            Action::Volume(v) => (Command::Volume(v), None, None),
+            Action::QueueAdd(id) => (Command::PlayLater(Queue::Songs(vec![id])), None, None),
         };
         self.send(command, state, position);
+        true
     }
 
-    fn play_song(&mut self, id: String) {
+    fn play_song(&mut self, id: String) -> bool {
         if self.signed_out {
-            return;
+            return false;
         }
         if !self.started() {
             self.starting = Some((self.spawn)());
@@ -101,6 +112,7 @@ impl Playback {
         let queue = Queue::Songs(vec![id]);
         self.send(Command::SetQueue { queue, start: 0 }, None, Some(0.0));
         self.send(Command::Play, Some(PlayState::Playing), None);
+        true
     }
 
     fn send(&mut self, command: Command, state: Option<PlayState>, position: Option<f64>) {

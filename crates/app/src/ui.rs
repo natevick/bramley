@@ -1,7 +1,7 @@
-use bramley_engine::{PlayState, Snapshot};
+use bramley_engine::Snapshot;
 use egui::{Color32, RichText};
 
-use crate::playback::{Action, Banner};
+use crate::playback::{Action, Banner, play_or_pause};
 
 const ACCENT: Color32 = Color32::from_rgb(250, 45, 72);
 
@@ -38,11 +38,11 @@ pub fn now_playing(ui: &mut egui::Ui, shown: &Snapshot, started: bool, actions: 
             if ui.button(RichText::new("⏮").size(18.0)).clicked() {
                 actions.push(Action::Previous);
             }
-            let playing = matches!(shown.state, PlayState::Playing | PlayState::Loading);
-            let (glyph, action) = if playing {
-                ("⏸", Action::Pause)
+            let action = play_or_pause(shown.state);
+            let glyph = if action == Action::Pause {
+                "⏸"
             } else {
-                ("⏵", Action::Play)
+                "⏵"
             };
             if ui.button(RichText::new(glyph).size(22.0)).clicked() {
                 actions.push(action);
