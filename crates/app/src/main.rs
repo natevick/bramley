@@ -4,13 +4,14 @@ mod playback;
 mod tests;
 mod ui;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::channel;
 use std::time::Duration;
 
-use anyhow::{Context, Result, bail};
-use bramley_engine::{Player, PlayerConfig, Tokens};
+use anyhow::{Context, Result, anyhow, bail};
+use bramley_engine::{Player, PlayerConfig, Tokens, redact};
 
-use crate::playback::Spawn;
+use crate::playback::{Link, SignedOut, Spawn};
 
 #[cfg(feature = "dev")]
 #[used]
@@ -45,12 +46,15 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
     Ok(a)
 }
 
-fn read_token(name: &str) -> Result<String> {
-    let dir = match std::env::var_os("BRAMLEY_CONFIG_DIR") {
+fn config_dir() -> Result<PathBuf> {
+    Ok(match std::env::var_os("BRAMLEY_CONFIG_DIR") {
         Some(dir) => PathBuf::from(dir),
         None => PathBuf::from(std::env::var_os("HOME").context("HOME is not set")?)
             .join(".config/bramley"),
-    };
+    })
+}
+
+fn read_token(dir: &Path, name: &str) -> Result<String> {
     let path = dir.join(name);
     let token =
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
@@ -60,17 +64,31 @@ fn read_token(name: &str) -> Result<String> {
     }
 }
 
+fn boot(dir: &Path, start: impl FnOnce(Tokens) -> Result<Link>) -> Result<Link> {
+    let user = read_token(dir, "music-user-token").map_err(|_| anyhow!(SignedOut))?;
+    let developer = read_token(dir, "developer-token")?;
+    let secrets = [developer.clone(), user.clone()];
+    start(Tokens { developer, user }).map_err(|e| anyhow!(redact(&format!("{e:#}"), &secrets)))
+}
+
 fn spawner(ctx: egui::Context, output_device: Option<String>) -> Spawn {
     Box::new(move || {
-        let tokens = Tokens {
-            developer: read_token("developer-token")?,
-            user: read_token("music-user-token")?,
-        };
-        let mut cfg = PlayerConfig::default();
-        cfg.engine.audio_sink_name = "bramley".into();
-        cfg.engine.output_device = output_device.clone();
-        let ctx = ctx.clone();
-        Player::spawn(cfg, tokens, move || ctx.request_repaint())
+        let (tx, rx) = channel();
+        let (ctx, output_device) = (ctx.clone(), output_device.clone());
+        std::thread::spawn(move || {
+            let started = config_dir().and_then(|dir| {
+                boot(&dir, |tokens| {
+                    let mut cfg = PlayerConfig::default();
+                    cfg.engine.audio_sink_name = "bramley".into();
+                    cfg.engine.output_device = output_device;
+                    let waker = ctx.clone();
+                    Player::spawn(cfg, tokens, move || waker.request_repaint())
+                })
+            });
+            let _ = tx.send(started);
+            ctx.request_repaint();
+        });
+        rx
     })
 }
 
@@ -80,7 +98,8 @@ fn main() -> Result<()> {
     let output_device = args.output_device.clone();
     #[cfg(not(feature = "dev"))]
     let output_device = None;
-    let signed_out = read_token("music-user-token").is_err();
+    let user_token = config_dir()?.join("music-user-token");
+    let signed_out = !std::fs::metadata(user_token).is_ok_and(|m| m.len() > 0);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1100.0, 720.0])

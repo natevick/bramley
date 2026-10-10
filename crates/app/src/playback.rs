@@ -1,10 +1,24 @@
 use std::sync::mpsc::{Receiver, Sender, TryRecvError};
+use std::time::{Duration, Instant};
 
-use anyhow::Result;
-use bramley_engine::{Command, PlayState, PlayerError, Queue, Snapshot, redact};
+use anyhow::{Result, anyhow};
+use bramley_engine::{COMMAND_WAIT, Command, PlayState, PlayerError, Queue, Snapshot};
 
 pub type Link = (Sender<Command>, Receiver<Snapshot>);
-pub type Spawn = Box<dyn FnMut() -> Result<Link>>;
+pub type Spawn = Box<dyn FnMut() -> Receiver<Result<Link>>>;
+
+pub const HOLD_LIMIT: Duration = COMMAND_WAIT.saturating_add(Duration::from_secs(1));
+
+#[derive(Debug)]
+pub struct SignedOut;
+
+impl std::fmt::Display for SignedOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("sign in needed")
+    }
+}
+
+impl std::error::Error for SignedOut {}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
@@ -17,11 +31,11 @@ pub enum Action {
     Previous,
 }
 
-#[derive(Default)]
 struct Pending {
     seq: u64,
     state: Option<PlayState>,
     position: Option<f64>,
+    since: Instant,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -32,7 +46,9 @@ pub enum Banner {
 
 pub struct Playback {
     spawn: Spawn,
+    starting: Option<Receiver<Result<Link>>>,
     link: Option<Link>,
+    queued: Vec<Command>,
     seq: u64,
     snap: Snapshot,
     pending: Option<Pending>,
@@ -43,7 +59,9 @@ impl Playback {
     pub fn new(spawn: Spawn, signed_out: bool) -> Self {
         Playback {
             spawn,
+            starting: None,
             link: None,
+            queued: Vec::new(),
             seq: 0,
             snap: Snapshot::default(),
             pending: None,
@@ -56,13 +74,13 @@ impl Playback {
     }
 
     pub fn started(&self) -> bool {
-        self.link.is_some()
+        self.link.is_some() || self.starting.is_some()
     }
 
     pub fn apply(&mut self, action: Action) {
         let (command, state, position) = match action {
             Action::PlaySong(id) => return self.play_song(id),
-            _ if self.link.is_none() => return,
+            _ if !self.started() => return,
             Action::Play => (Command::Play, Some(PlayState::Playing), None),
             Action::Pause => (Command::Pause, Some(PlayState::Paused), None),
             Action::Seek(t) => (Command::Seek(t), None, Some(t)),
@@ -76,15 +94,9 @@ impl Playback {
         if self.signed_out {
             return;
         }
-        if self.link.is_none() {
-            match (self.spawn)() {
-                Ok(link) => (self.link, self.seq, self.snap) = (Some(link), 0, Snapshot::default()),
-                Err(e) => {
-                    let message = redact(&format!("{e:#}"), &[]);
-                    self.snap.error = Some(PlayerError::LoadFailed(message));
-                    return;
-                }
-            }
+        if !self.started() {
+            self.starting = Some((self.spawn)());
+            (self.seq, self.snap) = (0, Snapshot::default());
         }
         let queue = Queue::Songs(vec![id]);
         self.send(Command::SetQueue { queue, start: 0 }, None, Some(0.0));
@@ -92,40 +104,98 @@ impl Playback {
     }
 
     fn send(&mut self, command: Command, state: Option<PlayState>, position: Option<f64>) {
-        let Some((tx, _)) = &self.link else { return };
-        if tx.send(command).is_err() {
-            self.link = None;
-            return;
-        }
+        self.queued.push(command);
         self.seq += 1;
-        let pending = self.pending.get_or_insert_with(Pending::default);
+        let pending = self.pending.get_or_insert(Pending {
+            seq: 0,
+            state: None,
+            position: None,
+            since: Instant::now(),
+        });
         pending.seq = self.seq;
+        pending.since = Instant::now();
         pending.state = state.or(pending.state);
         pending.position = position.or(pending.position);
+        self.flush();
+    }
+
+    fn flush(&mut self) {
+        let Some((tx, _)) = &self.link else { return };
+        for command in self.queued.drain(..) {
+            if tx.send(command).is_err() {
+                self.pending = None;
+                break;
+            }
+        }
+        self.queued.clear();
     }
 
     pub fn receive(&mut self) -> bool {
-        let mut changed = false;
+        self.receive_at(Instant::now())
+    }
+
+    pub fn receive_at(&mut self, now: Instant) -> bool {
+        let mut changed = self.finish_start();
         while let Some((_, rx)) = &self.link {
-            match rx.try_recv() {
-                Ok(snap) => {
-                    if snap.error.is_some()
-                        || self.pending.as_ref().is_some_and(|p| snap.applied >= p.seq)
-                    {
-                        self.pending = None;
-                    }
-                    self.snap = snap;
-                    changed = true;
-                }
+            let snap = match rx.try_recv() {
+                Ok(snap) => snap,
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
-                    self.link = None;
-                    self.pending = None;
-                    changed = true;
+                    (self.link, self.pending, changed) = (None, None, true);
+                    break;
+                }
+            };
+            let fatal = matches!(
+                snap.error,
+                Some(PlayerError::SignInNeeded(_) | PlayerError::LoadFailed(_))
+            );
+            if let Some(p) = self.pending.as_mut()
+                && snap.applied > self.snap.applied
+            {
+                p.since = now;
+            }
+            if fatal || self.pending.as_ref().is_some_and(|p| snap.applied >= p.seq) {
+                self.pending = None;
+            }
+            let signed_out = matches!(snap.error, Some(PlayerError::SignInNeeded(_)));
+            (self.snap, changed) = (snap, true);
+            if signed_out {
+                self.signed_out = true;
+                self.shutdown();
+            }
+        }
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|p| now.saturating_duration_since(p.since) > HOLD_LIMIT)
+        {
+            (self.pending, changed) = (None, true);
+        }
+        changed
+    }
+
+    fn finish_start(&mut self) -> bool {
+        let result = match self.starting.as_ref().map(Receiver::try_recv) {
+            None | Some(Err(TryRecvError::Empty)) => return false,
+            Some(Ok(result)) => result,
+            Some(Err(TryRecvError::Disconnected)) => Err(anyhow!("the player did not start")),
+        };
+        self.starting = None;
+        match result {
+            Ok(link) => {
+                self.link = Some(link);
+                self.flush();
+            }
+            Err(e) => {
+                (self.pending, self.queued) = (None, Vec::new());
+                if e.is::<SignedOut>() {
+                    self.signed_out = true;
+                } else {
+                    self.snap.error = Some(PlayerError::LoadFailed(format!("{e:#}")));
                 }
             }
         }
-        changed
+        true
     }
 
     pub fn shutdown(&mut self) {

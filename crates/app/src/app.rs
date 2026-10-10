@@ -1,4 +1,6 @@
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Sender, channel};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
@@ -10,6 +12,40 @@ use crate::ui;
 
 const REPAINT_EVERY: Duration = Duration::from_secs(1);
 
+struct StatusWriter {
+    tx: Option<Sender<String>>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl StatusWriter {
+    fn new(path: PathBuf) -> Self {
+        let (tx, rx) = channel::<String>();
+        let thread = std::thread::spawn(move || {
+            while let Ok(mut status) = rx.recv() {
+                status = rx.try_iter().last().unwrap_or(status);
+                let partial = path.with_extension("partial");
+                let written = std::fs::write(&partial, status);
+                if let Err(e) = written.and_then(|()| std::fs::rename(&partial, &path)) {
+                    eprintln!("bramley: status not written to {}: {e}", path.display());
+                }
+            }
+        });
+        StatusWriter {
+            tx: Some(tx),
+            thread: Some(thread),
+        }
+    }
+}
+
+impl Drop for StatusWriter {
+    fn drop(&mut self) {
+        drop(self.tx.take());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
 struct Shot {
     path: PathBuf,
     after: Duration,
@@ -19,7 +55,7 @@ struct Shot {
 pub struct App {
     playback: Playback,
     actions: Vec<Action>,
-    status: Option<PathBuf>,
+    status: Option<StatusWriter>,
     shot: Option<Shot>,
     frames: u64,
     renderer: Option<String>,
@@ -48,7 +84,7 @@ impl App {
         App {
             playback: Playback::new(spawn, signed_out),
             actions,
-            status: args.status,
+            status: args.status.map(StatusWriter::new),
             shot: args.screenshot.map(|path| Shot {
                 path,
                 after: args.after,
@@ -62,7 +98,9 @@ impl App {
     }
 
     fn write_status(&mut self) {
-        let Some(path) = &self.status else { return };
+        let Some(tx) = self.status.as_ref().and_then(|w| w.tx.as_ref()) else {
+            return;
+        };
         let shown = self.playback.shown();
         let status = json!({
             "pid": std::process::id(),
@@ -79,11 +117,7 @@ impl App {
             "framesPainted": self.frames,
             "glRenderer": self.renderer,
         });
-        let partial = path.with_extension("partial");
-        let written = std::fs::write(&partial, status.to_string());
-        if let Err(e) = written.and_then(|()| std::fs::rename(&partial, path)) {
-            eprintln!("bramley: status not written to {}: {e}", path.display());
-        }
+        let _ = tx.send(status.to_string());
         self.status_at = Some(Instant::now());
     }
 
@@ -153,6 +187,7 @@ impl eframe::App for App {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.playback.shutdown();
+        self.status = None;
     }
 }
 
