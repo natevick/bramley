@@ -1,0 +1,131 @@
+{
+ "name": "3a-gpu-themetext-s0-r4",
+ "cmd": [
+  "/home/norm/projects/Personal/bramley-wt-s0/spikes/03-native-cdm-and-ui/ui-baseline/target/release/themetext"
+ ],
+ "exitedEarly": null,
+ "samples": 15,
+ "pssMedMiB": 62.0,
+ "pssMaxMiB": 62.0,
+ "rssMedMiB": 94.4,
+ "rssMaxMiB": 94.4,
+ "ussMedMiB": 35.0,
+ "ussMaxMiB": 35.0,
+ "procCountMin": 1,
+ "lastPer": [
+  {
+   "pid": 3078938,
+   "comm": "themetext",
+   "pssKiB": 63470,
+   "rssKiB": 96704,
+   "ussKiB": 35876
+  }
+ ],
+ "samplesRaw": [
+  {
+   "pssKiB": 63470,
+   "rssKiB": 96704,
+   "ussKiB": 35876,
+   "count": 1,
+   "t": 5.03
+  },
+  {
+   "pssKiB": 63470,
+   "rssKiB": 96704,
+   "ussKiB": 35876,
+   "count": 1,
+   "t": 7.06
+  },
+  {
+   "pssKiB": 63469,
+   "rssKiB": 96704,
+   "ussKiB": 35876,
+   "count": 1,
+   "t": 9.09
+  },
+  {
+   "pssKiB": 63469,
+   "rssKiB": 96704,
+   "ussKiB": 35876,
+   "count": 1,
+   "t": 11.12
+  },
+  {
+   "pssKiB": 63469,
+   "rssKiB": 96704,
+   "ussKiB": 35876,
+   "count": 1,
+   "t": 13.15
+  },
+  {
+   "pssKiB": 63469,
+   "rssKiB": 96704,
+   "ussKiB": 35876,
+   "count": 1,
+   "t": 15.18
+  },
+  {
+   "pssKiB": 63469,
+   "rssKiB": 96704,
+   "ussKiB": 35876,
+   "count": 1,
+   "t": 17.22
+  },
+  {
+   "pssKiB": 63469,
+   "rssKiB": 96704,
+   "ussKiB": 35876,
+   "count": 1,
+   "t": 19.25
+  },
+  {
+   "pssKiB": 63470,
+   "rssKiB": 96704,
+   "ussKiB": 35876,
+   "count": 1,
+   "t": 21.28
+  },
+  {
+   "pssKiB": 63470,
+   "rssKiB": 96704,
+   "ussKiB": 35876,
+   "count": 1,
+   "t": 23.31
+  },
+  {
+   "pssKiB": 63470,
+   "rssKiB": 96704,
+   "ussKiB": 35876,
+   "count": 1,
+   "t": 25.34
+  },
+  {
+   "pssKiB": 63470,
+   "rssKiB": 96704,
+   "ussKiB": 35876,
+   "count": 1,
+   "t": 27.38
+  },
+  {
+   "pssKiB": 63470,
+   "rssKiB": 96704,
+   "ussKiB": 35876,
+   "count": 1,
+   "t": 29.42
+  },
+  {
+   "pssKiB": 63470,
+   "rssKiB": 96704,
+   "ussKiB": 35876,
+   "count": 1,
+   "t": 31.46
+  },
+  {
+   "pssKiB": 63470,
+   "rssKiB": 96704,
+   "ussKiB": 35876,
+   "count": 1,
+   "t": 33.5
+  }
+ ]
+}

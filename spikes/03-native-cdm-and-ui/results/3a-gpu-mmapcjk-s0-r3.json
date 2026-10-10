@@ -1,0 +1,131 @@
+{
+ "name": "3a-gpu-mmapcjk-s0-r3",
+ "cmd": [
+  "/home/norm/projects/Personal/bramley-wt-s0/spikes/03-native-cdm-and-ui/ui-baseline/target/release/mmapcjk"
+ ],
+ "exitedEarly": null,
+ "samples": 15,
+ "pssMedMiB": 66.7,
+ "pssMaxMiB": 66.7,
+ "rssMedMiB": 99.1,
+ "rssMaxMiB": 99.1,
+ "ussMedMiB": 39.8,
+ "ussMaxMiB": 39.8,
+ "procCountMin": 1,
+ "lastPer": [
+  {
+   "pid": 3130631,
+   "comm": "mmapcjk",
+   "pssKiB": 68351,
+   "rssKiB": 101480,
+   "ussKiB": 40800
+  }
+ ],
+ "samplesRaw": [
+  {
+   "pssKiB": 68351,
+   "rssKiB": 101480,
+   "ussKiB": 40800,
+   "count": 1,
+   "t": 5.03
+  },
+  {
+   "pssKiB": 68351,
+   "rssKiB": 101480,
+   "ussKiB": 40800,
+   "count": 1,
+   "t": 7.06
+  },
+  {
+   "pssKiB": 68351,
+   "rssKiB": 101480,
+   "ussKiB": 40800,
+   "count": 1,
+   "t": 9.09
+  },
+  {
+   "pssKiB": 68351,
+   "rssKiB": 101480,
+   "ussKiB": 40800,
+   "count": 1,
+   "t": 11.12
+  },
+  {
+   "pssKiB": 68351,
+   "rssKiB": 101480,
+   "ussKiB": 40800,
+   "count": 1,
+   "t": 13.15
+  },
+  {
+   "pssKiB": 68351,
+   "rssKiB": 101480,
+   "ussKiB": 40800,
+   "count": 1,
+   "t": 15.19
+  },
+  {
+   "pssKiB": 68351,
+   "rssKiB": 101480,
+   "ussKiB": 40800,
+   "count": 1,
+   "t": 17.22
+  },
+  {
+   "pssKiB": 68351,
+   "rssKiB": 101480,
+   "ussKiB": 40800,
+   "count": 1,
+   "t": 19.25
+  },
+  {
+   "pssKiB": 68351,
+   "rssKiB": 101480,
+   "ussKiB": 40800,
+   "count": 1,
+   "t": 21.28
+  },
+  {
+   "pssKiB": 68351,
+   "rssKiB": 101480,
+   "ussKiB": 40800,
+   "count": 1,
+   "t": 23.31
+  },
+  {
+   "pssKiB": 68351,
+   "rssKiB": 101480,
+   "ussKiB": 40800,
+   "count": 1,
+   "t": 25.34
+  },
+  {
+   "pssKiB": 68339,
+   "rssKiB": 101480,
+   "ussKiB": 40800,
+   "count": 1,
+   "t": 27.37
+  },
+  {
+   "pssKiB": 68342,
+   "rssKiB": 101480,
+   "ussKiB": 40800,
+   "count": 1,
+   "t": 29.4
+  },
+  {
+   "pssKiB": 68351,
+   "rssKiB": 101480,
+   "ussKiB": 40800,
+   "count": 1,
+   "t": 31.44
+  },
+  {
+   "pssKiB": 68351,
+   "rssKiB": 101480,
+   "ussKiB": 40800,
+   "count": 1,
+   "t": 33.47
+  }
+ ]
+}

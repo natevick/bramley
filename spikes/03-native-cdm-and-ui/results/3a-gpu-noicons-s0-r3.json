@@ -1,0 +1,131 @@
+{
+ "name": "3a-gpu-noicons-s0-r3",
+ "cmd": [
+  "/home/norm/projects/Personal/bramley-wt-s0/spikes/03-native-cdm-and-ui/ui-baseline/target/release/noicons"
+ ],
+ "exitedEarly": null,
+ "samples": 15,
+ "pssMedMiB": 85.0,
+ "pssMaxMiB": 85.0,
+ "rssMedMiB": 117.4,
+ "rssMaxMiB": 117.4,
+ "ussMedMiB": 58.1,
+ "ussMaxMiB": 58.1,
+ "procCountMin": 1,
+ "lastPer": [
+  {
+   "pid": 3082242,
+   "comm": "noicons",
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484
+  }
+ ],
+ "samplesRaw": [
+  {
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484,
+   "count": 1,
+   "t": 5.03
+  },
+  {
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484,
+   "count": 1,
+   "t": 7.06
+  },
+  {
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484,
+   "count": 1,
+   "t": 9.09
+  },
+  {
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484,
+   "count": 1,
+   "t": 11.12
+  },
+  {
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484,
+   "count": 1,
+   "t": 13.15
+  },
+  {
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484,
+   "count": 1,
+   "t": 15.18
+  },
+  {
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484,
+   "count": 1,
+   "t": 17.21
+  },
+  {
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484,
+   "count": 1,
+   "t": 19.24
+  },
+  {
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484,
+   "count": 1,
+   "t": 21.27
+  },
+  {
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484,
+   "count": 1,
+   "t": 23.31
+  },
+  {
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484,
+   "count": 1,
+   "t": 25.34
+  },
+  {
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484,
+   "count": 1,
+   "t": 27.39
+  },
+  {
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484,
+   "count": 1,
+   "t": 29.43
+  },
+  {
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484,
+   "count": 1,
+   "t": 31.46
+  },
+  {
+   "pssKiB": 87068,
+   "rssKiB": 120232,
+   "ussKiB": 59484,
+   "count": 1,
+   "t": 33.5
+  }
+ ]
+}

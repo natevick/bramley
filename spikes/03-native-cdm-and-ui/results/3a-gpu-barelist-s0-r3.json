@@ -1,0 +1,131 @@
+{
+ "name": "3a-gpu-barelist-s0-r3",
+ "cmd": [
+  "/home/norm/projects/Personal/bramley-wt-s0/spikes/03-native-cdm-and-ui/ui-baseline/target/release/barelist"
+ ],
+ "exitedEarly": null,
+ "samples": 15,
+ "pssMedMiB": 61.4,
+ "pssMaxMiB": 61.4,
+ "rssMedMiB": 93.7,
+ "rssMaxMiB": 93.7,
+ "ussMedMiB": 34.5,
+ "ussMaxMiB": 34.5,
+ "procCountMin": 1,
+ "lastPer": [
+  {
+   "pid": 3053235,
+   "comm": "barelist",
+   "pssKiB": 62924,
+   "rssKiB": 95992,
+   "ussKiB": 35324
+  }
+ ],
+ "samplesRaw": [
+  {
+   "pssKiB": 62924,
+   "rssKiB": 95992,
+   "ussKiB": 35324,
+   "count": 1,
+   "t": 5.03
+  },
+  {
+   "pssKiB": 62924,
+   "rssKiB": 95992,
+   "ussKiB": 35324,
+   "count": 1,
+   "t": 7.06
+  },
+  {
+   "pssKiB": 62924,
+   "rssKiB": 95992,
+   "ussKiB": 35324,
+   "count": 1,
+   "t": 9.08
+  },
+  {
+   "pssKiB": 62922,
+   "rssKiB": 95992,
+   "ussKiB": 35324,
+   "count": 1,
+   "t": 11.11
+  },
+  {
+   "pssKiB": 62924,
+   "rssKiB": 95992,
+   "ussKiB": 35324,
+   "count": 1,
+   "t": 13.14
+  },
+  {
+   "pssKiB": 62924,
+   "rssKiB": 95992,
+   "ussKiB": 35324,
+   "count": 1,
+   "t": 15.17
+  },
+  {
+   "pssKiB": 62924,
+   "rssKiB": 95992,
+   "ussKiB": 35324,
+   "count": 1,
+   "t": 17.2
+  },
+  {
+   "pssKiB": 62924,
+   "rssKiB": 95992,
+   "ussKiB": 35324,
+   "count": 1,
+   "t": 19.23
+  },
+  {
+   "pssKiB": 62924,
+   "rssKiB": 95992,
+   "ussKiB": 35324,
+   "count": 1,
+   "t": 21.27
+  },
+  {
+   "pssKiB": 62924,
+   "rssKiB": 95992,
+   "ussKiB": 35324,
+   "count": 1,
+   "t": 23.31
+  },
+  {
+   "pssKiB": 62924,
+   "rssKiB": 95992,
+   "ussKiB": 35324,
+   "count": 1,
+   "t": 25.35
+  },
+  {
+   "pssKiB": 62924,
+   "rssKiB": 95992,
+   "ussKiB": 35324,
+   "count": 1,
+   "t": 27.39
+  },
+  {
+   "pssKiB": 62923,
+   "rssKiB": 95992,
+   "ussKiB": 35324,
+   "count": 1,
+   "t": 29.42
+  },
+  {
+   "pssKiB": 62924,
+   "rssKiB": 95992,
+   "ussKiB": 35324,
+   "count": 1,
+   "t": 31.46
+  },
+  {
+   "pssKiB": 62924,
+   "rssKiB": 95992,
+   "ussKiB": 35324,
+   "count": 1,
+   "t": 33.49
+  }
+ ]
+}

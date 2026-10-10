@@ -1,0 +1,131 @@
+{
+ "name": "3a-gpu-fontsonly-s0-r4",
+ "cmd": [
+  "/home/norm/projects/Personal/bramley-wt-s0/spikes/03-native-cdm-and-ui/ui-baseline/target/release/fontsonly"
+ ],
+ "exitedEarly": null,
+ "samples": 15,
+ "pssMedMiB": 85.8,
+ "pssMaxMiB": 85.8,
+ "rssMedMiB": 118.1,
+ "rssMaxMiB": 118.1,
+ "ussMedMiB": 58.8,
+ "ussMaxMiB": 58.8,
+ "procCountMin": 1,
+ "lastPer": [
+  {
+   "pid": 3071599,
+   "comm": "fontsonly",
+   "pssKiB": 87830,
+   "rssKiB": 120896,
+   "ussKiB": 60252
+  }
+ ],
+ "samplesRaw": [
+  {
+   "pssKiB": 87830,
+   "rssKiB": 120896,
+   "ussKiB": 60252,
+   "count": 1,
+   "t": 5.03
+  },
+  {
+   "pssKiB": 87829,
+   "rssKiB": 120896,
+   "ussKiB": 60252,
+   "count": 1,
+   "t": 7.06
+  },
+  {
+   "pssKiB": 87829,
+   "rssKiB": 120896,
+   "ussKiB": 60252,
+   "count": 1,
+   "t": 9.09
+  },
+  {
+   "pssKiB": 87829,
+   "rssKiB": 120896,
+   "ussKiB": 60252,
+   "count": 1,
+   "t": 11.12
+  },
+  {
+   "pssKiB": 87830,
+   "rssKiB": 120896,
+   "ussKiB": 60252,
+   "count": 1,
+   "t": 13.15
+  },
+  {
+   "pssKiB": 87830,
+   "rssKiB": 120896,
+   "ussKiB": 60252,
+   "count": 1,
+   "t": 15.18
+  },
+  {
+   "pssKiB": 87830,
+   "rssKiB": 120896,
+   "ussKiB": 60252,
+   "count": 1,
+   "t": 17.21
+  },
+  {
+   "pssKiB": 87830,
+   "rssKiB": 120896,
+   "ussKiB": 60252,
+   "count": 1,
+   "t": 19.24
+  },
+  {
+   "pssKiB": 87830,
+   "rssKiB": 120896,
+   "ussKiB": 60252,
+   "count": 1,
+   "t": 21.28
+  },
+  {
+   "pssKiB": 87830,
+   "rssKiB": 120896,
+   "ussKiB": 60252,
+   "count": 1,
+   "t": 23.32
+  },
+  {
+   "pssKiB": 87830,
+   "rssKiB": 120896,
+   "ussKiB": 60252,
+   "count": 1,
+   "t": 25.36
+  },
+  {
+   "pssKiB": 87830,
+   "rssKiB": 120896,
+   "ussKiB": 60252,
+   "count": 1,
+   "t": 27.4
+  },
+  {
+   "pssKiB": 87830,
+   "rssKiB": 120896,
+   "ussKiB": 60252,
+   "count": 1,
+   "t": 29.44
+  },
+  {
+   "pssKiB": 87830,
+   "rssKiB": 120896,
+   "ussKiB": 60252,
+   "count": 1,
+   "t": 31.49
+  },
+  {
+   "pssKiB": 87830,
+   "rssKiB": 120896,
+   "ussKiB": 60252,
+   "count": 1,
+   "t": 33.53
+  }
+ ]
+}
