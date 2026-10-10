@@ -1,40 +1,21 @@
 3a-gpu-bare-s0-r3 | AMD-radeonsi  | SPIKE frames=1 t_ms=52 | pss=59.2
-[09:45:33.636] Using GL renderer
 3a-gpu-bare-s0-r4 | AMD-radeonsi  | SPIKE frames=1 t_ms=40 | pss=58.5
-[09:45:33.636] Using GL renderer
 3a-gpu-barelist-s0-r3 | AMD-radeonsi  | SPIKE frames=1 t_ms=38 | pss=61.4
-[09:45:33.636] Using GL renderer
 3a-gpu-barelist-s0-r4 | AMD-radeonsi  | SPIKE frames=1 t_ms=42 | pss=61.5
-[09:45:33.636] Using GL renderer
 3a-gpu-ballast-s0-r3 | AMD-radeonsi  | SPIKE frames=1 t_ms=51 | pss=81.9
-[09:45:33.636] Using GL renderer
 3a-gpu-ballast-s0-r4 | AMD-radeonsi  | SPIKE frames=1 t_ms=51 | pss=81.9
-[09:45:33.636] Using GL renderer
 3a-gpu-fontsonly-s0-r3 | AMD-radeonsi  | SPIKE frames=1 t_ms=299 | pss=85.9
-[09:45:33.636] Using GL renderer
 3a-gpu-fontsonly-s0-r4 | AMD-radeonsi  | SPIKE frames=1 t_ms=73 | pss=85.8
-[09:45:33.636] Using GL renderer
 3a-gpu-themetext-s0-r3 | AMD-radeonsi  | SPIKE frames=1 t_ms=60 | pss=62.0
-[09:45:33.636] Using GL renderer
 3a-gpu-themetext-s0-r4 | AMD-radeonsi  | SPIKE frames=1 t_ms=57 | pss=62.0
-[09:45:33.636] Using GL renderer
 3a-gpu-noicons-s0-r3 | AMD-radeonsi  | SPIKE frames=1 t_ms=128 | pss=85.0
-[09:45:33.636] Using GL renderer
 3a-gpu-noicons-s0-r4 | AMD-radeonsi  | SPIKE frames=1 t_ms=86 | pss=85.4
-[09:45:33.636] Using GL renderer
 3a-gpu-fastframe-s0-r3 | AMD-radeonsi  | SPIKE frames=1 t_ms=92 | pss=85.7
-[09:45:33.636] Using GL renderer
 3a-gpu-fastframe-s0-r4 | AMD-radeonsi  | SPIKE frames=1 t_ms=88 | pss=86.0
-[09:45:33.636] Using GL renderer
 3a-gpu-nofallbacks-s0-r3 | AMD-radeonsi  | SPIKE frames=1 t_ms=63 | pss=62.5
-[09:45:33.636] Using GL renderer
 3a-gpu-nofallbacks-s0-r4 | AMD-radeonsi  | SPIKE frames=1 t_ms=55 | pss=62.4
-[09:45:33.636] Using GL renderer
 3a-gpu-emoji-s0-r3 | AMD-radeonsi  | SPIKE frames=1 t_ms=155 | pss=86.8
-[09:45:33.636] Using GL renderer
 3a-gpu-emoji-s0-r4 | AMD-radeonsi  | SPIKE frames=1 t_ms=86 | pss=86.8
-[09:45:33.636] Using GL renderer
 3a-gpu-mmapcjk-s0-r3 | AMD-radeonsi  | SPIKE frames=1 t_ms=66 | pss=66.7
-[09:45:33.636] Using GL renderer
 3a-gpu-mmapcjk-s0-r4 | AMD-radeonsi  | SPIKE frames=1 t_ms=55 | pss=66.7
-[09:45:33.636] Using GL renderer
+weston-gpu.log (appended per weston start, gitignored): 23 'Using GL renderer' lines = 1 smoke + 2 for r1/r2 + 20 for r3/r4; last at [10:14:38.889], GL renderer: AMD Radeon RX 5700 XT (radeonsi, navi10, ACO).
