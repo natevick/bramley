@@ -170,6 +170,22 @@ Nate's order holds; **no hard dependency problem**. S2 is split a/b/c to fit one
 - **AC:** a stub engine test; live, clicking item 3 shows that item's id; a screenshot.
 - **Budget** 250/120/0. **Deps:** S8.
 
+## S11. CLI control (added 2026-10-10, Nate)
+- **Goal:** `bramley <command>` drives the running app through fastframe-instance's single-instance channel.
+- **Commands:** `play [id]`, `pause`, `toggle`, `next`, `prev`, `seek <s>`, `volume <0-100>`, `now` (JSON), `queue add <id>`, `search <term>` (JSON; needs S5).
+- **Behaviour:** it exits non-zero with a clear message when the app isn't running. A second launch with no arguments shows the window.
+- **Depends on:** S2a for the playback commands, S5 for search.
+- **Tests:** a channel round-trip with a fake app.
+- **Budget:** ~250 source / ~200 tests.
+
+## S12. MCP server (added 2026-10-10, Nate)
+- **Goal:** `bramley mcp` is a stdio MCP server whose tools mirror S11 (search, play, pause, next, now_playing, queue_add, library_list). It talks to the running app over the same channel.
+- **Implementation:** use the official Rust MCP SDK (`rmcp`) if it fits the dependency rules. Otherwise use a minimal JSON-RPC over stdio.
+- **Constraints:** stdio only, no network listener. The first run prints the metadata disclosure from the compliance log. Never autoplay; every play tool call is an explicit request.
+- **Acceptance:** an MCP client (e.g. `claude mcp add bramley -- bramley mcp`) lists the tools and runs `search` and `play` against the running app.
+- **Depends on:** S11 and S5.
+- **Budget:** ~300 source / ~200 tests.
+
 ## Compliance flags
 - **S4a (blocking):** rule 7 versus keeping the key in GitHub secrets.
 - **S1a:** rule 3, and the seed in one location.

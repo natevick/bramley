@@ -11,3 +11,5 @@
   - a player bar along the bottom;
   - the queue as a side panel.
   Every UI slice ships screenshots before merge.
+- **2026-10-10: artwork cache (Nate).** Artwork is cached in memory only, never on disk.
+- **2026-10-10: agent access (Nate).** Bramley is controllable by agents: a CLI (`bramley play|pause|next|…`) and a local MCP server (`bramley mcp`). Both talk to the running instance. See the compliance interpretation log.

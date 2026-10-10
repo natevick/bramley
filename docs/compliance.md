@@ -65,3 +65,8 @@ Header of `https://js-cdn.music.apple.com/musickit/v3/musickit.js` (ETag `"a62a1
   - So the one-time sign-in runs MusicKit's own `authorize()` in the user's browser, on a loopback page. Bramley then seeds the resulting Music-User-Token into the in-memory storage key MusicKit itself reads (`music.<developer-token iss>.media-user-token`), as a returning user's browser would hold it.
   - This lives in one function. If MusicKit does not come up authorized afterwards, Bramley stops and asks the user to sign in again. It never falls back to previews silently.
   - The key is undocumented and may change.
+- **2026-10-10: the MusicKit key also lives in GitHub repository secrets (approved by Nate).** This amends rule 7 for the CI token decision in docs/decisions.md. The `.p8` is stored base64-encoded as a repository secret on natevick/bramley, and is used only by the scheduled token-minting workflow. 1Password remains the source of truth. Workflow logs must never echo it, and the workflow runs only on the default branch, never on pull requests from forks.
+- **2026-10-10: agent control through the CLI and MCP (Nate asked for it).**
+  - Bramley's CLI and its local MCP server drive the RUNNING app through its single-instance channel.
+  - **Rule 8:** playback started by the user's own agent at the user's request counts as user-initiated. Bramley never autoplays on its own initiative.
+  - **User metadata:** an agent may read the user's library, but only through tools the user explicitly connects. The first run of `bramley mcp` must disclose that library data goes to whatever agent the user connects. The MCP server listens only over stdio or a local socket, never on the network.
