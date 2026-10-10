@@ -25,6 +25,23 @@ static DEV_MARKER: &str = "bramley-unshipped-feature:app/dev\0";
 #[used]
 static GATE_SABOTAGE_MARKER: &str = "bramley-unshipped-feature:app/gate-sabotage\0";
 
+#[cfg(feature = "gate-sabotage")]
+fn touched_ballast() -> Result<Vec<u8>> {
+    const PAGE: usize = 4096;
+    let mib: usize = match std::env::var("BRAMLEY_GATE_BALLAST_MIB") {
+        Ok(v) => v
+            .parse()
+            .context("BRAMLEY_GATE_BALLAST_MIB is not a whole number")?,
+        Err(_) => 0,
+    };
+    let mut ballast = vec![0u8; mib << 20];
+    for page in ballast.chunks_mut(PAGE) {
+        page[0] = 1;
+    }
+    eprintln!("bramley: gate-sabotage ballast {mib} MiB touched");
+    Ok(std::hint::black_box(ballast))
+}
+
 #[derive(Default)]
 pub struct Args {
     #[cfg(feature = "dev")]
@@ -146,6 +163,8 @@ fn main() -> Result<()> {
     }
     let slot = slot?;
     let args = parse_args(argv.into_iter())?;
+    #[cfg(feature = "gate-sabotage")]
+    let ballast = touched_ballast()?;
     let _ = fastframe_log::Logging::new("bramley", env!("CARGO_PKG_VERSION")).init();
     let (inbox_tx, inbox) = channel();
     let waker = Arc::new(OnceLock::new());
@@ -195,5 +214,8 @@ fn main() -> Result<()> {
             Ok(Box::new(app))
         }),
     )
-    .map_err(|e| anyhow::anyhow!("{e}"))
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    #[cfg(feature = "gate-sabotage")]
+    std::hint::black_box(&ballast);
+    Ok(())
 }

@@ -1,4 +1,4 @@
-import argparse, glob, hashlib, http.server, json, os, shutil, signal, statistics, subprocess, threading, time
+import argparse, contextlib, glob, hashlib, http.server, json, os, shutil, signal, statistics, subprocess, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SONG = '6781024437'
@@ -285,18 +285,7 @@ def main():
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     os.makedirs(os.path.join(ROOT, 'target', 'tmp'), exist_ok=True)
-    os.environ['XDG_RUNTIME_DIR'] = f'/run/user/{os.getuid()}'
-    sock, sink = f'bramley-s2b-{os.getpid()}', f'bramley-s2b-null-{os.getpid()}'
-    weston = subprocess.Popen(['weston', '--backend=headless', '--renderer=gl', f'--socket={sock}', '--width=1280', '--height=800', '--idle-time=0', f'--log={a.out}/weston.log'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-    node = f'create-node adapter {{ factory.name=support.null-audio-sink node.name={sink} node.description={sink} media.class=Audio/Sink audio.position=[FL FR] priority.session=0 priority.driver=0 object.linger=false }}'
-    pw = subprocess.Popen(['bash', '-c', f"{{ echo '{node}'; exec sleep 100000; }} | pw-cli >/dev/null 2>&1"], start_new_session=True)
-    summary = {'sink': sink}
-    try:
-        wait_for(lambda: os.path.exists(f"{os.environ['XDG_RUNTIME_DIR']}/{sock}"), 10, 'weston')
-        wait_for(lambda: sink_exists(sink), 10, 'null sink')
-        summary['defaultAtStart'] = default_sink()
-        if summary['defaultAtStart'] == sink:
-            raise RuntimeError('the null sink became the default; refusing')
+    with session(a.out, 'bramley-s2b') as (sock, sink, summary):
         for spec in a.runs:
             name, rest = spec.split('=', 1)
             binary, mode = rest.rsplit(':', 1)
@@ -310,6 +299,23 @@ def main():
             line['gl'] = ((r.get('final') or {}).get('glRenderer') or '')[:40]
             line['frames'] = (r.get('final') or {}).get('framesPainted')
             print(json.dumps(line), flush=True)
+
+
+@contextlib.contextmanager
+def session(out, prefix):
+    os.environ['XDG_RUNTIME_DIR'] = f'/run/user/{os.getuid()}'
+    sock, sink = f'{prefix}-{os.getpid()}', f'{prefix}-null-{os.getpid()}'
+    weston = subprocess.Popen(['weston', '--backend=headless', '--renderer=gl', f'--socket={sock}', '--width=1280', '--height=800', '--idle-time=0', f'--log={out}/weston.log'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    node = f'create-node adapter {{ factory.name=support.null-audio-sink node.name={sink} node.description={sink} media.class=Audio/Sink audio.position=[FL FR] priority.session=0 priority.driver=0 object.linger=false }}'
+    pw = subprocess.Popen(['bash', '-c', f"{{ echo '{node}'; exec sleep 100000; }} | pw-cli >/dev/null 2>&1"], start_new_session=True)
+    summary = {'sink': sink}
+    try:
+        wait_for(lambda: os.path.exists(f"{os.environ['XDG_RUNTIME_DIR']}/{sock}"), 10, 'weston')
+        wait_for(lambda: sink_exists(sink), 10, 'null sink')
+        summary['defaultAtStart'] = default_sink()
+        if summary['defaultAtStart'] == sink:
+            raise RuntimeError('the null sink became the default; refusing')
+        yield sock, sink, summary
     finally:
         os.killpg(pw.pid, signal.SIGTERM)
         os.killpg(weston.pid, signal.SIGTERM)
@@ -317,7 +323,7 @@ def main():
         summary['sinkGone'] = not sink_exists(sink)
         summary['defaultAtEnd'] = default_sink()
         print(json.dumps(summary), flush=True)
-        json.dump(summary, open(os.path.join(a.out, 'session.verdict.json'), 'w'))
+        json.dump(summary, open(os.path.join(out, 'session.verdict.json'), 'w'))
 
 
 if __name__ == '__main__':
