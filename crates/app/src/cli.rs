@@ -1,7 +1,7 @@
 use std::io::{ErrorKind, Write};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, bail};
 use fastframe_instance::Slot;
@@ -15,7 +15,7 @@ pub const NOT_RUNNING: i32 = 3;
 pub const UNAVAILABLE: i32 = 4;
 pub const REFUSED: i32 = 5;
 const APPLY_TIME: Duration = Duration::from_secs(3);
-const ANSWER_TIME: Duration = Duration::from_secs(4);
+const REPLY_MARGIN: Duration = Duration::from_secs(1);
 const LATE: &str = "the app did not answer in time; the command was not applied";
 const COMMANDS: &str = "usage: bramley [play [id] | pause | toggle | next | prev | seek <seconds> | volume <0-100> | now | queue add <id> | search <term>]";
 
@@ -67,8 +67,38 @@ fn catalog_id(id: &str) -> Result<String> {
     Ok(id.to_owned())
 }
 
+pub fn slot() -> Result<Slot> {
+    let slot = Slot::new(APP_ID);
+    #[cfg(not(target_os = "macos"))]
+    if slot.dir().starts_with(std::env::temp_dir()) {
+        bail!("no home or runtime directory for a private instance slot");
+    }
+    Ok(slot)
+}
+
+fn unix_ms() -> u64 {
+    let since = SystemTime::now().duration_since(UNIX_EPOCH);
+    since.map_or(0, |d| d.as_millis() as u64)
+}
+
 pub fn wire(args: &[String]) -> String {
-    json!(args).to_string()
+    let deadline_ms = unix_ms() + APPLY_TIME.as_millis() as u64;
+    json!({ "args": args, "deadline_ms": deadline_ms }).to_string()
+}
+
+pub fn deadline(client_ms: u64, now_ms: u64, now: Instant) -> Instant {
+    now + APPLY_TIME.min(Duration::from_millis(client_ms.saturating_sub(now_ms)))
+}
+
+pub fn outcome(reply: &str) -> Result<(), (i32, String)> {
+    let reply: Value = serde_json::from_str(reply).unwrap_or_default();
+    let text = |key: &str| reply[key].as_str().map(str::to_owned);
+    match (text("error"), text("refused"), reply["seq"].as_u64()) {
+        (Some(why), _, _) => Err((1, why)),
+        (None, Some(why), _) => Err((REFUSED, why)),
+        (None, None, None) => Err((1, "the running Bramley sent an unreadable reply".into())),
+        (None, None, Some(_)) => Ok(()),
+    }
 }
 
 pub fn client(slot: &Slot, args: &[String], out: &mut impl Write, err: &mut impl Write) -> i32 {
@@ -86,11 +116,9 @@ pub fn client(slot: &Slot, args: &[String], out: &mut impl Write, err: &mut impl
     match slot.send(&wire(args)) {
         Ok(reply) => {
             let _ = writeln!(out, "{reply}");
-            let parsed = serde_json::from_str::<Value>(&reply).unwrap_or_default();
-            match (parsed["refused"].as_str(), parsed["error"].as_str()) {
-                (Some(why), _) => fail(REFUSED, why),
-                (None, Some(why)) => fail(1, why),
-                (None, None) => 0,
+            match outcome(&reply) {
+                Ok(()) => 0,
+                Err((code, why)) => fail(code, &why),
             }
         }
         Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::ConnectionRefused) => {
@@ -112,20 +140,22 @@ pub fn handler(
     waker: Arc<OnceLock<egui::Context>>,
 ) -> impl FnMut(&str) -> Option<String> + Send + 'static {
     move |line| {
-        let args: Vec<String> = serde_json::from_str(line).ok()?;
+        let line: Value = serde_json::from_str(line).ok()?;
+        let args: Vec<String> = serde_json::from_value(line["args"].clone()).ok()?;
         let request = parse(&args).ok()?;
+        let late = json!({ "error": LATE }).to_string();
+        let now = Instant::now();
+        let deadline = deadline(line["deadline_ms"].as_u64()?, unix_ms(), now);
+        if deadline <= now {
+            return Some(late);
+        }
         let (reply, answer) = channel();
-        inbox
-            .send((request, Instant::now() + APPLY_TIME, reply))
-            .ok()?;
+        inbox.send((request, deadline, reply)).ok()?;
         if let Some(ctx) = waker.get() {
             ctx.request_repaint();
         }
-        Some(
-            answer
-                .recv_timeout(ANSWER_TIME)
-                .unwrap_or_else(|_| json!({ "error": LATE }).to_string()),
-        )
+        let wait = deadline.saturating_duration_since(Instant::now()) + REPLY_MARGIN;
+        Some(answer.recv_timeout(wait).unwrap_or(late))
     }
 }
 

@@ -58,6 +58,7 @@ pub struct Playback {
     link: Option<Link>,
     queued: Vec<Command>,
     seq: u64,
+    engine: u64,
     snap: Snapshot,
     pending: Option<Pending>,
     signed_out: bool,
@@ -71,6 +72,7 @@ impl Playback {
             link: None,
             queued: Vec::new(),
             seq: 0,
+            engine: 0,
             snap: Snapshot::default(),
             pending: None,
             signed_out,
@@ -79,6 +81,10 @@ impl Playback {
 
     pub fn seq(&self) -> u64 {
         self.seq
+    }
+
+    pub fn engine(&self) -> u64 {
+        self.engine
     }
 
     pub fn started(&self) -> bool {
@@ -108,6 +114,7 @@ impl Playback {
         if !self.started() {
             self.starting = Some((self.spawn)());
             (self.seq, self.snap) = (0, Snapshot::default());
+            self.engine += 1;
         }
         let queue = Queue::Songs(vec![id]);
         self.send(Command::SetQueue { queue, start: 0 }, None, Some(0.0));

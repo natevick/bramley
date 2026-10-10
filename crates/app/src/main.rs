@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use bramley_engine::{Player, PlayerConfig, Tokens, redact};
-use fastframe_instance::{Claim, Slot};
+use fastframe_instance::Claim;
 
 use crate::playback::{Link, SignedOut, Spawn};
 
@@ -95,24 +95,53 @@ fn spawner(ctx: egui::Context, output_device: Option<String>) -> Spawn {
     })
 }
 
+#[cfg(unix)]
+const CHANNEL_FILE: &str = "instance.sock";
+#[cfg(not(unix))]
+const CHANNEL_FILE: &str = "instance.key";
+
 fn main() -> Result<()> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
-    let slot = Slot::new(cli::APP_ID);
+    let slot = cli::slot();
     if cli::is_command(&argv) {
         let (mut out, mut err) = (std::io::stdout(), std::io::stderr());
-        std::process::exit(cli::client(&slot, &argv, &mut out, &mut err));
+        std::process::exit(match slot {
+            Ok(slot) => cli::client(&slot, &argv, &mut out, &mut err),
+            Err(e) => {
+                eprintln!("bramley: {e}");
+                1
+            }
+        });
     }
+    let slot = slot?;
     let args = parse_args(argv.into_iter())?;
+    let _ = fastframe_log::Logging::new("bramley", env!("CARGO_PKG_VERSION")).init();
     let (inbox_tx, inbox) = channel();
     let waker = Arc::new(OnceLock::new());
     let _guard = match slot.claim(&cli::wire(&[]), cli::handler(inbox_tx, waker.clone())) {
         Claim::First(guard) => guard,
-        Claim::Running(_) => return Ok(()),
+        Claim::Running(reply) => {
+            if args.status.is_some() || args.screenshot.is_some() {
+                eprintln!("bramley: --status and --screenshot ignored: Bramley is already running");
+            }
+            if let Err((code, why)) = cli::outcome(&reply) {
+                eprintln!("bramley: {why}");
+                std::process::exit(code);
+            }
+            return Ok(());
+        }
         Claim::Declined | Claim::Unanswered => {
             bail!("another Bramley is running but did not answer")
         }
     };
-    let output_device = std::env::var("PULSE_SINK").ok();
+    let guarded = slot.dir().join(CHANNEL_FILE).exists();
+    if !guarded {
+        eprintln!(
+            "bramley: WARNING: no instance channel at {}; CLI commands cannot reach this copy and another launch will start a second one",
+            slot.dir().display()
+        );
+    }
+    let output_device = std::env::var("PULSE_SINK").ok().filter(|s| !s.is_empty());
     #[cfg(feature = "dev")]
     let output_device = args.output_device.clone().or(output_device);
     let user_token = config_dir()?.join("music-user-token");
@@ -130,7 +159,9 @@ fn main() -> Result<()> {
         Box::new(move |cc| {
             let _ = waker.set(cc.egui_ctx.clone());
             let spawn = spawner(cc.egui_ctx.clone(), output_device);
-            Ok(Box::new(app::App::new(cc, args, spawn, signed_out, inbox)))
+            let channel = (inbox, guarded);
+            let app = app::App::new(&cc.egui_ctx, args, spawn, signed_out, channel);
+            Ok(Box::new(app))
         }),
     )
     .map_err(|e| anyhow::anyhow!("{e}"))

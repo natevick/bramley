@@ -11,6 +11,7 @@ bramley-engine = { path = "../engine" }
 eframe = { version = "0.36.1", default-features = false, features = ["accesskit", "glow", "default_fonts", "wayland", "x11"] }
 egui = "0.36.1"
 fastframe-fonts = { git = "https://github.com/crmne/fastframe", rev = "23d87e048185ef317f272e2a67416f516b2f2b04" }
+fastframe-log = { git = "https://github.com/crmne/fastframe", rev = "23d87e048185ef317f272e2a67416f516b2f2b04" }
 fastframe-instance = { git = "https://github.com/crmne/fastframe", rev = "23d87e048185ef317f272e2a67416f516b2f2b04" }
 fastframe-text = { git = "https://github.com/crmne/fastframe", rev = "23d87e048185ef317f272e2a67416f516b2f2b04" }
 png = "0.18"

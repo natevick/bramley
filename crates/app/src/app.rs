@@ -57,6 +57,7 @@ pub struct App {
     playback: Playback,
     actions: Vec<Action>,
     inbox: Inbox,
+    guarded: bool,
     status: Option<StatusWriter>,
     shot: Option<Shot>,
     frames: u64,
@@ -67,19 +68,18 @@ pub struct App {
 
 impl App {
     pub fn new(
-        cc: &eframe::CreationContext<'_>,
+        ctx: &egui::Context,
         args: Args,
         spawn: Spawn,
         signed_out: bool,
-        inbox: Inbox,
+        (inbox, guarded): (Inbox, bool),
     ) -> Self {
         let rendering = fastframe_text::detect();
         let mut fonts = fastframe_fonts::FontSetup::default().definitions();
         rendering.apply_to(&mut fonts);
-        cc.egui_ctx.set_fonts(fonts);
-        cc.egui_ctx.set_visuals(egui::Visuals::dark());
-        cc.egui_ctx
-            .all_styles_mut(|style| rendering.apply_to_visuals(&mut style.visuals));
+        ctx.set_fonts(fonts);
+        ctx.set_visuals(egui::Visuals::dark());
+        ctx.all_styles_mut(|style| rendering.apply_to_visuals(&mut style.visuals));
         #[cfg(feature = "dev")]
         let actions = args.play.into_iter().map(Action::PlaySong).collect();
         #[cfg(not(feature = "dev"))]
@@ -88,6 +88,7 @@ impl App {
             playback: Playback::new(spawn, signed_out),
             actions,
             inbox,
+            guarded,
             status: args.status.map(StatusWriter::new),
             shot: args.screenshot.map(|path| Shot {
                 path,
@@ -114,6 +115,8 @@ impl App {
             "duration": shown.duration,
             "applied": shown.applied,
             "seq": self.playback.seq(),
+            "engine": self.playback.engine(),
+            "instanceGuarded": self.guarded,
             "banner": self.playback.banner().map(|b| format!("{b:?}")),
             "framesPainted": self.frames,
             "glRenderer": self.renderer,
@@ -128,16 +131,21 @@ impl App {
         self.status_at = Some(Instant::now());
     }
 
+    pub fn pump(&mut self, ctx: &egui::Context) -> bool {
+        self.playback.receive() | self.answer_requests(ctx)
+    }
+
     fn answer_requests(&mut self, ctx: &egui::Context) -> bool {
         let mut any = false;
         while let Ok((request, deadline, reply)) = self.inbox.try_recv() {
             any = true;
-            if request == Request::Show {
+            let show = request == Request::Show;
+            let outcome = cli::command(&mut self.playback, request, deadline);
+            if show && outcome.is_none() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             }
-            let outcome = cli::command(&mut self.playback, request, deadline);
             let mut answer = self.status_json();
             if let Some((key, why)) = outcome {
                 answer[key] = json!(why);
@@ -180,7 +188,7 @@ impl eframe::App for App {
                 .gl()
                 .map(|gl| unsafe { gl.get_parameter_string(eframe::glow::RENDERER) });
         }
-        let changed = self.playback.receive() | self.answer_requests(ctx);
+        let changed = self.pump(ctx);
         if changed
             || self
                 .status_at

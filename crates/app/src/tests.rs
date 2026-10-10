@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
 use bramley_engine::{Command, PlayState, PlayerError, Queue, Snapshot};
+use serde_json::json;
 
 use crate::playback::{Action, Banner, HOLD_LIMIT, Link, Playback, SignedOut, Spawn};
 
@@ -308,12 +309,7 @@ fn words(line: &str) -> Vec<String> {
 }
 
 fn slot(name: &str) -> fastframe_instance::Slot {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2);
-    let dir = root
-        .unwrap()
-        .join(format!("target/cli/{name}-{}", std::process::id()));
+    let dir = format!("../../target/c/{name}{}", std::process::id());
     let _ = std::fs::remove_dir_all(&dir);
     fastframe_instance::Slot::at(dir, crate::cli::APP_ID)
 }
@@ -325,33 +321,67 @@ fn run(slot: &fastframe_instance::Slot, line: &str) -> (i32, serde_json::Value, 
     (code, reply, String::from_utf8(err).unwrap())
 }
 
-fn fake_app(
-    slot: &fastframe_instance::Slot,
-    signed_out: bool,
-    requests: usize,
-) -> std::thread::JoinHandle<(usize, Vec<Command>)> {
-    use fastframe_instance::Claim;
-    let (tx, inbox) = channel();
-    let waker = std::sync::Arc::new(std::sync::OnceLock::new());
-    let Claim::First(guard) = slot.claim("[]", crate::cli::handler(tx, waker)) else {
-        panic!("the test slot is already held");
-    };
-    std::thread::spawn(move || {
-        let _guard = guard;
-        let (mut p, ends) = fake(signed_out);
-        for _ in 0..requests {
-            let (request, deadline, reply) = inbox.recv_timeout(Duration::from_secs(5)).unwrap();
-            p.receive();
-            let outcome = crate::cli::command(&mut p, request, deadline);
-            let mut answer = serde_json::json!({ "seq": p.seq() });
-            if let Some((key, why)) = outcome {
-                answer[key] = serde_json::json!(why);
+type Seen = (usize, Vec<Command>, bool);
+
+struct FakeApp {
+    inject: Sender<crate::cli::Envelope>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    thread: std::thread::JoinHandle<Seen>,
+    _guard: fastframe_instance::Guard,
+}
+
+impl FakeApp {
+    fn start(slot: &fastframe_instance::Slot, signed_out: bool) -> Self {
+        let (inject, inbox) = channel();
+        let waker = std::sync::Arc::new(std::sync::OnceLock::new());
+        let handler = crate::cli::handler(inject.clone(), waker.clone());
+        let fastframe_instance::Claim::First(_guard) = slot.claim("[]", handler) else {
+            panic!("the test slot is already held");
+        };
+        let stop: std::sync::Arc<std::sync::atomic::AtomicBool> = Default::default();
+        let stopped = std::sync::Arc::clone(&stop);
+        let thread = std::thread::spawn(move || {
+            let ctx = egui::Context::default();
+            let (wake, woken) = channel();
+            ctx.set_request_repaint_callback(move |_| {
+                let _ = wake.send(());
+            });
+            let ends: Ends = Rc::default();
+            let spawned = ends.clone();
+            let spawn = spawning(move || live(&spawned));
+            let args = crate::Args::default();
+            let mut app = crate::app::App::new(&ctx, args, spawn, signed_out, (inbox, true));
+            waker.set(ctx.clone()).unwrap();
+            let mut shown = false;
+            let mut pass = true;
+            while !stopped.load(std::sync::atomic::Ordering::SeqCst) {
+                if std::mem::take(&mut pass)
+                    || woken.recv_timeout(Duration::from_millis(20)).is_ok()
+                {
+                    ctx.begin_pass(egui::RawInput::default());
+                    app.pump(&ctx);
+                    let mut output = ctx.end_pass();
+                    output.textures_delta.clear();
+                    let commands = output.viewport_output;
+                    let focus = egui::ViewportCommand::Focus;
+                    shown |= commands.values().any(|v| v.commands.contains(&focus));
+                }
             }
-            reply.send(answer.to_string()).unwrap();
+            let sent = ends.borrow().first().map(|e| e.0.try_iter().collect());
+            (ends.borrow().len(), sent.unwrap_or_default(), shown)
+        });
+        FakeApp {
+            inject,
+            stop,
+            thread,
+            _guard,
         }
-        let sent = ends.borrow().first().map(|e| e.0.try_iter().collect());
-        (ends.borrow().len(), sent.unwrap_or_default())
-    })
+    }
+
+    fn finish(self) -> Seen {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.thread.join().unwrap()
+    }
 }
 
 #[test]
@@ -413,11 +443,11 @@ fn cli_exit_codes_without_a_running_app() {
 #[test]
 fn cli_round_trip_acks_each_command_with_the_seq_it_was_assigned() {
     let slot = slot("live");
-    let app = fake_app(&slot, false, 7);
+    let app = FakeApp::start(&slot, false);
     let (code, reply, err) = run(&slot, "pause");
     assert_eq!(
-        (code, reply["seq"].as_u64()),
-        (crate::cli::REFUSED, Some(0))
+        (code, &reply["seq"], &reply["engine"]),
+        (crate::cli::REFUSED, &json!(0), &json!(0))
     );
     assert!(err.contains("nothing is playing"), "{err}");
     for (line, seq) in [
@@ -430,12 +460,15 @@ fn cli_round_trip_acks_each_command_with_the_seq_it_was_assigned() {
     ] {
         let (code, reply, err) = run(&slot, line);
         assert_eq!(
-            (code, reply["seq"].as_u64()),
-            (0, Some(seq)),
+            (code, &reply["seq"], &reply["engine"]),
+            (0, &json!(seq), &json!(1)),
             "{line}: {err}"
         );
     }
-    let (spawned, sent) = app.join().unwrap();
+    assert_eq!(run(&slot, "now").1["state"], "Playing");
+    assert_eq!(run(&slot, "").0, 0);
+    let (spawned, sent, shown) = app.finish();
+    assert!(shown, "a second launch did not show the window");
     let queue = Queue::Songs(vec!["6781024437".into()]);
     let expected = [
         Command::SetQueue { queue, start: 0 },
@@ -452,14 +485,21 @@ fn cli_round_trip_acks_each_command_with_the_seq_it_was_assigned() {
 #[test]
 fn cli_play_while_signed_out_is_refused_and_spawns_nothing() {
     let slot = slot("signed-out");
-    let app = fake_app(&slot, true, 1);
+    let app = FakeApp::start(&slot, true);
     let (code, reply, err) = run(&slot, "play 6781024437");
     assert_eq!(
         (code, reply["seq"].as_u64()),
         (crate::cli::REFUSED, Some(0))
     );
     assert!(err.contains("sign in needed"), "{err}");
-    assert_eq!(app.join().unwrap(), (0, Vec::new()));
+    let (reply, answer) = channel();
+    let late = Instant::now() - Duration::from_millis(1);
+    app.inject
+        .send((crate::cli::Request::Show, late, reply))
+        .unwrap();
+    let answer = answer.recv_timeout(Duration::from_secs(1));
+    assert!(answer.unwrap().contains("\"error\""));
+    assert_eq!(app.finish(), (0, Vec::new(), false));
 }
 
 #[test]
@@ -473,11 +513,101 @@ fn a_command_past_its_deadline_is_never_applied_and_reports_an_error() {
     assert_eq!(outcome.map(|(key, _)| key), Some("error"));
     let sent: Vec<Command> = ends.borrow()[0].0.try_iter().collect();
     assert_eq!((p.seq(), sent.len()), (2, 2));
-    let slot = slot("late");
+}
+
+#[test]
+fn the_server_deadline_is_the_earlier_of_its_own_bound_and_the_clients() {
+    use crate::cli::deadline;
+    let now = Instant::now();
+    assert_eq!(deadline(u64::MAX, 0, now), now + Duration::from_secs(3));
+    assert_eq!(
+        deadline(2_500, 2_000, now),
+        now + Duration::from_millis(500)
+    );
+    assert_eq!(deadline(1_000, 2_000, now), now);
+}
+
+#[test]
+fn a_request_whose_client_deadline_passed_is_answered_late_and_never_queued() {
+    let (tx, inbox) = channel();
+    let mut handle = crate::cli::handler(tx, Default::default());
+    let reply = handle(&json!({ "args": ["next"], "deadline_ms": 1 }).to_string());
+    assert_eq!(crate::cli::outcome(&reply.unwrap()).unwrap_err().0, 1);
+    assert!(inbox.try_recv().is_err());
+}
+
+#[test]
+fn replies_without_a_seq_are_failures() {
+    use crate::cli::{REFUSED, outcome};
+    for bad in [
+        "not json at all",
+        "{}",
+        r#"{"seq":"2"}"#,
+        r#"{"seq":2,"error":"x"}"#,
+    ] {
+        assert_eq!(outcome(bad).unwrap_err().0, 1, "{bad}");
+    }
+    assert_eq!(
+        outcome(r#"{"seq":2,"refused":"x"}"#).unwrap_err().0,
+        REFUSED
+    );
+    assert_eq!(outcome(r#"{"seq":2}"#), Ok(()));
+    let slot = slot("g");
     let fastframe_instance::Claim::First(_guard) =
-        slot.claim("[]", |_| Some(r#"{"seq":2,"error":"late"}"#.to_owned()))
+        slot.claim("[]", |_| Some("not json at all".to_owned()))
     else {
         panic!("the test slot is already held");
     };
     assert_eq!(run(&slot, "pause").0, 1);
+}
+
+fn stalled(stall: Duration) -> (i32, i32, Vec<Option<&'static str>>, Vec<Command>) {
+    let slot = slot(&format!("q{}", stall.as_millis()));
+    let (tx, inbox) = channel();
+    let handler = crate::cli::handler(tx, Default::default());
+    let fastframe_instance::Claim::First(_guard) = slot.claim("[]", handler) else {
+        panic!("the test slot is already held");
+    };
+    let (mut p, ends) = fake(false);
+    p.apply(Action::PlaySong("42".into()));
+    p.receive();
+    ends.borrow()[0].0.try_iter().for_each(drop);
+    let t0 = Instant::now();
+    let (first, second) = (slot.clone(), slot.clone());
+    let a = std::thread::spawn(move || run(&first, "pause").0);
+    std::thread::sleep(Duration::from_millis(300));
+    let b = std::thread::spawn(move || run(&second, "next").0);
+    std::thread::sleep(stall.saturating_sub(t0.elapsed()));
+    let mut outcomes = Vec::new();
+    while t0.elapsed() < stall + Duration::from_millis(500) {
+        for (request, deadline, reply) in inbox.try_iter() {
+            let outcome = crate::cli::command(&mut p, request, deadline);
+            outcomes.push(outcome.map(|(key, _)| key));
+            let _ = reply.send(json!({ "seq": p.seq() }).to_string());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let codes = (a.join().unwrap(), b.join().unwrap());
+    let sent = ends.borrow()[0].0.try_iter().collect();
+    (codes.0, codes.1, outcomes, sent)
+}
+
+#[test]
+fn a_request_queued_behind_a_stalled_one_is_never_applied_after_its_client_gave_up() {
+    let (code_a, code_b, outcomes, sent) = stalled(Duration::from_secs(6));
+    assert_eq!((code_a, code_b), (1, 1));
+    assert_eq!(
+        outcomes,
+        vec![Some("error")],
+        "only the stalled request queued"
+    );
+    assert_eq!(sent, Vec::<Command>::new());
+}
+
+#[test]
+fn requests_drained_in_time_are_both_applied() {
+    let (code_a, code_b, outcomes, sent) = stalled(Duration::from_secs(1));
+    assert_eq!((code_a, code_b), (0, 0));
+    assert_eq!(outcomes, vec![None, None]);
+    assert_eq!(sent, vec![Command::Pause, Command::Next]);
 }
