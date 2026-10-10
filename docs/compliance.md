@@ -55,3 +55,8 @@ Header of `https://js-cdn.music.apple.com/musickit/v3/musickit.js` (ETag `"a62a1
   - It never references MusicKit internals.
   - It behaves like the standard interface, not a MusicKit-specific patch.
   - Concatenating it with musickit.js or reaching into MusicKit's objects is still forbidden.
+- **2026-10-10, audio-only answer to MusicKit's DRM gate (approved by Nate).** musickit.js enables full-song DRM only when two things hold: `document.createElement("video").canPlayType('video/mp4;codecs="avc1.42E01E"')` is truthy, and Widevine grants a combined config of avc1 video at `SW_SECURE_CRYPTO` plus mp4a audio. This is confirmed in musickit.js sha256 `21908b72…012c`, around offset 116167. Bramley answers as follows:
+  - **EME:** grant avc1 at `SW_SECURE_CRYPTO` only. That robustness level promises decryption, which the CDM performs for any track. Higher robustness levels are not granted.
+  - **canPlayType:** return `"maybe"` for avc1 in mp4, the way a browser's `<audio>` element answers for video containers. It plays the sound and drops the picture.
+  - **Video SourceBuffers:** `addSourceBuffer` for video throws NotSupportedError in v1. Accept-and-discard comes later.
+  - **Scope:** songs carry no video track, so nothing is faked for music. Music videos fail loudly in v1.
