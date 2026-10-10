@@ -527,8 +527,10 @@ dependencies = [
  "fastframe-instance",
  "fastframe-log",
  "fastframe-text",
+ "image",
  "png",
  "serde_json",
+ "ureq",
 ]
 
 [[package]]
@@ -1688,6 +1690,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]

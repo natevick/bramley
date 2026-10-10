@@ -1,5 +1,6 @@
 mod app;
 mod cli;
+mod covers;
 mod playback;
 #[cfg(test)]
 mod tests;
@@ -19,6 +20,9 @@ use crate::playback::{Link, SignedOut, Spawn};
 #[cfg(feature = "dev")]
 #[used]
 static DEV_MARKER: &str = "bramley-unshipped-feature:app/dev\0";
+#[cfg(feature = "gate-sabotage")]
+#[used]
+static GATE_SABOTAGE_MARKER: &str = "bramley-unshipped-feature:app/gate-sabotage\0";
 
 #[derive(Default)]
 pub struct Args {
@@ -29,6 +33,8 @@ pub struct Args {
     play: Option<String>,
     #[cfg(feature = "dev")]
     output_device: Option<String>,
+    #[cfg(feature = "dev")]
+    api_base: Option<String>,
 }
 
 fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
@@ -43,6 +49,8 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
             "--play" => a.play = Some(value()?),
             #[cfg(feature = "dev")]
             "--output-device" => a.output_device = Some(value()?),
+            #[cfg(feature = "dev")]
+            "--api-base" => a.api_base = Some(value()?),
             other => bail!("unknown argument {other}"),
         }
     }

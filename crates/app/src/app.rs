@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 use crate::Args;
 use crate::cli::{self, Inbox, Request};
+use crate::covers::{self, Grid, Source};
 use crate::playback::{Action, Playback, Spawn};
 use crate::ui;
 
@@ -55,6 +56,8 @@ struct Shot {
 
 pub struct App {
     playback: Playback,
+    covers: Grid,
+    source: Option<Source>,
     actions: Vec<Action>,
     inbox: Inbox,
     guarded: bool,
@@ -84,8 +87,21 @@ impl App {
         let actions = args.play.into_iter().map(Action::PlaySong).collect();
         #[cfg(not(feature = "dev"))]
         let actions = Vec::new();
+        #[cfg(feature = "dev")]
+        let art_prefix = args.api_base.clone();
+        #[cfg(not(feature = "dev"))]
+        let art_prefix = None;
+        let source = crate::config_dir().ok().map(|config| Source {
+            api: art_prefix
+                .clone()
+                .unwrap_or_else(|| covers::API_BASE.into()),
+            art_prefix,
+            config,
+        });
         App {
             playback: Playback::new(spawn, signed_out),
+            covers: Grid::default(),
+            source,
             actions,
             inbox,
             guarded,
@@ -120,6 +136,9 @@ impl App {
             "banner": self.playback.banner().map(|b| format!("{b:?}")),
             "framesPainted": self.frames,
             "glRenderer": self.renderer,
+            "texturesUploaded": self.covers.uploaded(),
+            "decodedBytesHeld": self.covers.held(),
+            "coversFailed": self.covers.failed(),
         })
     }
 
@@ -132,7 +151,7 @@ impl App {
     }
 
     pub fn pump(&mut self, ctx: &egui::Context) -> bool {
-        self.playback.receive() | self.answer_requests(ctx)
+        self.playback.receive() | self.covers.receive(ctx) | self.answer_requests(ctx)
     }
 
     fn answer_requests(&mut self, ctx: &egui::Context) -> bool {
@@ -188,6 +207,9 @@ impl eframe::App for App {
                 .gl()
                 .map(|gl| unsafe { gl.get_parameter_string(eframe::glow::RENDERER) });
         }
+        if let Some(source) = self.source.take() {
+            self.covers.start(ctx, source);
+        }
         let changed = self.pump(ctx);
         if changed
             || self
@@ -213,6 +235,7 @@ impl eframe::App for App {
                 ui::banner(ui, &banner);
             }
             ui.heading("Bramley");
+            self.covers.show(ui);
         });
         for action in self.actions.drain(..) {
             self.playback.apply(action);

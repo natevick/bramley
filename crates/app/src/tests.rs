@@ -1,12 +1,16 @@
 use std::cell::RefCell;
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpListener;
 use std::rc::Rc;
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
 use bramley_engine::{Command, PlayState, PlayerError, Queue, Snapshot};
 use serde_json::json;
 
+use crate::covers::{self, Grid, Source};
 use crate::playback::{Action, Banner, HOLD_LIMIT, Link, Playback, SignedOut, Spawn};
 
 type Ends = Rc<RefCell<Vec<(Receiver<Command>, Sender<Snapshot>)>>>;
@@ -626,4 +630,183 @@ fn only_the_shared_temp_fallback_slot_is_refused() {
         Path::new("/tmp/bramley-instance"),
         Path::new("/tmp")
     ));
+}
+
+#[test]
+fn artwork_fills_the_template_at_the_cell_pixel_size() {
+    let template = "https://is1-ssl.mzstatic.com/image/thumb/a/b.jpg/{w}x{h}bb.jpg";
+    let url = covers::art_url(template, covers::px(160.0, 2.0)).unwrap();
+    assert!(url.ends_with("/b.jpg/320x320bb.jpg"), "{url}");
+    assert_eq!(covers::px(covers::COVER_PT, 1.25), 120);
+    assert_eq!(
+        covers::art_url("https://x.mzstatic.com/{w}x{h}{c}.jpg", 96),
+        None
+    );
+}
+
+#[test]
+fn only_https_mzstatic_artwork_is_fetched_unless_dev_names_a_prefix() {
+    let ok = "https://is1-ssl.mzstatic.com/image/thumb/x/96x96bb.jpg";
+    assert!(covers::allowed_art(ok, None));
+    for bad in [
+        "http://is1-ssl.mzstatic.com/x.jpg",
+        "https://mzstatic.com.evil.example/x.jpg",
+        "https://evil.example/x.jpg#.mzstatic.com",
+        "https://a.mzstatic.com@evil.example/x.jpg",
+        "https://a.mzstatic.com:8443/x.jpg",
+        "https://evil.example/?h=.mzstatic.com",
+        "not a url",
+    ] {
+        assert!(!covers::allowed_art(bad, None), "{bad}");
+    }
+    let fixture = "http://127.0.0.1:9/art/1.jpg";
+    assert!(covers::allowed_art(fixture, Some("http://127.0.0.1:9")));
+    assert!(!covers::allowed_art(fixture, None));
+}
+
+#[cfg(not(feature = "dev"))]
+#[test]
+fn the_api_base_override_is_refused_outside_dev() {
+    let args = ["--api-base", "http://127.0.0.1:9"].map(String::from);
+    assert!(crate::parse_args(args.into_iter()).is_err());
+}
+
+type Requests = Arc<Mutex<Vec<(String, Option<String>)>>>;
+
+struct Fixture {
+    base: String,
+    requests: Requests,
+}
+
+fn fixture(chart_status: u16) -> Fixture {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let (seen, art_base) = (requests.clone(), base.clone());
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let mut stream = stream.unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let path = line.split_whitespace().nth(1).unwrap_or("").to_owned();
+            let mut auth = None;
+            loop {
+                let mut header = String::new();
+                reader.read_line(&mut header).unwrap();
+                if header.trim().is_empty() {
+                    break;
+                }
+                if let Some((name, value)) = header.split_once(':')
+                    && name.eq_ignore_ascii_case("authorization")
+                {
+                    auth = Some(value.trim().to_owned());
+                }
+            }
+            seen.lock().unwrap().push((path.clone(), auth));
+            let (status, body) = if path.starts_with("/v1/") {
+                let albums: Vec<_> = (0..50)
+                    .map(|i| json!({"attributes": {"artwork": {"url": format!("{art_base}/art/{i}/{{w}}x{{h}}bb.jpg")}}}))
+                    .collect();
+                let chart = json!({"results": {"albums": [{"data": albums}]}});
+                (chart_status, chart.to_string().into_bytes())
+            } else {
+                let size: u32 = path
+                    .rsplit('/')
+                    .next()
+                    .unwrap()
+                    .split('x')
+                    .next()
+                    .unwrap()
+                    .parse()
+                    .unwrap();
+                let image =
+                    image::RgbImage::from_fn(size, size, |x, y| image::Rgb([x as u8, y as u8, 90]));
+                let mut jpeg = Vec::new();
+                image
+                    .write_to(
+                        &mut std::io::Cursor::new(&mut jpeg),
+                        image::ImageFormat::Jpeg,
+                    )
+                    .unwrap();
+                (200, jpeg)
+            };
+            let head = format!(
+                "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream
+                .write_all(head.as_bytes())
+                .and_then(|()| stream.write_all(&body));
+        }
+    });
+    Fixture { base, requests }
+}
+
+const FIXTURE_TOKEN: &str = "dev-token-fixture-0123456789";
+
+fn load_covers(chart_status: u16, art_prefix: bool) -> (Grid, Fixture) {
+    let fx = fixture(chart_status);
+    let config = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../target/tmp/covers-test-{}-{}",
+        std::process::id(),
+        fx.base.rsplit(':').next().unwrap()
+    ));
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(config.join("developer-token"), FIXTURE_TOKEN).unwrap();
+    let source = Source {
+        api: fx.base.clone(),
+        art_prefix: art_prefix.then(|| fx.base.clone()),
+        config: config.clone(),
+    };
+    let ctx = egui::Context::default();
+    let mut grid = Grid::default();
+    grid.start(&ctx, source);
+    let until = Instant::now() + Duration::from_secs(20);
+    while grid.uploaded() < 50 && grid.failed().is_none() && Instant::now() < until {
+        grid.receive(&ctx);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::fs::remove_dir_all(&config).unwrap();
+    (grid, fx)
+}
+
+#[test]
+fn fifty_covers_become_textures_and_no_decoded_pixels_are_held() {
+    let (grid, fx) = load_covers(200, true);
+    assert_eq!(grid.failed(), None);
+    assert_eq!(grid.uploaded(), 50);
+    let decoded = 50 * 96 * 96 * 4;
+    let held = if cfg!(feature = "gate-sabotage") {
+        decoded
+    } else {
+        0
+    };
+    assert_eq!(grid.held(), held);
+    let requests = fx.requests.lock().unwrap();
+    let bearer = format!("Bearer {FIXTURE_TOKEN}");
+    assert_eq!(requests[0].0, "/v1/catalog/us/charts?types=albums&limit=50");
+    assert_eq!(requests[0].1.as_deref(), Some(bearer.as_str()));
+    assert_eq!(requests.len(), 51);
+    for (path, auth) in &requests[1..] {
+        assert!(path.ends_with("/96x96bb.jpg"), "{path}");
+        assert_eq!(auth, &None, "the token went to the art host");
+    }
+}
+
+#[test]
+fn a_refused_chart_shows_an_error_without_the_token() {
+    let (grid, _fx) = load_covers(401, true);
+    let why = grid.failed().unwrap();
+    assert!(why.contains("401"), "{why}");
+    assert!(!why.contains(FIXTURE_TOKEN), "{why}");
+    assert_eq!(grid.uploaded(), 0);
+}
+
+#[test]
+fn artwork_off_the_allowed_host_is_never_requested() {
+    let (grid, fx) = load_covers(200, false);
+    assert!(grid.failed().unwrap().contains("refused artwork URL"));
+    assert_eq!(grid.uploaded(), 0);
+    assert_eq!(fx.requests.lock().unwrap().len(), 1);
 }
