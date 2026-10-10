@@ -186,6 +186,11 @@ Nate's order holds; **no hard dependency problem**. S2 is split a/b/c to fit one
 - **Depends on:** S11 and S5.
 - **Budget:** ~300 source / ~200 tests.
 
+## S13. Acceptance harness (added 2026-10-10)
+- **Goal:** `scripts/acceptance.sh` implements docs/acceptance.md exactly: every F, R and control check, evidence files, and private screenshots. It drives the shipped binary only through the S11 CLI and S12 MCP.
+- **Order:** S11 (CLI) moves up to right after S2a, so every later story can be checked by the harness. Each story from S2c on adds its checks to the harness as it lands, and done means the relevant acceptance checks pass.
+- **Budget:** harness ≤ 600 lines (bash plus python), no app code.
+
 ## Compliance flags
 - **S4a (blocking):** rule 7 versus keeping the key in GitHub secrets.
 - **S1a:** rule 3, and the seed in one location.

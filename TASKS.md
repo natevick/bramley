@@ -10,6 +10,7 @@
 - [x] Real-GPU UI measurement (2026-10-09): fastframe build 85.4 MiB on the AMD GPU (MARGINAL against 70); bare 59.1. UI plus engine is about 183 MiB, under 200. Follow-up: break down fastframe's +26 MiB (fonts and emoji?).
 - [x] Engine crate (2026-10-09). Merged to main after the review-fix round. Norm verified: 10/10 key fixes fail on base and pass on HEAD; measure 97.2 MiB PASS; sabotage VOID; scenario PASS (skip-pause FAIL); 56 tests; cbcs e2e passes.
 - [x] MusicKit JS in the engine plays FULL songs (merged 2026-10-10, 1e4bf9b). Norm reproduced it: PASS at 100.4 MiB. Sabotage A FAIL (sign-in needed), B FAIL, C VOID. playback regression 97.4. Review fixed; 79 tests pass. Compliance log has entries for the DRM-gate answer and the token handoff.
+- [ ] DEFINITION OF DONE (Nate delegated it 2026-10-10): docs/acceptance.md. v1 Linux is done when scripts/acceptance.sh passes twice in a row and Nate has seen the screenshots.
 - [ ] App shell per docs/plan-app-shell.md. RUNNING 2026-10-10:
   - S0 DONE and merged (aaec0ba). Norm reproduced it: ballast control +20.5; fastframe − nofallbacks = 23.2 MiB; mmapcjk 66.6. Fallback fonts are read into the heap; the CJK .ttc alone is 18.6 MiB.
   - [ ] fastframe fix: memory-map fallback faces, estimated UI ~64–67 MiB. ASK NATE before any upstream issue or PR to crmne/fastframe (external, under his name). The alternative is a pinned natevick/fastframe fork, Spotifast-style.
