@@ -48,9 +48,46 @@ Run against `s2b-covers-PREREG.md`, in one weston session (`scratch/s2b/session.
 ## Screenshot
 `target/screens/s2b-covers-playing.png` (gitignored, real art; for Nate only): 1100×720, 50 covers in 10 × 5, and the bar on Bohemian Rhapsody at 0:42. The status says Playing, applied 2 = seq 2.
 
+## Round 2: signed-in gate and decode limits (a99e0a0)
+- **What changed:** covers are fetched and shown only when signed in, and decoding runs under `image::Limits`.
+- **Harness:** `scripts/app/covers-session.py` with `scripts/app/covers-runs.txt`, in one session. Binary sha256 prefix a6b6b539ce503f52.
+- **Verdicts:** `docs/results/s2b-covers/*.verdict.json`. They hold no logs, no art URLs and no tokens.
+- **Validity:** VALID on the same did-it-run rules. `ref` read 83.0 / 83.1 / 82.9.
+
+| Check | Result |
+|---|---|
+| Guard self-test | killed on the first link it saw (0.0 s); default sink unchanged |
+| Signed out, developer token present (`s2b-signedout`) | banner SignInNeeded, `coversRequested` 0, `texturesUploaded` 0, engine not started: **PASS** |
+| The same control on the round-1 binary (`r1-signedout`) | `texturesUploaded` 50: the control **can fail** |
+| Real art under the limits | `coversRequested` 51, 50 uploaded, `coversFailed` 0 |
+
+**Idle, MiB (PSS / USS):**
+
+| Round | ref | pin | s2b | sab |
+|---|---|---|---|---|
+| 1 | 83.0 / 60.6 | 63.3 / 40.9 | 68.0 / 45.6 | 69.5 / 47.1 |
+| 2 | 83.1 / 60.7 | 63.1 / 40.6 | 68.0 / 45.6 | 69.7 / 47.3 |
+| 3 | 82.9 / 60.5 | 63.1 / 40.7 | 67.9 / 45.5 | 69.5 / 47.1 |
+
+- **Per cover:** (68.0 − 63.1) / 50 = **0.10 MiB**, unchanged.
+- **Sabotage:** sab − s2b in USS is 1.5, 1.7 and 1.6, so **DETECTED** this time (bar 1.41). Round 1 was 1.3 / 0.6 / 1.3. It is still marginal, and S2c should not treat it as a stable gate.
+
+**Playing, MiB (PSS / USS):**
+
+| Run | pin | s2b |
+|---|---|---|
+| 1 | 163.6 / 141.2 | 164.7 / 142.3 |
+| 2 | 163.8 / 141.3 | 166.2 / 143.7 |
+
+- Covers while playing add +1.1 and +2.4 MiB (round 1: +3.4).
+- The whole app plays at **164.7–166.2 MiB PSS** with 50 covers visible.
+- The screenshot was regenerated at `target/screens/s2b-covers-playing.png`: 50 covers, Playing at 0:42.
+
 ## Re-run
 ```
 cargo build --release -p bramley --features gate-sabotage && cp target/release/bramley target/reference/bramley-s2b-sabotage
 cargo build --release -p bramley && cp target/release/bramley target/reference/bramley-s2b
-sg render -c "python3 -I scratch/s2b/session.py --out scratch/s2b/session1 $(cat scratch/s2b/runs.txt)"
+# target/reference also needs bramley-main-4961e27 (main), bramley-pin-e32305a (b824098) and bramley-s2b-r1 (d7596da)
+sg render -c "python3 -I scripts/app/covers-session.py --out target/app-runs/s2b-covers $(cat scripts/app/covers-runs.txt)"
 ```
+Round 1 ran the same driver from the worktree's `scratch/` before it moved into the repo.

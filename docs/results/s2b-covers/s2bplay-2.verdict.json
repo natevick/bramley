@@ -1,0 +1,94 @@
+{
+ "name": "s2bplay-2",
+ "mode": "play",
+ "binary": "bramley-s2b",
+ "sha256": "a6b6b539ce503f52",
+ "pss": 166.2,
+ "uss": 143.7,
+ "rss": 194.3,
+ "anon": 103.3,
+ "samples": 30,
+ "maxKids": 0,
+ "positions": [
+  15.09068,
+  45.213333
+ ],
+ "states": [
+  "Playing"
+ ],
+ "coversReady": {
+  "texturesUploaded": 50,
+  "decodedBytesHeld": 0,
+  "coversFailed": 0
+ },
+ "smaps": {
+  "anon": 86.19,
+  "lib": 49.0,
+  "binary": 14.65,
+  "heap": 11.64,
+  "other:[anon:partition_alloc]": 1.13,
+  "other:NotoSansCJK-Regular.ttc": 0.81,
+  "other:NotoSansGujarati-Regular.ttf": 0.18,
+  "other:NotoSansDevanagari-Regular.ttf": 0.18,
+  "other:NotoSansMyanmar-Regular.ttf": 0.18,
+  "other:NotoSansEthiopic-Regular.ttf": 0.16,
+  "other:NotoSansArabic-Regular.ttf": 0.16,
+  "other:NotoSansSymbols2-Regular.ttf": 0.15,
+  "other:NotoSansSinhala-Regular.ttf": 0.12,
+  "other:NotoSansKannada-Regular.ttf": 0.12,
+  "other:NotoSansBengali-Regular.ttf": 0.12,
+  "other:index": 0.12,
+  "other:NotoSansSymbols-Regular.ttf": 0.11,
+  "other:NotoSansJavanese-Regular.ttf": 0.11,
+  "other:NotoSansMalayalam-Regular.ttf": 0.11,
+  "other:NotoSansTelugu-Regular.ttf": 0.11,
+  "other:NotoSansKhmer-Regular.ttf": 0.11,
+  "other:NotoSansMath-Regular.ttf": 0.1,
+  "other:NotoSansYi-Regular.ttf": 0.1,
+  "other:NotoSansCherokee-Regular.ttf": 0.09,
+  "stack": 0.08,
+  "other:NotoSansTamil-Regular.ttf": 0.07,
+  "other:NotoSansGeorgian-Regular.ttf": 0.05,
+  "other:NotoSansGurmukhi-Regular.ttf": 0.05,
+  "other:NotoSansThai-Regular.ttf": 0.04,
+  "memfd": 0.03,
+  "other:NotoSansArmenian-Regular.ttf": 0.03,
+  "other:NotoSansLao-Regular.ttf": 0.03,
+  "other:NotoSansHebrew-Regular.ttf": 0.03,
+  "dri": 0.0,
+  "other:[vvar]": 0.0,
+  "other:[vvar_vclock]": 0.0,
+  "other:[vdso]": 0.0,
+  "other:[vsyscall]": 0.0
+ },
+ "gpuBefore": {
+  "mem_info_vram_used": 226537472,
+  "mem_info_gtt_used": 49602560
+ },
+ "gpuAfter": {
+  "mem_info_vram_used": 249008128,
+  "mem_info_gtt_used": 62201856
+ },
+ "guardSeen": [
+  "bramley-s2b-null-3546645"
+ ],
+ "guardPolls": 184,
+ "guardKilled": null,
+ "defaultBefore": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "defaultAfter": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "final": {
+  "state": "Playing",
+  "position": 46.237346,
+  "applied": 2,
+  "seq": 2,
+  "banner": null,
+  "engineStarted": true,
+  "framesPainted": 395,
+  "glRenderer": "AMD Radeon RX 5700 XT (radeonsi, navi10, ACO, DRM 3.64, 7.0.0-31-generic)",
+  "texturesUploaded": 50,
+  "decodedBytesHeld": 0,
+  "coversRequested": 51,
+  "coversFailed": 0
+ },
+ "playAckExit": 0
+}

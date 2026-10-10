@@ -1,0 +1,38 @@
+{
+ "name": "s2b-covers-playing",
+ "mode": "shot",
+ "binary": "bramley-s2b",
+ "sha256": "a6b6b539ce503f52",
+ "coversReady": {
+  "texturesUploaded": 50,
+  "decodedBytesHeld": 0,
+  "coversFailed": 0
+ },
+ "gpuBefore": {
+  "mem_info_vram_used": 226537472,
+  "mem_info_gtt_used": 45408256
+ },
+ "guardSeen": [
+  "bramley-s2b-null-3546645"
+ ],
+ "guardPolls": 170,
+ "guardKilled": null,
+ "defaultBefore": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "defaultAfter": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "screenshotExists": true,
+ "final": {
+  "state": "Playing",
+  "position": 42.95263,
+  "applied": 2,
+  "seq": 2,
+  "banner": null,
+  "engineStarted": true,
+  "framesPainted": 1792,
+  "glRenderer": "AMD Radeon RX 5700 XT (radeonsi, navi10, ACO, DRM 3.64, 7.0.0-31-generic)",
+  "texturesUploaded": 50,
+  "decodedBytesHeld": 0,
+  "coversRequested": 51,
+  "coversFailed": 0
+ },
+ "playAckExit": 0
+}

@@ -1,0 +1,89 @@
+{
+ "name": "pinplay-1",
+ "mode": "play",
+ "binary": "bramley-pin-e32305a",
+ "sha256": "2ec32314e67dcae5",
+ "pss": 163.6,
+ "uss": 141.2,
+ "rss": 191.9,
+ "anon": 101.3,
+ "samples": 30,
+ "maxKids": 0,
+ "positions": [
+  15.133968,
+  45.51263
+ ],
+ "states": [
+  "Playing"
+ ],
+ "smaps": {
+  "anon": 84.28,
+  "lib": 48.96,
+  "binary": 14.26,
+  "heap": 11.56,
+  "other:[anon:partition_alloc]": 1.13,
+  "other:NotoSansCJK-Regular.ttc": 0.81,
+  "other:NotoSansArabic-Regular.ttf": 0.17,
+  "other:NotoSansEthiopic-Regular.ttf": 0.16,
+  "other:NotoSansSymbols2-Regular.ttf": 0.14,
+  "other:NotoSansSymbols-Regular.ttf": 0.14,
+  "other:NotoSansSinhala-Regular.ttf": 0.14,
+  "other:NotoSansJavanese-Regular.ttf": 0.12,
+  "other:NotoSansTelugu-Regular.ttf": 0.12,
+  "other:NotoSansKannada-Regular.ttf": 0.12,
+  "other:NotoSansGujarati-Regular.ttf": 0.12,
+  "other:NotoSansDevanagari-Regular.ttf": 0.12,
+  "other:NotoSansMyanmar-Regular.ttf": 0.12,
+  "other:index": 0.12,
+  "other:NotoSansMath-Regular.ttf": 0.11,
+  "other:NotoSansYi-Regular.ttf": 0.11,
+  "other:NotoSansMalayalam-Regular.ttf": 0.11,
+  "other:NotoSansCherokee-Regular.ttf": 0.09,
+  "other:NotoSansBengali-Regular.ttf": 0.09,
+  "other:NotoSansKhmer-Regular.ttf": 0.09,
+  "stack": 0.08,
+  "other:NotoSansTamil-Regular.ttf": 0.07,
+  "other:NotoSansGeorgian-Regular.ttf": 0.05,
+  "other:NotoSansGurmukhi-Regular.ttf": 0.05,
+  "other:NotoSansThai-Regular.ttf": 0.04,
+  "memfd": 0.03,
+  "other:NotoSansArmenian-Regular.ttf": 0.03,
+  "other:NotoSansLao-Regular.ttf": 0.03,
+  "other:NotoSansHebrew-Regular.ttf": 0.03,
+  "dri": 0.0,
+  "other:[vvar]": 0.0,
+  "other:[vvar_vclock]": 0.0,
+  "other:[vdso]": 0.0,
+  "other:[vsyscall]": 0.0
+ },
+ "gpuBefore": {
+  "mem_info_vram_used": 226537472,
+  "mem_info_gtt_used": 49602560
+ },
+ "gpuAfter": {
+  "mem_info_vram_used": 244813824,
+  "mem_info_gtt_used": 66396160
+ },
+ "guardSeen": [
+  "bramley-s2b-null-3546645"
+ ],
+ "guardPolls": 185,
+ "guardKilled": null,
+ "defaultBefore": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "defaultAfter": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "final": {
+  "state": "Playing",
+  "position": 46.536621,
+  "applied": 2,
+  "seq": 2,
+  "banner": null,
+  "engineStarted": true,
+  "framesPainted": 378,
+  "glRenderer": "AMD Radeon RX 5700 XT (radeonsi, navi10, ACO, DRM 3.64, 7.0.0-31-generic)",
+  "texturesUploaded": null,
+  "decodedBytesHeld": null,
+  "coversRequested": null,
+  "coversFailed": null
+ },
+ "playAckExit": 0
+}
