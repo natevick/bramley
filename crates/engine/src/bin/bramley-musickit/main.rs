@@ -20,10 +20,7 @@ struct Args {
 
 fn parse_args() -> Result<Args> {
     let mut a = Args {
-        config: PlayerConfig {
-            snapshot_interval: Duration::from_millis(50),
-            ..PlayerConfig::default()
-        },
+        config: PlayerConfig::default(),
         status: "musickit-status.json".into(),
         max_seconds: 120.0,
         songs: vec!["6781024437".into(), "6781079518".into()],
@@ -31,6 +28,7 @@ fn parse_args() -> Result<Args> {
         no_user_token: false,
         corrupt_developer_token: false,
     };
+    a.config.snapshot_interval = Duration::from_millis(50);
     a.config.engine.audio_sink_name = "bramley-musickit".into();
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
@@ -173,7 +171,7 @@ fn main() -> Result<()> {
             user,
         },
         || {},
-    );
+    )?;
     player.send(Command::SetQueue {
         queue: Queue::Songs(args.songs.clone()),
         start: 0,
@@ -194,9 +192,13 @@ fn main() -> Result<()> {
                 true
             }
             Err(RecvTimeoutError::Timeout) => false,
-            Err(RecvTimeoutError::Disconnected) => bail!("player stopped"),
+            Err(RecvTimeoutError::Disconnected) => bail!("player stopped: {:?}", latest.error),
         };
         let elapsed = start.elapsed().as_secs_f64();
+        if elapsed > args.max_seconds {
+            write_status(&args, &r, &secrets);
+            break;
+        }
         let Some(d) = latest.diagnostics.clone() else {
             continue;
         };
@@ -222,7 +224,7 @@ fn main() -> Result<()> {
                 bail!("sign-in needed: {}", redact(reason, &secrets));
             }
         }
-        if r.controls.stage == 6 || elapsed > args.max_seconds {
+        if r.controls.stage == 6 {
             write_status(&args, &r, &secrets);
             break;
         }

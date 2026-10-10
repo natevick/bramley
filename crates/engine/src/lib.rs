@@ -30,7 +30,7 @@ pub fn user_agent() -> String {
     )
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct EngineConfig {
     pub cdm_path: PathBuf,
     pub audio_sink_name: String,
@@ -51,6 +51,16 @@ impl EngineConfig {
                 std::env::consts::DLL_SUFFIX
             ))
         }
+    }
+}
+
+impl std::fmt::Debug for EngineConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EngineConfig")
+            .field("cdm_path", &self.cdm_path)
+            .field("audio_sink_name", &self.audio_sink_name)
+            .field("output_device", &self.output_device)
+            .finish_non_exhaustive()
     }
 }
 

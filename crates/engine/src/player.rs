@@ -6,9 +6,11 @@ use serde_json::{Value as J, json};
 
 use crate::{Engine, EngineConfig, redact};
 
-const PLAYER: &str = include_str!("../js/player.js");
+pub(crate) const PLAYER: &str = include_str!("../js/player.js");
 const MUSICKIT_URL: &str = "https://js-cdn.music.apple.com/musickit/v3/musickit.js";
 const PLAYER_STACK: usize = 8 * 1024 * 1024;
+const COMMAND_WAIT_MS: u64 = 5000;
+const HEARTBEAT: Duration = Duration::from_secs(1);
 #[cfg(feature = "diagnostics")]
 const ENGINE_STATUS_EVERY: Duration = Duration::from_secs(1);
 
@@ -17,7 +19,8 @@ pub struct Tokens {
     pub user: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
+#[non_exhaustive]
 pub struct PlayerConfig {
     pub engine: EngineConfig,
     pub snapshot_interval: Duration,
@@ -33,6 +36,15 @@ impl Default for PlayerConfig {
             #[cfg(feature = "sabotage")]
             truncate_musickit: false,
         }
+    }
+}
+
+impl std::fmt::Debug for PlayerConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PlayerConfig")
+            .field("engine", &self.engine)
+            .field("snapshot_interval", &self.snapshot_interval)
+            .finish_non_exhaustive()
     }
 }
 
@@ -79,6 +91,7 @@ pub struct Diagnostics {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+#[non_exhaustive]
 pub struct Snapshot {
     pub item_id: Option<String>,
     pub title: Option<String>,
@@ -86,6 +99,8 @@ pub struct Snapshot {
     pub duration: Option<f64>,
     pub state: PlayState,
     pub error: Option<PlayerError>,
+    pub preview_only: bool,
+    pub applied: u64,
     #[cfg(feature = "diagnostics")]
     pub diagnostics: Option<Diagnostics>,
 }
@@ -125,13 +140,13 @@ impl Player {
         mut cfg: PlayerConfig,
         tokens: Tokens,
         waker: impl Fn() + Send + 'static,
-    ) -> (Sender<Command>, Receiver<Snapshot>) {
+    ) -> Result<(Sender<Command>, Receiver<Snapshot>)> {
         cfg.engine
             .redact
             .extend([tokens.developer.clone(), tokens.user.clone()]);
         let secrets = cfg.engine.redact.clone();
         let every = cfg.snapshot_interval;
-        let setup = json!({"developerToken": tokens.developer, "userToken": tokens.user, "musickitUrl": MUSICKIT_URL, "build": env!("CARGO_PKG_VERSION")});
+        let setup = json!({"developerToken": tokens.developer, "userToken": tokens.user, "musickitUrl": MUSICKIT_URL, "build": env!("CARGO_PKG_VERSION"), "commandWaitMs": COMMAND_WAIT_MS});
         spawn_with(
             move || {
                 let engine = Engine::new(cfg.engine)?;
@@ -151,52 +166,78 @@ impl Player {
     }
 }
 
+struct Exit<W: Fn()> {
+    snapshots: Sender<Snapshot>,
+    waker: W,
+    applied: u64,
+}
+
+impl<W: Fn()> Exit<W> {
+    fn send(&self, snap: Snapshot) -> bool {
+        let sent = self.snapshots.send(snap).is_ok();
+        (self.waker)();
+        sent
+    }
+}
+
+impl<W: Fn()> Drop for Exit<W> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.send(Snapshot {
+                error: Some(PlayerError::LoadFailed("the player thread panicked".into())),
+                applied: self.applied,
+                ..Snapshot::default()
+            });
+        }
+    }
+}
+
 pub(crate) fn spawn_with<B: Backend>(
     make: impl FnOnce() -> Result<B> + Send + 'static,
     setup: String,
     secrets: Vec<String>,
     every: Duration,
     waker: impl Fn() + Send + 'static,
-) -> (Sender<Command>, Receiver<Snapshot>) {
+) -> Result<(Sender<Command>, Receiver<Snapshot>)> {
     let (command_tx, commands) = channel();
     let (snapshots, snapshot_rx) = channel();
-    let thread = std::thread::Builder::new()
+    std::thread::Builder::new()
         .name("bramley-player".into())
         .stack_size(PLAYER_STACK)
         .spawn(move || {
+            let mut exit = Exit {
+                snapshots,
+                waker,
+                applied: 0,
+            };
             let started = make().and_then(|b| {
                 b.eval_script("config.js", &setup)?;
                 b.eval_script("player.js", PLAYER)?;
                 Ok(b)
             });
             match started {
-                Ok(b) => run(b, &commands, &snapshots, &waker, every, &secrets),
+                Ok(b) => run(b, &commands, &mut exit, every, &secrets),
                 Err(e) => {
-                    let error = PlayerError::LoadFailed(redact(&format!("{e:#}"), &secrets));
-                    let _ = snapshots.send(Snapshot {
-                        error: Some(error),
+                    exit.send(Snapshot {
+                        error: Some(PlayerError::LoadFailed(redact(&format!("{e:#}"), &secrets))),
                         ..Snapshot::default()
                     });
-                    waker();
                 }
             }
-        });
-    if let Err(e) = thread {
-        eprintln!("player thread failed to start: {e}");
-    }
-    (command_tx, snapshot_rx)
+        })?;
+    Ok((command_tx, snapshot_rx))
 }
 
-fn run<B: Backend>(
+fn run<B: Backend, W: Fn()>(
     mut b: B,
     commands: &Receiver<Command>,
-    snapshots: &Sender<Snapshot>,
-    waker: &dyn Fn(),
+    exit: &mut Exit<W>,
     every: Duration,
     secrets: &[String],
 ) {
     let mut last: Option<Snapshot> = None;
     let mut due = Instant::now();
+    let mut sent_at = Instant::now();
     #[cfg(feature = "diagnostics")]
     let mut engine_due = Instant::now();
     loop {
@@ -207,6 +248,7 @@ fn run<B: Backend>(
                 if let Err(e) = b.eval_script("command", &command_js(&command)) {
                     eprintln!("player command failed: {}", redact(&e.to_string(), secrets));
                 }
+                due = Instant::now();
                 continue;
             }
             Err(RecvTimeoutError::Timeout) => {}
@@ -215,8 +257,9 @@ fn run<B: Backend>(
             continue;
         }
         due = Instant::now() + every;
-        #[allow(unused_mut)]
         let mut snap = snapshot(&b, secrets);
+        snap.applied = snap.applied.max(exit.applied);
+        exit.applied = snap.applied;
         #[cfg(feature = "diagnostics")]
         if let Some(d) = snap.diagnostics.as_mut()
             && Instant::now() >= engine_due
@@ -224,11 +267,11 @@ fn run<B: Backend>(
             engine_due = Instant::now() + ENGINE_STATUS_EVERY;
             d.engine = Some(b.status());
         }
-        if last.as_ref() != Some(&snap) {
-            if snapshots.send(snap.clone()).is_err() {
+        if last.as_ref() != Some(&snap) || sent_at.elapsed() >= HEARTBEAT {
+            if !exit.send(snap.clone()) {
                 return;
             }
-            waker();
+            sent_at = Instant::now();
             last = Some(snap);
         }
     }
@@ -289,7 +332,12 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
             _ => PlayState::Stopped,
         },
         error,
+        preview_only: js["previewOnly"] == true,
+        applied: js["applied"].as_u64().unwrap_or(0),
         #[cfg(feature = "diagnostics")]
-        diagnostics: Some(Diagnostics { js, engine: None }),
+        diagnostics: Some(Diagnostics {
+            js: serde_json::from_str(&redact(&js.to_string(), secrets)).unwrap_or(J::Null),
+            engine: None,
+        }),
     }
 }

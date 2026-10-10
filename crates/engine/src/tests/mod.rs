@@ -8,6 +8,7 @@ mod media;
 mod mp4;
 mod net;
 mod player;
+mod player_js;
 mod runtime;
 
 use std::cell::RefCell;

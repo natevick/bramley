@@ -19,6 +19,8 @@ struct Fake {
     scripts: Vec<String>,
     unticked_command: bool,
     snapshots_before_tick: usize,
+    ticks: usize,
+    panic_at_tick: Option<usize>,
     state: J,
     time: Option<f64>,
 }
@@ -36,7 +38,15 @@ impl FakeEngine {
 
 impl Backend for FakeEngine {
     fn tick(&mut self) -> Duration {
-        self.0.lock().unwrap().unticked_command = false;
+        let panic = {
+            let mut f = self.0.lock().unwrap();
+            f.unticked_command = false;
+            f.ticks += 1;
+            f.panic_at_tick == Some(f.ticks)
+        };
+        if panic {
+            panic!("fake engine panic");
+        }
         Duration::from_millis(1)
     }
     fn eval_script(&self, _name: &str, source: &str) -> Result<()> {
@@ -74,7 +84,8 @@ fn spawn_fake(
         move || {
             counter.fetch_add(1, Ordering::SeqCst);
         },
-    );
+    )
+    .unwrap();
     (tx, rx, wakes)
 }
 
@@ -193,7 +204,7 @@ fn snapshots_use_native_time_and_map_errors_redacted() {
     let f = fake.clone();
     let (tx, rx, _) = spawn_fake(move || Ok(f), SNAPSHOT_EVERY);
     fake.set(
-        json!({"playbackState": 3, "currentPlaybackTime": 9, "item": {"id": "1", "title": "T", "durationInMillis": 354000}}),
+        json!({"playbackState": 3, "currentPlaybackTime": 9, "applied": 3, "previewOnly": true, "item": {"id": "1", "title": "T", "durationInMillis": 354000}}),
         Some(9.876),
     );
     let s = wait_for(&rx, |s| s.item_id.is_some());
@@ -201,6 +212,7 @@ fn snapshots_use_native_time_and_map_errors_redacted() {
         (s.title.as_deref(), s.position, s.duration, s.state, s.error),
         (Some("T"), Some(9.876), Some(354.0), PlayState::Paused, None)
     );
+    assert_eq!((s.applied, s.preview_only), (3, true));
     let cases = [
         (
             json!({"signInNeeded": format!("401 for {SECRET}")}),
@@ -217,7 +229,10 @@ fn snapshots_use_native_time_and_map_errors_redacted() {
     ];
     for (state, error) in cases {
         fake.set(state, None);
-        wait_for(&rx, |s| s.error.as_ref() == Some(&error));
+        let s = wait_for(&rx, |s| s.error.as_ref() == Some(&error));
+        assert_eq!(s.applied, 3, "applied went backwards");
+        #[cfg(feature = "diagnostics")]
+        assert!(!format!("{:?}", s.diagnostics).contains(SECRET));
     }
     tx.send(Command::Shutdown).unwrap();
 }
@@ -239,4 +254,41 @@ fn dropping_the_command_sender_stops_the_player() {
     let (tx, rx, _) = spawn_fake(|| Ok(FakeEngine::default()), SNAPSHOT_EVERY);
     drop(tx);
     drain_until_stopped(&rx);
+}
+
+#[test]
+fn dropping_the_snapshot_receiver_stops_an_idle_player() {
+    let (tx, rx, _) = spawn_fake(|| Ok(FakeEngine::default()), SNAPSHOT_EVERY);
+    wait_for(&rx, |_| true);
+    drop(rx);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while tx.send(Command::Pause).is_ok() {
+        assert!(
+            Instant::now() < deadline,
+            "the player outlived its receiver"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn a_panicking_engine_sends_a_last_error_and_wakes() {
+    let fake = FakeEngine::default();
+    fake.0.lock().unwrap().panic_at_tick = Some(20);
+    let f = fake.clone();
+    let (_tx, rx, wakes) = spawn_fake(move || Ok(f), SNAPSHOT_EVERY);
+    let snaps: Vec<Snapshot> =
+        std::iter::from_fn(|| rx.recv_timeout(Duration::from_secs(5)).ok()).collect();
+    let panicked = PlayerError::LoadFailed("the player thread panicked".into());
+    assert_eq!(snaps.last().and_then(|s| s.error.clone()), Some(panicked));
+    assert_eq!(wakes.load(Ordering::SeqCst), snaps.len());
+}
+
+#[test]
+fn config_debug_never_prints_tokens_or_the_redact_list() {
+    let mut cfg = crate::PlayerConfig::default();
+    cfg.engine.redact = vec![SECRET.into()];
+    let text = format!("{cfg:?}");
+    assert!(text.contains("snapshot_interval"), "{text}");
+    assert!(!text.contains(SECRET) && !text.contains("redact"), "{text}");
 }

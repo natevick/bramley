@@ -2,7 +2,7 @@
   "use strict";
   const C = globalThis.__bramley_player;
   delete globalThis.__bramley_player;
-  const S = { phase: "start", errors: [], events: [], signInNeeded: null, playbackError: null };
+  const S = { phase: "start", errors: [], events: [], steps: [], signInNeeded: null, playbackError: null, applied: 0 };
   const describe = e => e && (e.name || "") + " " + (e.message || e.description || e.errorCode || String(e));
   const err = (where, e) => {
     S.errors.push(where + ": " + describe(e) + (e && e.stack ? " @ " + e.stack : ""));
@@ -24,7 +24,6 @@
   let m = null;
   let signedIn;
   const ready = new Promise(resolve => { signedIn = resolve; });
-  let queued = ready;
   document.addEventListener("musickitloaded", async () => {
     S.phase = "loaded";
     try {
@@ -43,7 +42,8 @@
     for (const ev of ["playbackStateDidChange", "nowPlayingItemDidChange", "mediaPlaybackError", "authorizationStatusDidChange"]) {
       m.addEventListener(ev, e => { if (S.events.length < 200) S.events.push([Math.round(performance.now()), ev, String(e && (e.state ?? e.name ?? (e.item && e.item.id) ?? ""))]); });
     }
-    m.addEventListener("mediaPlaybackError", e => { S.playbackError = S.playbackError || describe(e); });
+    m.addEventListener("mediaPlaybackError", e => { S.playbackError = describe(e); });
+    m.addEventListener("authorizationStatusDidChange", () => signInLost());
     S.phase = "ready";
     signedIn();
   });
@@ -54,11 +54,40 @@
   S.phase = "loading-musickit";
   document.head.appendChild(script);
 
-  const fail = name => e => { err(name, e); S.playbackError = S.playbackError || name + ": " + describe(e); };
-  const act = (name, f) => { queued.then(f).catch(fail(name)); };
+  function signInLost() {
+    if (S.signInNeeded) return true;
+    if (m.isAuthorized === true && m.previewOnly !== true) return false;
+    S.signInNeeded = m.previewOnly === true ? "previewOnly is true" : "isAuthorized became false";
+    S.phase = "sign-in-needed";
+    Promise.resolve().then(() => m.stop()).catch(e => err("stop", e));
+    return true;
+  }
+
+  let last = Promise.resolve(), seq = 0, started = 0, queueGen = 0, queueFailed = false;
+  const settled = p => p.then(() => {}, () => {});
+  const turnOf = p => Promise.race([settled(p), new Promise(r => setTimeout(r, C.commandWaitMs))]);
+  const note = (name, what) => { S.steps.push([Math.round(performance.now()), name, what]); if (S.steps.length > 20) S.steps.shift(); };
+  function enqueue(name, f, needsQueue) {
+    const n = ++seq, prev = last;
+    last = ready.then(() => turnOf(prev)).then(async () => {
+      S.applied = Math.max(S.applied, n - 1);
+      started = n;
+      if (S.signInNeeded ? name !== "pause" : needsQueue && (queueFailed || signInLost())) return note(name, "skip");
+      note(name, "start");
+      try {
+        if ((await f()) === false) return note(name, "superseded");
+        if (started === n) { S.playbackError = null; if (name === "setQueue") queueFailed = false; }
+        note(name, "done");
+      } catch (e) {
+        err(name, e);
+        if (started === n) { S.playbackError = name + ": " + describe(e); if (name === "setQueue") queueFailed = true; }
+        note(name, "fail");
+      }
+    }).then(() => { S.applied = Math.max(S.applied, n); });
+  }
   const g = f => { try { return f(); } catch (e) { return "ERR " + e.message; } };
   const state = () => {
-    const r = { phase: S.phase, errors: S.errors.slice(), events: S.events.slice(-40), signInNeeded: S.signInNeeded, playbackError: S.playbackError, musickitDefined: typeof MusicKit !== "undefined" };
+    const r = { phase: S.phase, errors: S.errors.slice(), events: S.events.slice(-40), steps: S.steps.slice(), applied: S.applied, signInNeeded: S.signInNeeded, playbackError: S.playbackError, musickitDefined: typeof MusicKit !== "undefined" };
     if (!m) return r;
     r.isAuthorized = g(() => m.isAuthorized);
     r.storefrontId = g(() => m.storefrontId);
@@ -74,15 +103,15 @@
     value: {
       state,
       setQueue: options => {
-        S.playbackError = null;
-        queued = ready.then(() => m.setQueue(options)).catch(fail("setQueue"));
+        const gen = ++queueGen;
+        enqueue("setQueue", () => gen === queueGen ? m.setQueue(options) : false, false);
       },
-      play: () => act("play", () => m.play()),
-      pause: () => act("pause", () => m.pause()),
-      seek: t => act("seek", () => m.seekToTime(t)),
-      next: () => act("next", () => m.skipToNextItem()),
-      previous: () => act("previous", () => m.skipToPreviousItem()),
-      volume: v => act("volume", () => { m.volume = v; }),
+      play: () => enqueue("play", () => m.play(), true),
+      pause: () => enqueue("pause", () => m.pause(), false),
+      seek: t => enqueue("seek", () => m.seekToTime(t), true),
+      next: () => enqueue("next", () => m.skipToNextItem(), true),
+      previous: () => enqueue("previous", () => m.skipToPreviousItem(), true),
+      volume: v => enqueue("volume", () => { m.volume = v; }, false),
     },
   });
 })();
