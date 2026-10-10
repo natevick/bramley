@@ -1,0 +1,17 @@
+== mmapcjk []
+SPIKE gl_renderer="AMD Radeon RX 5700 XT (radeonsi, navi10, ACO, DRM 3.64, 7.0.0-31-generic)" gl_version="4.6 
+total PSS 66.7 MiB
+   12.1 MiB pss     12.1 MiB uss  [heap]
+    7.9 MiB pss      7.9 MiB uss  [anon]
+    3.7 MiB pss      3.7 MiB uss  NotoSansCJK-Regular.ttc
+== mmapcjk [S0_NO_CJK_ROWS=1]
+SPIKE gl_renderer="AMD Radeon RX 5700 XT (radeonsi, navi10, ACO, DRM 3.64, 7.0.0-31-generic)" gl_version="4.6 
+total PSS 63.5 MiB
+   12.0 MiB pss     12.0 MiB uss  [heap]
+    7.9 MiB pss      7.9 MiB uss  [anon]
+    0.8 MiB pss      0.8 MiB uss  NotoSansCJK-Regular.ttc
+== fastframe
+SPIKE gl_renderer="AMD Radeon RX 5700 XT (radeonsi, navi10, ACO, DRM 3.64, 7.0.0-31-generic)" gl_version="4.6 
+total PSS 85.7 MiB
+   28.3 MiB pss     28.3 MiB uss  [anon]
+   14.7 MiB pss     14.7 MiB uss  [heap]
