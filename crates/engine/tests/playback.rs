@@ -405,8 +405,11 @@ fn a_bad_song_id_is_a_playback_error_within_15_seconds() {
         developer: read("developer-token"),
         user: read("music-user-token"),
     };
+    let _sink = null_sink();
+    let mut cfg = PlayerConfig::default();
+    cfg.engine.output_device = Some(SINK.into());
     let start = Instant::now();
-    let (player, snapshots) = Player::spawn(PlayerConfig::default(), tokens, || {});
+    let (player, snapshots) = Player::spawn(cfg, tokens, || {});
     player
         .send(Command::SetQueue {
             queue: Queue::Songs(vec!["1".into()]),
