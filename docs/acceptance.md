@@ -11,6 +11,7 @@ Nate delegated the definition of "done" to Norm on 2026-10-10. Bramley v1 on Lin
 - **Driver:** the shipped `bramley` release binary, controlled only through its own CLI (S11) and MCP server (S12), the way a user or agent would. No test hooks in the shipped binary: `check-shipped-features.sh` must pass on it first.
 - **Evidence:** each step writes a screenshot, a status snapshot and PSS/CPU samples to `target/acceptance/<run>/`. Screenshots with real album art go to Nate privately, never into the public repo.
 - **Network-dependent timings:** the threshold applies to the median of 5 repetitions.
+- **Memory validity** (procedure added 2026-10-10; no threshold changed): absolute PSS on the dev box drifted 10–20 MiB between sessions for the same binary. Every R1/R2/R3 run therefore also measures a fixed reference binary in the same session and reports USS and RSS next to PSS. If the reference has drifted more than 5 MiB from its recorded value, the run is VOID and gets re-run.
 
 ## Functional checks (end to end)
 
