@@ -122,11 +122,11 @@ def wait_for(pred, timeout, what):
 
 
 class Refuse(http.server.BaseHTTPRequestHandler):
-    paths = []
+    paths, status = [], 401
 
     def do_GET(self):
         Refuse.paths.append(self.path)
-        self.send_response(401)
+        self.send_response(Refuse.status)
         self.send_header('Content-Length', '0')
         self.end_headers()
 
@@ -142,7 +142,12 @@ def refuse_shot(name, binary, a):
     return res
 
 
+MODES = ('idle', 'play', 'shot', 'guardtest', 'signedout', 'refuseshot', 'expired-401', 'expired-403')
+
+
 def run_one(name, binary, mode, a, sock, sink):
+    if mode not in MODES:
+        raise RuntimeError(f'{name}: unknown mode {mode}')
     if mode == 'refuseshot':
         return refuse_shot(name, binary, a)
     config = os.path.join(ROOT, 'target', 'tmp', f'{mode}-{os.getpid()}')
@@ -151,11 +156,11 @@ def run_one(name, binary, mode, a, sock, sink):
         if mode == 'signedout':
             os.makedirs(config, exist_ok=True)
             shutil.copy(os.path.expanduser('~/.config/bramley/developer-token'), config)
-        if mode == 'expired':
+        if mode.startswith('expired-'):
             os.makedirs(config, exist_ok=True)
             for f in ('developer-token', 'music-user-token'):
                 open(os.path.join(config, f), 'w').write(f'expired-{f}')
-            Refuse.paths = []
+            Refuse.paths, Refuse.status = [], int(mode.split('-')[1])
             server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Refuse)
             threading.Thread(target=server.serve_forever, daemon=True).start()
         return run_app(name, binary, mode, a, sock, sink, config, server)
@@ -172,7 +177,7 @@ def run_app(name, binary, mode, a, sock, sink, config, server):
         os.remove(f)
     env = dict(os.environ, WAYLAND_DISPLAY=sock, PULSE_SINK=sink, TMPDIR=os.path.join(ROOT, 'target', 'tmp'))
     env.pop('DISPLAY', None)
-    if mode in ('signedout', 'expired'):
+    if (mode == 'signedout' or mode.startswith('expired-')):
         env['BRAMLEY_CONFIG_DIR'] = config
     rc = subprocess.run([binary, 'now'], env=env, capture_output=True).returncode
     if rc != 3:
@@ -194,7 +199,7 @@ def run_app(name, binary, mode, a, sock, sink, config, server):
     guard.start()
     try:
         wait_for(lambda: (status(st) or {}).get('framesPainted', 0) > 0, 30, 'first frame')
-        covers = ('s2b' in name or 'sab' in name or mode == 'shot') and mode not in ('signedout', 'expired')
+        covers = ('s2b' in name or 'sab' in name or mode == 'shot') and mode != 'signedout' and not mode.startswith('expired-')
         if covers:
             s = wait_for(lambda: (lambda s: s if s and (s.get('texturesUploaded') == 50 or s.get('coversFailed')) else None)(status(st)), 60, 'covers')
             res['coversReady'] = {k: s.get(k) for k in COVER_KEYS}
@@ -207,7 +212,7 @@ def run_app(name, binary, mode, a, sock, sink, config, server):
             res['playAt'] = time.time()
             if ack.returncode != 0:
                 raise RuntimeError(f'{name}: play exited {ack.returncode}')
-        if mode in ('signedout', 'expired'):
+        if (mode == 'signedout' or mode.startswith('expired-')):
             time.sleep(10)
             res['aliveAtEnd'] = p.poll() is None
             res['final'] = status(st)

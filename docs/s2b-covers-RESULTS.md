@@ -122,7 +122,18 @@ Run against `s2b-covers-PREREG.md`, in one weston session (`scratch/s2b/session.
 - a garbage user token gives **403**;
 - valid tokens give 200.
 
-So mapping 401 to SignInNeeded, as specified for this round, conflicts with S4b's "a developer-token 401 never reads as sign in". Flagged; not changed.
+Round 3 mapped 401 to SignInNeeded, which conflicted with S4b. **Fixed in b3170b7:**
+- **403** gives SignInNeeded.
+- **401** gives its own banner, "Bramley's developer token was rejected". It never asks for sign-in and shows no covers.
+
+**Live check** (dev build cf6077cc, local server answering each status; verdicts in `docs/results/s2b-covers/r4/`):
+
+| Status | Banner | Textures | Requests | Alive at end |
+|---|---|---|---|---|
+| 403 | SignInNeeded | 0 | `/v1/me/storefront` only | yes |
+| 401 | Error("Bramley's developer token was rejected") | 0 | `/v1/me/storefront` only | yes |
+
+Release still refuses `--screenshot`. The harness now refuses unknown modes; one had silently run as idle.
 
 ## Known limits
 - **`coversRequested` resets with the grid.** After a rejection, the status reads 0. The expired control's server log is the real count: 1 storefront request.

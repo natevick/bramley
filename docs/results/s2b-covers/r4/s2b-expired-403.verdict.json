@@ -1,0 +1,41 @@
+{
+ "name": "s2b-expired-403",
+ "mode": "expired-403",
+ "binary": "bramley-s2b-dev",
+ "sha256": "cf6077cc0df580f3",
+ "aliveAtEnd": true,
+ "serverPaths": [
+  "/v1/me/storefront"
+ ],
+ "coversReady": {
+  "texturesUploaded": 0,
+  "decodedInFlight": 0,
+  "decodedBytesKept": 0,
+  "coversRequested": 0,
+  "coversFailed": 0
+ },
+ "gpuBefore": {
+  "mem_info_vram_used": 220880896,
+  "mem_info_gtt_used": 60956672
+ },
+ "guardSeen": [],
+ "guardPolls": 39,
+ "guardKilled": null,
+ "defaultBefore": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "defaultAfter": "alsa_output.pci-0000_0e_00.4.iec958-stereo",
+ "final": {
+  "state": "Stopped",
+  "position": null,
+  "applied": 0,
+  "seq": 0,
+  "banner": "SignInNeeded",
+  "engineStarted": false,
+  "framesPainted": 11,
+  "glRenderer": "AMD Radeon RX 5700 XT (radeonsi, navi10, ACO, DRM 3.64, 7.0.0-31-generic)",
+  "texturesUploaded": 0,
+  "decodedInFlight": 0,
+  "decodedBytesKept": 0,
+  "coversRequested": 0,
+  "coversFailed": 0
+ }
+}
