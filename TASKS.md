@@ -11,7 +11,8 @@
 - [x] Engine crate (2026-10-09). Merged to main after the review-fix round. Norm verified: 10/10 key fixes fail on base and pass on HEAD; measure 97.2 MiB PASS; sabotage VOID; scenario PASS (skip-pause FAIL); 56 tests; cbcs e2e passes.
 - [x] MusicKit JS in the engine plays FULL songs (merged 2026-10-10, 1e4bf9b). Norm reproduced it: PASS at 100.4 MiB. Sabotage A FAIL (sign-in needed), B FAIL, C VOID. playback regression 97.4. Review fixed; 79 tests pass. Compliance log has entries for the DRM-gate answer and the token handoff.
 - [ ] App shell per docs/plan-app-shell.md. RUNNING 2026-10-10:
-  - S0 on branch natevick/s0-fastframe-breakdown, worktree ../bramley-wt-s0.
+  - S0 DONE and merged (aaec0ba). Norm reproduced it: ballast control +20.5; fastframe − nofallbacks = 23.2 MiB; mmapcjk 66.6. Fallback fonts are read into the heap; the CJK .ttc alone is 18.6 MiB.
+  - [ ] fastframe fix: memory-map fallback faces, estimated UI ~64–67 MiB. ASK NATE before any upstream issue or PR to crmne/fastframe (external, under his name). The alternative is a pinned natevick/fastframe fork, Spotifast-style.
   - S1a+S1b on branch natevick/s1-player-api, worktree ../bramley-wt-s1.
   - Merge gate for each: Norm re-runs the measurements (S1: measure-musickit.sh ≤ 112 plus sabotages; S0: the positive control), then reviewer, then fast-forward.
   - Norm's calls (Nate may override): `--play` is a dev-only flag, kept out of release builds; artwork is memory-only (no disk cache), which is the conservative reading of section D's "download".
