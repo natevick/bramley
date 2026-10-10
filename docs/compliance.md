@@ -60,3 +60,8 @@ Header of `https://js-cdn.music.apple.com/musickit/v3/musickit.js` (ETag `"a62a1
   - **canPlayType:** return `"maybe"` for avc1 in mp4, the way a browser's `<audio>` element answers for video containers. It plays the sound and drops the picture.
   - **Video SourceBuffers:** `addSourceBuffer` for video throws NotSupportedError in v1. Accept-and-discard comes later.
   - **Scope:** songs carry no video track, so nothing is faked for music. Music videos fail loudly in v1.
+- **2026-10-10, user-token handoff (approved by Nate).**
+  - MusicKit's documented sign-in is `authorize()`. Its popup returns the token to the opening page, which cannot work across from the system browser into Bramley's engine.
+  - So the one-time sign-in runs MusicKit's own `authorize()` in the user's browser, on a loopback page. Bramley then seeds the resulting Music-User-Token into the in-memory storage key MusicKit itself reads (`music.<developer-token iss>.media-user-token`), as a returning user's browser would hold it.
+  - This lives in one function. If MusicKit does not come up authorized afterwards, Bramley stops and asks the user to sign in again. It never falls back to previews silently.
+  - The key is undocumented and may change.
