@@ -221,6 +221,15 @@ mod pulse {
         );
         stream.send(&Command::SetClientName(props))?;
         protocol::read_reply_message::<protocol::SetClientNameReply>(&mut reader, stream.version)?;
+        if let Some(wanted) = &device {
+            let name = Some(CString::new(wanted.as_str())?);
+            stream.send(&Command::GetSinkInfo(protocol::GetSinkInfo {
+                index: None,
+                name,
+            }))?;
+            protocol::read_reply_message::<protocol::SinkInfo>(&mut reader, stream.version)
+                .with_context(|| format!("output device {wanted} not found"))?;
+        }
         let bytes_per_sec = rate * channels as u32 * 2;
         stream.send(&Command::CreatePlaybackStream(
             protocol::PlaybackStreamParams {

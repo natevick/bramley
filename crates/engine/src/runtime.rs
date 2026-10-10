@@ -771,6 +771,10 @@ impl Engine {
             .map(|(_, m)| m.current_time())
     }
 
+    pub fn output_failed(&self) -> bool {
+        self.n.borrow().medias.values().any(|m| m.output_failed())
+    }
+
     pub fn status(&self) -> J {
         let st = self.n.borrow();
         let medias: serde_json::Map<String, J> = st

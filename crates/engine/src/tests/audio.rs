@@ -141,3 +141,52 @@ fn dropping_a_corked_sink_closes_its_connection() {
         }
     }
 }
+
+#[test]
+fn a_named_sink_the_server_does_not_have_fails_before_any_stream_exists() {
+    let (client, server) = UnixStream::pair().unwrap();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || -> Option<()> {
+        let mut w = server.try_clone().ok()?;
+        let mut r = BufReader::new(server);
+        for _ in 0..3 {
+            let (seq, cmd) = protocol::read_command_message(&mut r, V).ok()?;
+            match &cmd {
+                Command::Auth(_) => {
+                    let auth = protocol::AuthReply {
+                        version: V,
+                        ..Default::default()
+                    };
+                    protocol::write_reply_message(&mut w, seq, &auth, V).ok()?
+                }
+                Command::GetSinkInfo(_) => {
+                    protocol::write_error(&mut w, seq, &protocol::PulseError::NoEntity).ok()?
+                }
+                _ => protocol::write_reply_message(
+                    &mut w,
+                    seq,
+                    &protocol::SetClientNameReply { client_id: 1 },
+                    V,
+                )
+                .ok()?,
+            }
+            tx.send(cmd).ok()?;
+        }
+        None
+    });
+    let device = Some("missing".to_owned());
+    let mut sink =
+        PulseSink::start_with("engine-test".into(), device, Box::new(move || Ok(client)));
+    sink.write(0, 48_000, 2, vec![0; TENTH_OF_A_SECOND]);
+    assert!(within(Duration::from_secs(2), || sink.failed()));
+    let sent: Vec<Command> = rx.try_iter().collect();
+    assert!(
+        matches!(sent.last(), Some(Command::GetSinkInfo(_))),
+        "{sent:?}"
+    );
+    assert!(
+        !sent
+            .iter()
+            .any(|c| matches!(c, Command::CreatePlaybackStream(_)))
+    );
+}

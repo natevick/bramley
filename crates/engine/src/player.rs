@@ -113,6 +113,7 @@ pub(crate) trait Backend {
     fn eval_script(&self, name: &str, source: &str) -> Result<()>;
     fn eval_json(&self, expression: &str) -> Result<J>;
     fn current_time(&self) -> Option<f64>;
+    fn output_failed(&self) -> bool;
     #[cfg(feature = "diagnostics")]
     fn status(&self) -> J;
 }
@@ -129,6 +130,9 @@ impl Backend for Engine {
     }
     fn current_time(&self) -> Option<f64> {
         Engine::current_time(self)
+    }
+    fn output_failed(&self) -> bool {
+        Engine::output_failed(self)
     }
     #[cfg(feature = "diagnostics")]
     fn status(&self) -> J {
@@ -280,6 +284,8 @@ fn run<B: Backend, W: Fn()>(
     }
 }
 
+pub const OUTPUT_FAILED: &str = "the audio output could not be opened";
+
 pub(crate) fn command_js(command: &Command) -> String {
     let (method, arg) = match command {
         Command::SetQueue { queue, start } => {
@@ -323,6 +329,8 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
     } else if let Some(phase @ ("musickit-load-failed" | "configure-failed")) = js["phase"].as_str()
     {
         Some(PlayerError::LoadFailed(phase.into()))
+    } else if b.output_failed() {
+        Some(PlayerError::Playback(OUTPUT_FAILED.into()))
     } else {
         text(&js["playbackError"]).map(PlayerError::Playback)
     };

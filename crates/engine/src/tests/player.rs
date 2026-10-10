@@ -23,6 +23,7 @@ struct Fake {
     panic_at_tick: Option<usize>,
     state: J,
     time: Option<f64>,
+    output_failed: bool,
 }
 
 #[derive(Clone, Default)]
@@ -63,6 +64,9 @@ impl Backend for FakeEngine {
     }
     fn current_time(&self) -> Option<f64> {
         self.0.lock().unwrap().time
+    }
+    fn output_failed(&self) -> bool {
+        self.0.lock().unwrap().output_failed
     }
     #[cfg(feature = "diagnostics")]
     fn status(&self) -> J {
@@ -131,6 +135,8 @@ fn ids_are_passed_as_json_so_they_cannot_run_script() {
     }
     e.eval_script("command", &command_js(&Command::Seek(30.5)))
         .unwrap();
+    let later = Command::PlayLater(Queue::Songs(vec![evil.into()]));
+    e.eval_script("command", &command_js(&later)).unwrap();
     assert_eq!(e.eval_json("typeof globalThis.pwned").unwrap(), "undefined");
     assert_eq!(
         e.eval_json("calls").unwrap(),
@@ -139,6 +145,7 @@ fn ids_are_passed_as_json_so_they_cannot_run_script() {
             ["setQueue", [{"album": evil, "startWith": 2}]],
             ["setQueue", [{"playlist": evil, "startWith": 2}]],
             ["seek", [30.5]],
+            ["playLater", [{"songs": [evil]}]],
         ])
     );
 }
@@ -235,6 +242,10 @@ fn snapshots_use_native_time_and_map_errors_redacted() {
         #[cfg(feature = "diagnostics")]
         assert!(!format!("{:?}", s.diagnostics).contains(SECRET));
     }
+    fake.0.lock().unwrap().output_failed = true;
+    fake.set(json!({"playbackState": 2}), Some(1.0));
+    let output = PlayerError::Playback(crate::player::OUTPUT_FAILED.into());
+    wait_for(&rx, |s| s.error.as_ref() == Some(&output));
     tx.send(Command::Shutdown).unwrap();
 }
 

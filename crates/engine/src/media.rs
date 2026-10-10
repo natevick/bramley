@@ -146,6 +146,10 @@ impl MediaEngine {
         (self.base_us + frames_to_us(played, self.rate)).min(self.sent_end_us.max(self.base_us))
     }
 
+    pub fn output_failed(&self) -> bool {
+        self.output_failed
+    }
+
     pub fn current_time(&self) -> f64 {
         self.current_time_us() as f64 / 1e6
     }
