@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use crate::Args;
 use crate::cli::{self, Inbox, Request};
 use crate::covers::{self, Grid, Source};
-use crate::playback::{Action, Playback, Spawn};
+use crate::playback::{Action, Banner, Playback, Spawn};
 use crate::ui;
 
 const REPAINT_EVERY: Duration = Duration::from_secs(1);
@@ -138,7 +138,9 @@ impl App {
             "glRenderer": self.renderer,
             "texturesUploaded": self.covers.uploaded(),
             "decodedBytesHeld": self.covers.held(),
-            "coversFailed": self.covers.failed(),
+            "coversRequested": self.covers.requested(),
+            "coversFailed": self.covers.failures(),
+            "coversError": self.covers.failed(),
         })
     }
 
@@ -207,9 +209,8 @@ impl eframe::App for App {
                 .gl()
                 .map(|gl| unsafe { gl.get_parameter_string(eframe::glow::RENDERER) });
         }
-        if let Some(source) = self.source.take() {
-            self.covers.start(ctx, source);
-        }
+        let signed_in = covers_allowed(&self.playback);
+        self.covers.follow(ctx, signed_in, &mut self.source);
         let changed = self.pump(ctx);
         if changed
             || self
@@ -246,6 +247,10 @@ impl eframe::App for App {
         self.playback.shutdown();
         self.status = None;
     }
+}
+
+pub fn covers_allowed(playback: &Playback) -> bool {
+    playback.banner() != Some(Banner::SignInNeeded)
 }
 
 fn write_png(path: &Path, image: &egui::ColorImage) -> Result<()> {

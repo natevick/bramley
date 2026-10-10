@@ -678,7 +678,7 @@ struct Fixture {
     requests: Requests,
 }
 
-fn fixture(chart_status: u16) -> Fixture {
+fn fixture(chart_status: u16, big: bool) -> Fixture {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let requests = Arc::new(Mutex::new(Vec::new()));
@@ -705,7 +705,15 @@ fn fixture(chart_status: u16) -> Fixture {
             }
             seen.lock().unwrap().push((path.clone(), auth));
             let (status, body) = if path.starts_with("/v1/") {
+                let id = |i: usize| {
+                    if big && i == 7 {
+                        "7big".into()
+                    } else {
+                        i.to_string()
+                    }
+                };
                 let albums: Vec<_> = (0..50)
+                    .map(id)
                     .map(|i| json!({"attributes": {"artwork": {"url": format!("{art_base}/art/{i}/{{w}}x{{h}}bb.jpg")}}}))
                     .collect();
                 let chart = json!({"results": {"albums": [{"data": albums}]}});
@@ -720,6 +728,11 @@ fn fixture(chart_status: u16) -> Fixture {
                     .unwrap()
                     .parse()
                     .unwrap();
+                let size = if path.contains("big/") {
+                    size * 3
+                } else {
+                    size
+                };
                 let image =
                     image::RgbImage::from_fn(size, size, |x, y| image::Rgb([x as u8, y as u8, 90]));
                 let mut jpeg = Vec::new();
@@ -745,8 +758,8 @@ fn fixture(chart_status: u16) -> Fixture {
 
 const FIXTURE_TOKEN: &str = "dev-token-fixture-0123456789";
 
-fn load_covers(chart_status: u16, art_prefix: bool) -> (Grid, Fixture) {
-    let fx = fixture(chart_status);
+fn load_covers(chart_status: u16, art_prefix: bool, big: bool, signed_in: bool) -> (Grid, Fixture) {
+    let fx = fixture(chart_status, big);
     let config = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
         "../../target/tmp/covers-test-{}-{}",
         std::process::id(),
@@ -761,9 +774,9 @@ fn load_covers(chart_status: u16, art_prefix: bool) -> (Grid, Fixture) {
     };
     let ctx = egui::Context::default();
     let mut grid = Grid::default();
-    grid.start(&ctx, source);
-    let until = Instant::now() + Duration::from_secs(20);
-    while grid.uploaded() < 50 && grid.failed().is_none() && Instant::now() < until {
+    grid.follow(&ctx, signed_in, &mut Some(source));
+    let until = Instant::now() + Duration::from_secs(if signed_in { 20 } else { 1 });
+    while grid.uploaded() + grid.failures() < 50 && Instant::now() < until {
         grid.receive(&ctx);
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -773,7 +786,7 @@ fn load_covers(chart_status: u16, art_prefix: bool) -> (Grid, Fixture) {
 
 #[test]
 fn fifty_covers_become_textures_and_no_decoded_pixels_are_held() {
-    let (grid, fx) = load_covers(200, true);
+    let (grid, fx) = load_covers(200, true, false, true);
     assert_eq!(grid.failed(), None);
     assert_eq!(grid.uploaded(), 50);
     let decoded = 50 * 96 * 96 * 4;
@@ -792,11 +805,20 @@ fn fifty_covers_become_textures_and_no_decoded_pixels_are_held() {
         assert!(path.ends_with("/96x96bb.jpg"), "{path}");
         assert_eq!(auth, &None, "the token went to the art host");
     }
+    let (mut grid, ctx) = (grid, egui::Context::default());
+    grid.follow(&ctx, false, &mut None);
+    assert_eq!(
+        (grid.uploaded(), grid.held()),
+        (0, 0),
+        "sign-in lost kept covers"
+    );
+    grid.follow(&ctx, true, &mut None);
+    assert_eq!(grid.uploaded(), 0);
 }
 
 #[test]
 fn a_refused_chart_shows_an_error_without_the_token() {
-    let (grid, _fx) = load_covers(401, true);
+    let (grid, _fx) = load_covers(401, true, false, true);
     let why = grid.failed().unwrap();
     assert!(why.contains("401"), "{why}");
     assert!(!why.contains(FIXTURE_TOKEN), "{why}");
@@ -805,8 +827,26 @@ fn a_refused_chart_shows_an_error_without_the_token() {
 
 #[test]
 fn artwork_off_the_allowed_host_is_never_requested() {
-    let (grid, fx) = load_covers(200, false);
+    let (grid, fx) = load_covers(200, false, false, true);
     assert!(grid.failed().unwrap().contains("refused artwork URL"));
     assert_eq!(grid.uploaded(), 0);
     assert_eq!(fx.requests.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn signed_out_requests_nothing_and_shows_no_covers() {
+    let (grid, fx) = load_covers(200, true, false, false);
+    assert_eq!((grid.requested(), grid.uploaded()), (0, 0));
+    assert!(fx.requests.lock().unwrap().is_empty());
+    let (signed_out, _) = fake(true);
+    assert!(!crate::app::covers_allowed(&signed_out));
+    let (signed_in, _) = fake(false);
+    assert!(crate::app::covers_allowed(&signed_in));
+}
+
+#[test]
+fn an_oversized_cover_is_refused_and_counted_as_failed() {
+    let (grid, _fx) = load_covers(200, true, true, true);
+    assert_eq!((grid.uploaded(), grid.failures()), (49, 1));
+    assert!(grid.failed().unwrap().starts_with("cover 7:"));
 }

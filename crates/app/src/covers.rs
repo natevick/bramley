@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -15,11 +16,18 @@ pub const API_BASE: &str = "https://api.music.apple.com";
 const CHART: &str = "/v1/catalog/us/charts?types=albums&limit=50";
 const ART_HOST: &str = ".mzstatic.com";
 const DECODERS: usize = 2;
+const COUNT: usize = 50;
 const MAX_ART_BYTES: u64 = 4 << 20;
 
 pub enum Loaded {
     Cover(usize, ColorImage),
-    Failed(String),
+    Failed(String, usize),
+}
+
+#[derive(Default)]
+pub struct Tally {
+    held: AtomicUsize,
+    requested: AtomicUsize,
 }
 
 #[derive(Clone)]
@@ -60,7 +68,14 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
-fn chart(agent: &ureq::Agent, source: &Source, token: &str, px: u32) -> Result<Vec<String>> {
+fn chart(
+    agent: &ureq::Agent,
+    source: &Source,
+    token: &str,
+    px: u32,
+    tally: &Tally,
+) -> Result<Vec<String>> {
+    tally.requested.fetch_add(1, Ordering::SeqCst);
     let body = agent
         .get(format!("{}{CHART}", source.api))
         .header("Authorization", format!("Bearer {token}"))
@@ -85,7 +100,8 @@ fn chart(agent: &ureq::Agent, source: &Source, token: &str, px: u32) -> Result<V
         .collect()
 }
 
-fn cover(agent: &ureq::Agent, url: &str) -> Result<ColorImage> {
+fn cover(agent: &ureq::Agent, url: &str, px: u32, tally: &Tally) -> Result<ColorImage> {
+    tally.requested.fetch_add(1, Ordering::SeqCst);
     let bytes = agent
         .get(url)
         .call()?
@@ -93,7 +109,14 @@ fn cover(agent: &ureq::Agent, url: &str) -> Result<ColorImage> {
         .with_config()
         .limit(MAX_ART_BYTES)
         .read_to_vec()?;
-    let rgb = image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg)?.to_rgb8();
+    let side = px.saturating_mul(2);
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(side);
+    limits.max_image_height = Some(side);
+    limits.max_alloc = Some(u64::from(side).pow(2) * 8);
+    let mut reader = image::ImageReader::with_format(Cursor::new(bytes), image::ImageFormat::Jpeg);
+    reader.limits(limits);
+    let rgb = reader.decode()?.to_rgb8();
     let size = [rgb.width() as usize, rgb.height() as usize];
     Ok(ColorImage::from_rgb(size, rgb.as_raw()))
 }
@@ -101,7 +124,7 @@ fn cover(agent: &ureq::Agent, url: &str) -> Result<ColorImage> {
 pub fn fetch(
     source: Source,
     px: u32,
-    held: Arc<AtomicUsize>,
+    tally: Arc<Tally>,
     wake: impl Fn() + Clone + Send + 'static,
 ) -> Receiver<Loaded> {
     let (tx, rx) = channel();
@@ -111,13 +134,13 @@ pub fn fetch(
             let agent = agent();
             let token = crate::read_token(&source.config, "developer-token");
             let urls = token.and_then(|token| {
-                chart(&agent, &source, &token, px)
+                chart(&agent, &source, &token, px, &tally)
                     .map_err(|e| anyhow::anyhow!("{}", redact(&format!("chart: {e:#}"), &[token])))
             });
             match urls {
-                Ok(urls) => decode_on_workers(agent, urls, &tx, held, wake),
+                Ok(urls) => decode_on_workers(agent, (urls, px), &tx, tally, wake),
                 Err(e) => {
-                    let _ = tx.send(Loaded::Failed(format!("{e:#}")));
+                    let _ = tx.send(Loaded::Failed(format!("{e:#}"), COUNT));
                     wake();
                 }
             }
@@ -128,18 +151,18 @@ pub fn fetch(
 
 fn decode_on_workers(
     agent: ureq::Agent,
-    urls: Vec<String>,
+    (urls, px): (Vec<String>, u32),
     tx: &Sender<Loaded>,
-    held: Arc<AtomicUsize>,
+    tally: Arc<Tally>,
     wake: impl Fn() + Clone + Send + 'static,
 ) {
     let jobs = Arc::new(Mutex::new(urls.into_iter().enumerate()));
     for n in 0..DECODERS {
-        let (agent, jobs, tx, held, wake) = (
+        let (agent, jobs, tx, tally, wake) = (
             agent.clone(),
             jobs.clone(),
             tx.clone(),
-            held.clone(),
+            tally.clone(),
             wake.clone(),
         );
         std::thread::Builder::new()
@@ -149,12 +172,14 @@ fn decode_on_workers(
                     let Some((index, url)) = jobs.lock().unwrap().next() else {
                         break;
                     };
-                    let loaded = match cover(&agent, &url) {
+                    let loaded = match cover(&agent, &url, px, &tally) {
                         Ok(image) => {
-                            held.fetch_add(image.pixels.len() * 4, Ordering::SeqCst);
+                            tally
+                                .held
+                                .fetch_add(image.pixels.len() * 4, Ordering::SeqCst);
                             Loaded::Cover(index, image)
                         }
-                        Err(e) => Loaded::Failed(format!("cover {index}: {e:#}")),
+                        Err(e) => Loaded::Failed(format!("cover {index}: {e:#}"), 1),
                     };
                     if tx.send(loaded).is_err() {
                         break;
@@ -170,18 +195,26 @@ fn decode_on_workers(
 pub struct Grid {
     rx: Option<Receiver<Loaded>>,
     textures: BTreeMap<usize, TextureHandle>,
-    held: Arc<AtomicUsize>,
+    tally: Arc<Tally>,
     failed: Option<String>,
+    failures: usize,
     #[cfg(feature = "gate-sabotage")]
     kept: Vec<ColorImage>,
 }
 
 impl Grid {
-    pub fn start(&mut self, ctx: &egui::Context, source: Source) {
+    pub fn follow(&mut self, ctx: &egui::Context, signed_in: bool, source: &mut Option<Source>) {
+        if !signed_in {
+            if self.rx.is_some() {
+                *self = Grid::default();
+            }
+            return;
+        }
+        let Some(source) = source.take() else { return };
         let px = px(COVER_PT, ctx.pixels_per_point());
         let waker = ctx.clone();
-        let held = self.held.clone();
-        self.rx = Some(fetch(source, px, held, move || waker.request_repaint()));
+        let tally = self.tally.clone();
+        self.rx = Some(fetch(source, px, tally, move || waker.request_repaint()));
     }
 
     pub fn receive(&mut self, ctx: &egui::Context) -> bool {
@@ -198,11 +231,12 @@ impl Grid {
                     let texture = ctx.load_texture(name, image, TextureOptions::LINEAR);
                     self.textures.insert(index, texture);
                     if !cfg!(feature = "gate-sabotage") {
-                        self.held.fetch_sub(bytes, Ordering::SeqCst);
+                        self.tally.held.fetch_sub(bytes, Ordering::SeqCst);
                     }
                 }
-                Loaded::Failed(why) => {
+                Loaded::Failed(why, covers) => {
                     self.failed.get_or_insert(why);
+                    self.failures += covers;
                 }
             }
         }
@@ -214,7 +248,15 @@ impl Grid {
     }
 
     pub fn held(&self) -> usize {
-        self.held.load(Ordering::SeqCst)
+        self.tally.held.load(Ordering::SeqCst)
+    }
+
+    pub fn requested(&self) -> usize {
+        self.tally.requested.load(Ordering::SeqCst)
+    }
+
+    pub fn failures(&self) -> usize {
+        self.failures
     }
 
     pub fn failed(&self) -> Option<&str> {
