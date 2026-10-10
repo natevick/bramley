@@ -112,6 +112,7 @@
       next: () => enqueue("next", () => m.skipToNextItem(), true),
       previous: () => enqueue("previous", () => m.skipToPreviousItem(), true),
       volume: v => enqueue("volume", () => { m.volume = v; }, false),
+      playLater: options => enqueue("playLater", () => m.playLater(options), true),
     },
   });
 })();

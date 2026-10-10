@@ -22,6 +22,7 @@ globalThis.fakeM = { isAuthorized: true, previewOnly: false, api: { music: async
   },
   play() { mklog.push("play q=" + fakeM.q); return Promise.resolve(); },
   pause() { mklog.push("pause"); return Promise.resolve(); },
+  playLater(o) { mklog.push("playLater " + o.songs.join(",") + " q=" + fakeM.q); return Promise.resolve(); },
   stop() { mklog.push("stop"); return Promise.resolve(); },
   skipToNextItem() { mklog.push("next-start"); return later(50, () => mklog.push("next-done")); },
   seekToTime() { return Promise.reject(new Error("seek while loading")); },
@@ -186,4 +187,18 @@ fn losing_sign_in_or_a_preview_only_account_stops_playback() {
         };
         assert_eq!(log(&e), rest);
     }
+}
+
+#[test]
+fn play_later_appends_after_the_queue_and_is_skipped_once_the_queue_failed() {
+    let (mut e, _sink) = player(1000);
+    ready(&mut e);
+    let later = Command::PlayLater(Queue::Songs(vec!["L".into()]));
+    send(&mut e, &[songs("A"), later.clone()], 300);
+    assert_eq!(
+        log(&e),
+        json!(["setQueue-start A", "setQueue-done A", "playLater L q=A"])
+    );
+    send(&mut e, &[songs("BAD"), later], 300);
+    assert_eq!(log(&e), json!(["setQueue-start BAD"]));
 }

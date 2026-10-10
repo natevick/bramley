@@ -65,6 +65,7 @@ pub enum Command {
     Next,
     Previous,
     Volume(f32),
+    PlayLater(Queue),
     Shutdown,
 }
 
@@ -282,11 +283,7 @@ fn run<B: Backend, W: Fn()>(
 pub(crate) fn command_js(command: &Command) -> String {
     let (method, arg) = match command {
         Command::SetQueue { queue, start } => {
-            let mut options = match queue {
-                Queue::Songs(ids) => json!({"songs": ids}),
-                Queue::Album(id) => json!({"album": id}),
-                Queue::Playlist(id) => json!({"playlist": id}),
-            };
+            let mut options = queue_options(queue);
             options["startWith"] = json!(start);
             ("setQueue", options)
         }
@@ -296,9 +293,18 @@ pub(crate) fn command_js(command: &Command) -> String {
         Command::Next => ("next", J::Null),
         Command::Previous => ("previous", J::Null),
         Command::Volume(v) => ("volume", json!(v)),
+        Command::PlayLater(queue) => ("playLater", queue_options(queue)),
         Command::Shutdown => return String::new(),
     };
     format!("__player.{method}({arg});")
+}
+
+fn queue_options(queue: &Queue) -> J {
+    match queue {
+        Queue::Songs(ids) => json!({"songs": ids}),
+        Queue::Album(id) => json!({"album": id}),
+        Queue::Playlist(id) => json!({"playlist": id}),
+    }
 }
 
 fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
