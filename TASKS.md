@@ -9,7 +9,12 @@
 - [x] Spike 5 (2026-10-09, reproduced by Norm): hls.js in QuickJS, through native MSE/EME host objects, into the CDM: PASS at 96.7 MiB, one process (bar 105); sabotage VOID. Not yet covered: pause, volume, eviction, musickit.js, Apple license server.
 - [x] Real-GPU UI measurement (2026-10-09): fastframe build 85.4 MiB on the AMD GPU (MARGINAL against 70); bare 59.1. UI plus engine is about 183 MiB, under 200. Follow-up: break down fastframe's +26 MiB (fonts and emoji?).
 - [x] Engine crate (2026-10-09). Merged to main after the review-fix round. Norm verified: 10/10 key fixes fail on base and pass on HEAD; measure 97.2 MiB PASS; sabotage VOID; scenario PASS (skip-pause FAIL); 56 tests; cbcs e2e passes.
-- [ ] NEXT: MusicKit JS in the bramley engine (QuickJS) plays a full song. Engine gaps found in docs/musickit-api-contract-chrome.md: `MediaKeys.setServerCertificate()` (cert from MZPlay widevineCert), `persistentState: "required"` (satisfied in memory), a combined audio+video key-system request (audio must still be granted), and SourceBuffer `remove()`, `timestampOffset` and `appendWindowStart`. Pre-register first; reuse spike 2's pass bar and sabotages.
+- [x] MusicKit JS in the engine plays FULL songs (merged 2026-10-10, 1e4bf9b). Norm reproduced it: PASS at 100.4 MiB. Sabotage A FAIL (sign-in needed), B FAIL, C VOID. playback regression 97.4. Review fixed; 79 tests pass. Compliance log has entries for the DRM-gate answer and the token handoff.
+- [ ] NEXT: the app shell. egui/fastframe UI on top of the engine (library, search, now playing, queue) through the documented Apple Music API in Rust plus MusicKit's public API for playback. Pre-register the total-memory bar: ≤ 200 MiB with UI and playback in one process.
+- [ ] Engine follow-ups from the MusicKit round:
+  - the unexplained early run where `session.update()` never ran;
+  - `innerHTML` is a no-op, so MusicKit's error dialog masks `mediaPlaybackError`;
+  - HE-AAC `32:ctrp64` decodes only its 22 kHz core. `bitrate = HIGH` avoids it, which holds only while `navigator.connection` is absent.
 - [x] Name: **Bramley** (Nate, 2026-10-09). Tagline "Bramley for Apple Music"; no real apple image in the icon.
 - [x] MIT LICENSE, README and rename done (2026-10-09). Repo is now `~/projects/Personal/bramley`.
 - [x] Public repo https://github.com/natevick/bramley (2026-10-09). History rewritten to nate@vick.codes before the first push, at Nate's call.
