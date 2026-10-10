@@ -10,6 +10,7 @@ pub(crate) const PLAYER: &str = include_str!("../js/player.js");
 const MUSICKIT_URL: &str = "https://js-cdn.music.apple.com/musickit/v3/musickit.js";
 const PLAYER_STACK: usize = 8 * 1024 * 1024;
 const COMMAND_WAIT_MS: u64 = 5000;
+pub const COMMAND_WAIT: Duration = Duration::from_millis(COMMAND_WAIT_MS);
 const HEARTBEAT: Duration = Duration::from_secs(1);
 #[cfg(feature = "diagnostics")]
 const ENGINE_STATUS_EVERY: Duration = Duration::from_secs(1);

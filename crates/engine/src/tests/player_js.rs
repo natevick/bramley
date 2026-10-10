@@ -113,6 +113,16 @@ fn a_newer_set_queue_supersedes_one_still_waiting_and_play_uses_it() {
 }
 
 #[test]
+fn a_hung_last_command_is_never_applied_until_another_command_arrives() {
+    let (mut e, _sink) = player(50);
+    ready(&mut e);
+    send(&mut e, &[songs("HUNG")], 500);
+    assert_eq!(e.eval_json("__player.state().applied").unwrap(), 0);
+    send(&mut e, &[Command::Pause], 200);
+    assert_eq!(e.eval_json("__player.state().applied").unwrap(), 2);
+}
+
+#[test]
 fn a_hung_set_queue_holds_later_commands_only_until_the_bound() {
     let (mut e, _sink) = player(150);
     ready(&mut e);
