@@ -98,17 +98,28 @@ fn a_newer_set_queue_supersedes_one_still_waiting_and_play_uses_it() {
             "play q=C"
         ])
     );
-    assert_eq!(e.eval_json("__player.state().applied").unwrap(), 4);
+    send(&mut e, &[songs("A"), songs("B"), Command::Play], 400);
+    assert_eq!(
+        log(&e),
+        json!([
+            "setQueue-start A",
+            "setQueue-done A",
+            "setQueue-start B",
+            "setQueue-done B",
+            "play q=B"
+        ])
+    );
+    assert_eq!(e.eval_json("__player.state().applied").unwrap(), 7);
 }
 
 #[test]
 fn a_hung_set_queue_holds_later_commands_only_until_the_bound() {
     let (mut e, _sink) = player(150);
     ready(&mut e);
-    send(&mut e, &[songs("HUNG"), Command::Pause], 40);
+    send(&mut e, &[songs("HUNG"), Command::Pause, Command::Play], 40);
     assert_eq!(log(&e), json!(["setQueue-start HUNG"]));
     e.run_for(Duration::from_millis(450));
-    assert_eq!(log(&e), json!(["pause"]));
+    assert_eq!(log(&e), json!(["pause", "play q=null"]));
 }
 
 #[test]
