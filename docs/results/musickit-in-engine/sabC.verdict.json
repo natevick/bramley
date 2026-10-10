@@ -1,0 +1,77 @@
+{
+ "name": "sabC",
+ "verdict": "VOID",
+ "reason": "musickit.js did not load",
+ "pssMedMiB": 7.9,
+ "pssMaxMiB": 8.0,
+ "windowSamples": 30,
+ "checks": {
+  "c1_authorizedUs": false,
+  "c2_jsPast35AndAdvancing": false,
+  "c2_nativeDecryptedOver35": false,
+  "c3_usableKey": false,
+  "c4_nullSinkOnly": false,
+  "c6_controls": false,
+  "c5_steadyWindow": true
+ },
+ "c6": {
+  "pauseHolds": false,
+  "seekLandsOn120": false,
+  "resumeStartsAt120": false,
+  "resumeAdvances": false,
+  "skipStartsAtZero": false,
+  "skipPlaysNext": false,
+  "noCrash": false
+ },
+ "appleRejections": {},
+ "detail": {
+  "phase": "musickit-load-failed",
+  "errors": [],
+  "isAuthorized": null,
+  "storefront": null,
+  "item": null,
+  "codecs": [],
+  "signInNeeded": null,
+  "maxCurrentPlaybackTime": 0,
+  "advanceLast10s": null,
+  "native": {
+   "decodedDecryptedSeconds": null,
+   "decodedClearSeconds": null,
+   "decryptOk": null,
+   "decryptFail": null,
+   "decodeErr": null,
+   "underruns": null,
+   "rate": null
+  },
+  "licenseHosts": [],
+  "schemes": [],
+  "endpoints": {},
+  "landings": {
+   "pausedAt": null,
+   "after4s": null,
+   "seeked": null,
+   "resumedAt": null,
+   "resumed5s": null,
+   "nextAt": null,
+   "next8s": null
+  },
+  "scripts": [
+   {
+    "url": "https://js-cdn.music.apple.com/musickit/v3/musickit.js",
+    "phase": "error",
+    "fetchedBytes": 614800,
+    "evaluatedBytes": 307400,
+    "fetchedSha256": "21908b72bdcdeea3ec91fa40b105d0b9a2ba07c2a3fe32ea77edcd26e735012c",
+    "evaluatedSha256": "6faf555aa4a89332262aad5f1413e7c8308cdf5a7b5be960911e99613760258f",
+    "error": "Error: unexpected end of string\n    at https://js-cdn.music.apple.com/musickit/v3/musickit.js:28:178943\n"
+   }
+  ],
+  "exitedEarly": null,
+  "pauseWallSec": null
+ },
+ "routing": {
+  "pid": 2250103,
+  "streams": [],
+  "targets": []
+ }
+}

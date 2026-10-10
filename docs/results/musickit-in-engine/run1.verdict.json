@@ -1,0 +1,164 @@
+{
+ "name": "run1",
+ "verdict": "PASS",
+ "reason": "PASS: all checks met, PSS median 97.7 MiB",
+ "pssMedMiB": 97.7,
+ "pssMaxMiB": 99.4,
+ "windowSamples": 30,
+ "checks": {
+  "c1_authorizedUs": true,
+  "c2_jsPast35AndAdvancing": true,
+  "c2_nativeDecryptedOver35": true,
+  "c3_usableKey": true,
+  "c4_nullSinkOnly": true,
+  "c6_controls": true,
+  "c5_steadyWindow": true
+ },
+ "c6": {
+  "pauseHolds": true,
+  "seekLandsOn120": true,
+  "resumeStartsAt120": true,
+  "resumeAdvances": true,
+  "skipStartsAtZero": true,
+  "skipPlaysNext": true,
+  "noCrash": true
+ },
+ "appleRejections": {},
+ "detail": {
+  "phase": "play-called",
+  "errors": [],
+  "isAuthorized": true,
+  "storefront": "us",
+  "item": {
+   "durationInMillis": 355155,
+   "id": "6781024437"
+  },
+  "codecs": [
+   [
+    "mp4a.40.2",
+    44100
+   ]
+  ],
+  "signInNeeded": null,
+  "maxCurrentPlaybackTime": 79,
+  "advanceLast10s": 10,
+  "native": {
+   "decodedDecryptedSeconds": 80.1320634920635,
+   "decodedClearSeconds": 0.0,
+   "decryptOk": 3451,
+   "decryptFail": {},
+   "decodeErr": 0,
+   "underruns": 0,
+   "rate": 44100
+  },
+  "licenseHosts": [
+   "play.itunes.apple.com"
+  ],
+  "schemes": [
+   "cenc"
+  ],
+  "endpoints": {
+   "GET https://aod-ssl.itunes.apple.com/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.rmhq.aac.wa.mp4": {
+    "sent": 43,
+    "statuses": {
+     "206": 43
+    }
+   },
+   "GET https://aod-ssl.itunes.apple.com/itunes-assets/Music211/v4/8e/50/b5/8e50b51f-7d42-0b31-182b-cfc483f7bdf8/mzaf_A6781024437.rphq.aac.wa.m3u8": {
+    "sent": 1,
+    "statuses": {
+     "200": 1
+    }
+   },
+   "GET https://aod-ssl.itunes.apple.com/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.rmhq.aac.wa.mp4": {
+    "sent": 16,
+    "statuses": {
+     "206": 16
+    }
+   },
+   "GET https://aod-ssl.itunes.apple.com/itunes-assets/Music211/v4/f4/89/df/f489dfdc-bca2-20ca-a6bd-305ae020b6dc/mzaf_A6781079518.rphq.aac.wa.m3u8": {
+    "sent": 1,
+    "statuses": {
+     "200": 1
+    }
+   },
+   "GET https://api.music.apple.com/v1/catalog/us/songs": {
+    "sent": 1,
+    "statuses": {
+     "200": 1
+    }
+   },
+   "GET https://api.music.apple.com/v1/me/account": {
+    "sent": 1,
+    "statuses": {
+     "200": 1
+    }
+   },
+   "GET https://api.music.apple.com/v1/me/storefront": {
+    "sent": 1,
+    "statuses": {
+     "200": 1
+    }
+   },
+   "GET https://play.itunes.apple.com/WebObjects/MZPlay.woa/wa/widevineCert": {
+    "sent": 1,
+    "statuses": {
+     "200": 1
+    }
+   },
+   "POST https://play.itunes.apple.com/WebObjects/MZPlay.woa/wa/acquireWebPlaybackLicense": {
+    "sent": 2,
+    "statuses": {
+     "200": 2
+    }
+   },
+   "POST https://play.itunes.apple.com/WebObjects/MZPlay.woa/wa/webPlayback": {
+    "sent": 2,
+    "statuses": {
+     "200": 2
+    }
+   },
+   "POST https://universal-activity-service.itunes.apple.com/play": {
+    "sent": 7,
+    "statuses": {
+     "200": 7
+    }
+   }
+  },
+  "landings": {
+   "pausedAt": 78.62195,
+   "after4s": 78.62195,
+   "seeked": 120.0,
+   "resumedAt": 120.2,
+   "resumed5s": 125.191995,
+   "nextAt": 0.2,
+   "next8s": 7.581337
+  },
+  "scripts": [
+   {
+    "url": "https://js-cdn.music.apple.com/musickit/v3/musickit.js",
+    "phase": "evaluated",
+    "fetchedBytes": 614800,
+    "evaluatedBytes": 614800,
+    "fetchedSha256": "21908b72bdcdeea3ec91fa40b105d0b9a2ba07c2a3fe32ea77edcd26e735012c",
+    "evaluatedSha256": "21908b72bdcdeea3ec91fa40b105d0b9a2ba07c2a3fe32ea77edcd26e735012c",
+    "error": null
+   }
+  ],
+  "exitedEarly": 0,
+  "pauseWallSec": 80.22120267
+ },
+ "routing": {
+  "pid": 2228249,
+  "streams": [
+   {
+    "id": 77,
+    "name": "bramley-musickit",
+    "app": "bramley-musickit"
+   }
+  ],
+  "targets": [
+   "musickit-measure-null"
+  ]
+ }
+}
