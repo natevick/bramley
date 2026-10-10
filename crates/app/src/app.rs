@@ -130,17 +130,17 @@ impl App {
 
     fn answer_requests(&mut self, ctx: &egui::Context) -> bool {
         let mut any = false;
-        while let Ok((request, reply)) = self.inbox.try_recv() {
+        while let Ok((request, deadline, reply)) = self.inbox.try_recv() {
             any = true;
             if request == Request::Show {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             }
-            let refused = cli::command(&mut self.playback, request);
+            let outcome = cli::command(&mut self.playback, request, deadline);
             let mut answer = self.status_json();
-            if let Some(why) = refused {
-                answer["refused"] = json!(why);
+            if let Some((key, why)) = outcome {
+                answer[key] = json!(why);
             }
             let _ = reply.send(answer.to_string());
         }

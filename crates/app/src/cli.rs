@@ -1,7 +1,7 @@
 use std::io::{ErrorKind, Write};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use fastframe_instance::Slot;
@@ -14,7 +14,9 @@ pub const USAGE: i32 = 2;
 pub const NOT_RUNNING: i32 = 3;
 pub const UNAVAILABLE: i32 = 4;
 pub const REFUSED: i32 = 5;
+const APPLY_TIME: Duration = Duration::from_secs(3);
 const ANSWER_TIME: Duration = Duration::from_secs(4);
+const LATE: &str = "the app did not answer in time; the command was not applied";
 const COMMANDS: &str = "usage: bramley [play [id] | pause | toggle | next | prev | seek <seconds> | volume <0-100> | now | queue add <id> | search <term>]";
 
 #[derive(Clone, Debug, PartialEq)]
@@ -26,7 +28,8 @@ pub enum Request {
     Do(Action),
 }
 
-pub type Inbox = Receiver<(Request, Sender<String>)>;
+pub type Envelope = (Request, Instant, Sender<String>);
+pub type Inbox = Receiver<Envelope>;
 
 pub fn is_command(args: &[String]) -> bool {
     args.first().is_some_and(|first| !first.starts_with('-'))
@@ -84,13 +87,18 @@ pub fn client(slot: &Slot, args: &[String], out: &mut impl Write, err: &mut impl
         Ok(reply) => {
             let _ = writeln!(out, "{reply}");
             let parsed = serde_json::from_str::<Value>(&reply).unwrap_or_default();
-            match parsed["refused"].as_str() {
-                Some(why) => fail(REFUSED, why),
-                None => 0,
+            match (parsed["refused"].as_str(), parsed["error"].as_str()) {
+                (Some(why), _) => fail(REFUSED, why),
+                (None, Some(why)) => fail(1, why),
+                (None, None) => 0,
             }
         }
         Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::ConnectionRefused) => {
-            fail(NOT_RUNNING, "Bramley is not running; start it first")
+            let dir = slot.dir().display();
+            fail(
+                NOT_RUNNING,
+                &format!("Bramley is not running (nothing at {dir}); start it first"),
+            )
         }
         Err(e) => fail(
             1,
@@ -100,37 +108,45 @@ pub fn client(slot: &Slot, args: &[String], out: &mut impl Write, err: &mut impl
 }
 
 pub fn handler(
-    inbox: Sender<(Request, Sender<String>)>,
+    inbox: Sender<Envelope>,
     waker: Arc<OnceLock<egui::Context>>,
 ) -> impl FnMut(&str) -> Option<String> + Send + 'static {
     move |line| {
         let args: Vec<String> = serde_json::from_str(line).ok()?;
         let request = parse(&args).ok()?;
         let (reply, answer) = channel();
-        inbox.send((request, reply)).ok()?;
+        inbox
+            .send((request, Instant::now() + APPLY_TIME, reply))
+            .ok()?;
         if let Some(ctx) = waker.get() {
             ctx.request_repaint();
         }
         Some(
-            answer.recv_timeout(ANSWER_TIME).unwrap_or_else(|_| {
-                json!({"refused": "the app did not answer in time"}).to_string()
-            }),
+            answer
+                .recv_timeout(ANSWER_TIME)
+                .unwrap_or_else(|_| json!({ "error": LATE }).to_string()),
         )
     }
 }
 
-pub fn command(playback: &mut Playback, request: Request) -> Option<&'static str> {
+pub fn command(
+    playback: &mut Playback,
+    request: Request,
+    deadline: Instant,
+) -> Option<(&'static str, &'static str)> {
+    let refused = |why| Some(("refused", why));
     let action = match request {
+        _ if Instant::now() > deadline => return Some(("error", LATE)),
         Request::Show | Request::Now => return None,
-        Request::Search(_) => return Some("search is not yet available in this build"),
+        Request::Search(_) => return refused("search is not yet available in this build"),
         Request::Toggle => play_or_pause(playback.shown().state),
         Request::Do(action) => action,
     };
     if playback.apply(action) {
         None
     } else if playback.banner() == Some(Banner::SignInNeeded) {
-        Some("sign in needed: nothing was played")
+        refused("sign in needed: nothing was played")
     } else {
-        Some("nothing is playing; start a song with bramley play <id>")
+        refused("nothing is playing; start a song with bramley play <id>")
     }
 }

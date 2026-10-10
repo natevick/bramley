@@ -340,10 +340,13 @@ fn fake_app(
         let _guard = guard;
         let (mut p, ends) = fake(signed_out);
         for _ in 0..requests {
-            let (request, reply) = inbox.recv_timeout(Duration::from_secs(5)).unwrap();
+            let (request, deadline, reply) = inbox.recv_timeout(Duration::from_secs(5)).unwrap();
             p.receive();
-            let refused = crate::cli::command(&mut p, request);
-            let answer = serde_json::json!({"seq": p.seq(), "refused": refused});
+            let outcome = crate::cli::command(&mut p, request, deadline);
+            let mut answer = serde_json::json!({ "seq": p.seq() });
+            if let Some((key, why)) = outcome {
+                answer[key] = serde_json::json!(why);
+            }
             reply.send(answer.to_string()).unwrap();
         }
         let sent = ends.borrow().first().map(|e| e.0.try_iter().collect());
@@ -457,4 +460,24 @@ fn cli_play_while_signed_out_is_refused_and_spawns_nothing() {
     );
     assert!(err.contains("sign in needed"), "{err}");
     assert_eq!(app.join().unwrap(), (0, Vec::new()));
+}
+
+#[test]
+fn a_command_past_its_deadline_is_never_applied_and_reports_an_error() {
+    use crate::cli::{Request, command};
+    let (mut p, ends) = fake(false);
+    p.apply(Action::PlaySong("42".into()));
+    p.receive();
+    let late = Instant::now() - Duration::from_millis(1);
+    let outcome = command(&mut p, Request::Do(Action::Pause), late);
+    assert_eq!(outcome.map(|(key, _)| key), Some("error"));
+    let sent: Vec<Command> = ends.borrow()[0].0.try_iter().collect();
+    assert_eq!((p.seq(), sent.len()), (2, 2));
+    let slot = slot("late");
+    let fastframe_instance::Claim::First(_guard) =
+        slot.claim("[]", |_| Some(r#"{"seq":2,"error":"late"}"#.to_owned()))
+    else {
+        panic!("the test slot is already held");
+    };
+    assert_eq!(run(&slot, "pause").0, 1);
 }
