@@ -41,6 +41,25 @@ Conditions:
 - **Playing:** 180.2 MiB, with no covers. S2c owns the 200 gate.
 - **Fonts:** fastframe-fonts still reads the 25 fallback faces into the heap. S0's mmap fix is on no remote yet, so it is not pinned here.
 
+## Round 2, after review (2026-10-10)
+Same harness, rebuilt binaries: `panic = "unwind"`, the boot and status threads, and the verdict rules from the PREREG addendum.
+
+| Check | Verdict | Evidence |
+|---|---|---|
+| 1. Guard | PASS | 0 / 1 `app/dev` / 1 `app/dev engine/diagnostics engine/sabotage`; release `--play` refused; release binary 18.6 MB (was 17.0 with abort) |
+| 2. Idle screenshot | PASS | 1100×720, 113 sampled colours |
+| 3. Playing screenshot, `--after 45` | PASS | `Playing`, position 43.1 s, no banner, routed only to the null sink |
+| 4. PSS idle | PASS | **82.3 MiB** median, 0 player threads |
+| 5. PSS playing | recorded | **182.5 MiB** median (max 182.6), position 79.0 s |
+
+Controls:
+- **A, empty token dir: FAIL**, as registered. The banner is shown, the position stays below 35 s, and there are 0 player threads.
+- **A2, rejected user token: FAIL.** Polling at 50 ms shows the player thread alive for about 0.45 s. It is refused, the app shuts the engine down, and the thread exits.
+- **B, llvmpipe: VOID.**
+- **C:** spawning in `Playback::new` fails the lazy-start tests, and `applied + 1 >= seq` fails the hold tests. Nine more single-line mutations each fail the test named for their fix.
+
+The memory moved about +1 and +2 MiB against round 1. That is within acceptance.md's noted 10–20 MiB drift between sessions. No reference binary was measured in this session.
+
 ## Re-run
 ```
 cargo build --release -p bramley

@@ -55,13 +55,15 @@ def main():
         sink = f('sink-name').read_text().strip() if f('sink-name').exists() else None
         routing = json.loads(f('routing.json').read_text()) if f('routing.json').exists() else {}
         facts['routing'] = routing.get('targets')
-        if not sink or routing.get('targets') != [sink]: void.append(f'audio not routed only to the null sink: {routing.get("targets")}')
         if f('default-before').read_text() != f('default-after').read_text(): void.append('default sink changed')
         if f('sink-after').read_text().strip() != 'gone': void.append('null sink left behind')
         playing = [r['status'] for r in rows if r['status'].get('state') == 'Playing' and (r['status'].get('position') or 0) > 0]
+        started = len(playing) >= 2 and playing[-1]['position'] > playing[0]['position']
+        if started and (not sink or routing.get('targets') != [sink]): void.append(f'audio not routed only to the null sink: {routing.get("targets")}')
+        if (final or {}).get('banner') is not None: fail.append(f"banner shown: {final['banner']}")
         facts.update(finalState=(final or {}).get('state'), finalPosition=(final or {}).get('position'), itemId=(final or {}).get('itemId'), banner=(final or {}).get('banner'))
-        if not final or final.get('state') != 'Playing' or (final.get('position') or 0) <= 15 or final.get('itemId') != '6781024437':
-            fail.append('not playing 6781024437 past 15 s')
+        if not final or final.get('state') != 'Playing' or (final.get('position') or 0) <= 35 or final.get('itemId') != '6781024437':
+            fail.append('not playing 6781024437 past 35 s')
         if final and final.get('applied', 0) < final.get('seq', 1): fail.append('final state is optimistic: applied < seq')
         if len(playing) < 2 or playing[-1]['position'] - playing[0]['position'] < 2: fail.append('position did not advance')
     verdict = 'VOID' if void else 'FAIL' if fail else 'PASS'

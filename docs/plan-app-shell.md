@@ -55,6 +55,7 @@ Nate's order holds; **no hard dependency problem**. S2 is split a/b/c to fit one
 - **Risk:** weston presents only one frame without damage, so repaint every second.
 - **Nate sees:** the bar mid-song.
 - **Budget** 400/120/0. **Deps:** S0, S1b.
+- **Deviation (2026-10-10, coordinator's call):** no hard-coded Play button and `--play` is dev-only; the release build's first user-initiated play path is S11's CLI.
 
 ## S2b. Cover grid and cache policy
 - **What:** 50 covers from `/v1/catalog/us/charts?types=albums&limit=50`.

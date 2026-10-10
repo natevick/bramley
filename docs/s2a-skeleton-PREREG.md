@@ -51,3 +51,11 @@ Every run uses weston headless with `--renderer=gl` under `sg render`, at 1100×
 ## Named false positives
 - **A frozen position:** a "Playing" state with a frozen position is not playback. The position must advance between two status reads ≥ 2 s apart.
 - **VRAM:** textures in VRAM do not show in PSS. This build has no textures beyond the font atlas.
+
+## Addendum, 2026-10-10 (after review; the text above is unchanged)
+- **Control C as run:** the lazy-start mutation spawned in `Playback::new`, not `App::new`. No unit test constructs `App`. Only the idle run's thread watch would catch a spawn there.
+- **Control A collided with did-it-run:** the routing rule made a run with no stream VOID, so A could never read FAIL. Per acceptance.md (clarified the same day), the routing VOID now applies only once playback has started: Playing, with the position advancing. A must now read FAIL.
+- **Check 3 is tightened:**
+  - It FAILs on any non-null banner.
+  - Position must be > 35 s (F4's bar, above a 30 s preview), not > 15.
+  - The playing screenshot is taken with `--after 45`.
