@@ -1,0 +1,66 @@
+{
+ "commit": "c63ce73c328a8c73c1a9ccf986921484474b3dff",
+ "dirty": false,
+ "llvmpipeForced": true,
+ "binaries": {
+  "bramley": "fcaa23f59f1846f5",
+  "bramley-ballast": "0cf36ad41894fea1",
+  "bramley-dev": "526b5ce52c1f14e3"
+ },
+ "reference": {
+  "binary": "bramley-main-4961e27",
+  "sha256": "1a72eb4b2880ac5a",
+  "recordedPss": 83.3,
+  "pss": 79.5,
+  "uss": 61.2,
+  "rss": 103.3
+ },
+ "R1": {
+  "verdict": "VOID",
+  "reasons": [
+   "shipped renderer is not radeonsi: ['llvmpipe (LLVM 21.1.8, 256 bits)']"
+  ],
+  "bar": 200.0,
+  "pss": 190.5,
+  "uss": 172.3,
+  "rss": 214.2
+ },
+ "R2": {
+  "verdict": "VOID",
+  "reasons": [
+   "shipped renderer is not radeonsi: ['llvmpipe (LLVM 21.1.8, 256 bits)']"
+  ],
+  "bar": 100.0,
+  "pss": 92.2,
+  "uss": 72.5,
+  "rss": 117.2
+ },
+ "errors": {},
+ "screenshotExists": true,
+ "vramDeltaMiB": 0.0,
+ "ballast": {
+  "verdict": "VOID",
+  "reasons": [
+   "ballast renderer is not radeonsi: ['llvmpipe (LLVM 21.1.8, 256 bits)']",
+   "PSS median 200.3 > 200.0"
+  ],
+  "bar": 200.0,
+  "pss": 200.3,
+  "uss": 185.6,
+  "rss": 239.6,
+  "ballastMiB": 25,
+  "expectedMiB": 25,
+  "holds": false,
+  "thresholdOnly": false,
+  "landedWithinBand": false,
+  "failsShippedCheck": true,
+  "sizedFromThisRun": true
+ },
+ "llvmpipeControl": {
+  "holds": true,
+  "renderers": [
+   "llvmpipe (LLVM 21.1.8, 256 bits)"
+  ]
+ },
+ "gate": "VOID"
+}

@@ -1,0 +1,55 @@
+{
+ "commit": "c63ce73c328a8c73c1a9ccf986921484474b3dff",
+ "dirty": false,
+ "llvmpipeForced": false,
+ "binaries": {
+  "bramley": "fcaa23f59f1846f5",
+  "bramley-ballast": "0cf36ad41894fea1",
+  "bramley-dev": "526b5ce52c1f14e3"
+ },
+ "reference": {
+  "binary": "bramley-main-4961e27",
+  "sha256": "1a72eb4b2880ac5a",
+  "recordedPss": 83.3,
+  "pss": 79.5,
+  "uss": 61.2,
+  "rss": 103.3
+ },
+ "R1": {
+  "verdict": "PASS",
+  "reasons": [],
+  "bar": 200.0,
+  "pss": 161.0,
+  "uss": 142.7,
+  "rss": 185.0
+ },
+ "R2": {
+  "verdict": "PASS",
+  "reasons": [],
+  "bar": 100.0,
+  "pss": 63.8,
+  "uss": 45.5,
+  "rss": 87.8
+ },
+ "errors": {},
+ "screenshotExists": true,
+ "vramDeltaMiB": 0.0,
+ "ballast": {
+  "verdict": "FAIL",
+  "reasons": [
+   "PSS median 215.7 > 200.0"
+  ],
+  "bar": 200.0,
+  "pss": 215.7,
+  "uss": 197.5,
+  "rss": 239.8,
+  "ballastMiB": 54,
+  "expectedMiB": 54,
+  "holds": true,
+  "thresholdOnly": true,
+  "landedWithinBand": true,
+  "failsShippedCheck": true,
+  "sizedFromThisRun": true
+ },
+ "gate": "PASS"
+}
