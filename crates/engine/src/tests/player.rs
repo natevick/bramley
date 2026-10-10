@@ -204,7 +204,7 @@ fn snapshots_use_native_time_and_map_errors_redacted() {
     let f = fake.clone();
     let (tx, rx, _) = spawn_fake(move || Ok(f), SNAPSHOT_EVERY);
     fake.set(
-        json!({"playbackState": 3, "currentPlaybackTime": 9, "applied": 3, "previewOnly": true, "item": {"id": "1", "title": "T", "durationInMillis": 354000}}),
+        json!({"playbackState": 3, "currentPlaybackTime": 9, "applied": 3, "previewOnly": true, "item": {"id": "1", "title": "T", "artistName": format!("A {SECRET}"), "durationInMillis": 354000}}),
         Some(9.876),
     );
     let s = wait_for(&rx, |s| s.item_id.is_some());
@@ -212,6 +212,7 @@ fn snapshots_use_native_time_and_map_errors_redacted() {
         (s.title.as_deref(), s.position, s.duration, s.state, s.error),
         (Some("T"), Some(9.876), Some(354.0), PlayState::Paused, None)
     );
+    assert_eq!(s.artist.as_deref(), Some("A <redacted>"));
     assert_eq!((s.applied, s.preview_only), (3, true));
     let cases = [
         (

@@ -96,7 +96,7 @@
     r.currentPlaybackTime = g(() => m.currentPlaybackTime);
     r.currentPlaybackDuration = g(() => m.currentPlaybackDuration);
     r.queuePosition = g(() => m.queue.position);
-    r.item = g(() => m.nowPlayingItem && { id: m.nowPlayingItem.id, title: m.nowPlayingItem.title, durationInMillis: m.nowPlayingItem.attributes && m.nowPlayingItem.attributes.durationInMillis });
+    r.item = g(() => m.nowPlayingItem && { id: m.nowPlayingItem.id, title: m.nowPlayingItem.title, artistName: m.nowPlayingItem.artistName, durationInMillis: m.nowPlayingItem.attributes && m.nowPlayingItem.attributes.durationInMillis });
     return r;
   };
   Object.defineProperty(globalThis, "__player", {

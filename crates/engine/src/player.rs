@@ -95,6 +95,7 @@ pub struct Diagnostics {
 pub struct Snapshot {
     pub item_id: Option<String>,
     pub title: Option<String>,
+    pub artist: Option<String>,
     pub position: Option<f64>,
     pub duration: Option<f64>,
     pub state: PlayState,
@@ -321,6 +322,7 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
     Snapshot {
         item_id: text(&js["item"]["id"]),
         title: text(&js["item"]["title"]),
+        artist: text(&js["item"]["artistName"]),
         position: b.current_time(),
         duration: js["item"]["durationInMillis"]
             .as_f64()
