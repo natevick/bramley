@@ -11,6 +11,9 @@ fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.4.1" }
 fastframe-theme = { git = "https://github.com/crmne/fastframe", tag = "v0.4.1" }
 fastframe-icons = { git = "https://github.com/crmne/fastframe", tag = "v0.4.1" }
 fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.4.1" }
+fastframe-emoji = { git = "https://github.com/crmne/fastframe", tag = "v0.4.1" }
+log = "0.4"
+memmap2 = "0.9"
 
 [profile.release]
 lto = "thin"

@@ -1,0 +1,131 @@
+{
+ "name": "3a-gpu-themetext-s0-r2",
+ "cmd": [
+  "/home/norm/projects/Personal/bramley-wt-s0/spikes/03-native-cdm-and-ui/ui-baseline/target/release/themetext"
+ ],
+ "exitedEarly": null,
+ "samples": 15,
+ "pssMedMiB": 61.4,
+ "pssMaxMiB": 61.4,
+ "rssMedMiB": 93.7,
+ "rssMaxMiB": 93.7,
+ "ussMedMiB": 34.6,
+ "ussMaxMiB": 34.6,
+ "procCountMin": 1,
+ "lastPer": [
+  {
+   "pid": 2989118,
+   "comm": "themetext",
+   "pssKiB": 62915,
+   "rssKiB": 95940,
+   "ussKiB": 35436
+  }
+ ],
+ "samplesRaw": [
+  {
+   "pssKiB": 62923,
+   "rssKiB": 95956,
+   "ussKiB": 35436,
+   "count": 1,
+   "t": 5.03
+  },
+  {
+   "pssKiB": 62923,
+   "rssKiB": 95956,
+   "ussKiB": 35436,
+   "count": 1,
+   "t": 7.06
+  },
+  {
+   "pssKiB": 62923,
+   "rssKiB": 95956,
+   "ussKiB": 35436,
+   "count": 1,
+   "t": 9.09
+  },
+  {
+   "pssKiB": 62915,
+   "rssKiB": 95940,
+   "ussKiB": 35436,
+   "count": 1,
+   "t": 11.11
+  },
+  {
+   "pssKiB": 62915,
+   "rssKiB": 95940,
+   "ussKiB": 35436,
+   "count": 1,
+   "t": 13.14
+  },
+  {
+   "pssKiB": 62915,
+   "rssKiB": 95940,
+   "ussKiB": 35436,
+   "count": 1,
+   "t": 15.17
+  },
+  {
+   "pssKiB": 62915,
+   "rssKiB": 95940,
+   "ussKiB": 35436,
+   "count": 1,
+   "t": 17.2
+  },
+  {
+   "pssKiB": 62915,
+   "rssKiB": 95940,
+   "ussKiB": 35436,
+   "count": 1,
+   "t": 19.23
+  },
+  {
+   "pssKiB": 62915,
+   "rssKiB": 95940,
+   "ussKiB": 35436,
+   "count": 1,
+   "t": 21.27
+  },
+  {
+   "pssKiB": 62915,
+   "rssKiB": 95940,
+   "ussKiB": 35436,
+   "count": 1,
+   "t": 23.3
+  },
+  {
+   "pssKiB": 62915,
+   "rssKiB": 95940,
+   "ussKiB": 35436,
+   "count": 1,
+   "t": 25.34
+  },
+  {
+   "pssKiB": 62915,
+   "rssKiB": 95940,
+   "ussKiB": 35436,
+   "count": 1,
+   "t": 27.39
+  },
+  {
+   "pssKiB": 62915,
+   "rssKiB": 95940,
+   "ussKiB": 35436,
+   "count": 1,
+   "t": 29.43
+  },
+  {
+   "pssKiB": 62915,
+   "rssKiB": 95940,
+   "ussKiB": 35436,
+   "count": 1,
+   "t": 31.46
+  },
+  {
+   "pssKiB": 62915,
+   "rssKiB": 95940,
+   "ussKiB": 35436,
+   "count": 1,
+   "t": 33.5
+  }
+ ]
+}

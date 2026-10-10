@@ -175,7 +175,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
  "x11rb",
 ]
 
@@ -681,7 +681,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -926,7 +926,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -962,6 +962,24 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
  "pin-project-lite",
+]
+
+[[package]]
+name = "fastframe-emoji"
+version = "0.4.1"
+source = "git+https://github.com/crmne/fastframe?tag=v0.4.1#23d87e048185ef317f272e2a67416f516b2f2b04"
+dependencies = [
+ "egui",
+ "fastframe-fonts",
+ "harfrust",
+ "log",
+ "memmap2",
+ "png",
+ "skrifa",
+ "unicode-segmentation",
+ "windows",
+ "windows-core",
+ "windows-numerics",
 ]
 
 [[package]]
@@ -2482,7 +2500,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2763,7 +2781,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2917,10 +2935,13 @@ version = "0.0.0"
 dependencies = [
  "eframe",
  "egui",
+ "fastframe-emoji",
  "fastframe-fonts",
  "fastframe-icons",
  "fastframe-text",
  "fastframe-theme",
+ "log",
+ "memmap2",
 ]
 
 [[package]]
@@ -3364,7 +3385,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

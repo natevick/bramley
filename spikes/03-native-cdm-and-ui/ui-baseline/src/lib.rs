@@ -1,6 +1,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
+pub mod variant;
+
 pub static FRAMES: AtomicU64 = AtomicU64::new(0);
 
 fn gl_strings(gl: &eframe::glow::Context) -> (String, String) {
@@ -29,5 +31,25 @@ pub fn options() -> eframe::NativeOptions {
     eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([1100.0, 720.0]).with_title("spike3a"),
         ..Default::default()
+    }
+}
+
+struct StderrLog;
+
+impl log::Log for StderrLog {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= log::Level::Info && metadata.target().starts_with("fastframe")
+    }
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata()) {
+            eprintln!("LOG {} {}: {}", record.level(), record.target(), record.args());
+        }
+    }
+    fn flush(&self) {}
+}
+
+pub fn install_logger() {
+    if log::set_logger(&StderrLog).is_ok() {
+        log::set_max_level(log::LevelFilter::Info);
     }
 }
