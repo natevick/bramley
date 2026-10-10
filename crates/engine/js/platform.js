@@ -409,7 +409,7 @@
     get ownerDocument() { return document; }
     get isConnected() { let n = this; while (n) { if (n === document) return true; n = n.parentNode; } return false; }
     appendChild(c) { hc("Node.appendChild"); if (c instanceof DocumentFragment) { for (const k of c.childNodes.slice()) this.appendChild(k); return c; } if (c.parentNode) c.parentNode.removeChild(c); this.childNodes.push(c); c.parentNode = this; if (c.isConnected) connected(c); return c; }
-    insertBefore(c, ref) { if (!ref || c instanceof DocumentFragment) return this.appendChild(c); if (c.parentNode) c.parentNode.removeChild(c); const i = this.childNodes.indexOf(ref); this.childNodes.splice(i < 0 ? this.childNodes.length : i, 0, c); c.parentNode = this; if (c.isConnected) connected(c); return c; }
+    insertBefore(c, ref) { if (!ref) return this.appendChild(c); if (c instanceof DocumentFragment) { for (const k of c.childNodes.slice()) this.insertBefore(k, ref); return c; } if (c.parentNode) c.parentNode.removeChild(c); const i = this.childNodes.indexOf(ref); this.childNodes.splice(i < 0 ? this.childNodes.length : i, 0, c); c.parentNode = this; if (c.isConnected) connected(c); return c; }
     removeChild(c) { const i = this.childNodes.indexOf(c); if (i >= 0) this.childNodes.splice(i, 1); c.parentNode = null; return c; }
     remove() { if (this.parentNode) this.parentNode.removeChild(this); }
     contains(n) { while (n) { if (n === this) return true; n = n.parentNode; } return false; }
@@ -758,9 +758,11 @@
     get timestampOffset() { return this._timestampOffset; }
     set timestampOffset(v) {
       hc("SourceBuffer.timestampOffset=");
+      v = Number(v);
+      if (!isFinite(v)) throw new TypeError("timestampOffset must be finite");
       this._checkSettable("timestampOffset");
       this._ms._reopen();
-      this._timestampOffset = Number(v);
+      this._timestampOffset = v;
     }
     get appendWindowStart() { return this._appendWindow[0]; }
     set appendWindowStart(v) {
@@ -803,6 +805,7 @@
           return;
         }
         if (r.init && this._ms && isNaN(this._ms._duration)) this._ms._durationChange(r.initDuration === null ? Infinity : r.initDuration);
+        if (r.frames && r.end !== null && this._ms && r.end > this._ms._duration) this._ms._durationChange(r.end);
         if (r.hasInitData) {
           const media = this._ms && this._ms._media;
           const initData = OP.sb_init_data(this._id);
@@ -1124,7 +1127,8 @@
   const xhrStats = { opened: 0, completed: 0, errors: 0, posts: 0, statuses: {}, endpoints: {} };
   function noteEndpoint(method, url, outcome) {
     const u = parseUrl(url);
-    const key = method + " " + (u ? u.protocol + "//" + u.hostname + u.pathname.replace(/[^/]{40,}/g, "…") : "?");
+    const web = u && (u.protocol === "https:" || u.protocol === "http:");
+    const key = method + " " + (web ? u.protocol + "//" + u.hostname + u.pathname.replace(/[^/]{40,}/g, "…") : u ? u.protocol : "?");
     if (!(key in xhrStats.endpoints) && Object.keys(xhrStats.endpoints).length >= 100) return;
     const e = xhrStats.endpoints[key] || (xhrStats.endpoints[key] = { sent: 0, statuses: {} });
     if (outcome === undefined) e.sent++;
@@ -1406,13 +1410,15 @@
       has(t, k) { note(t, k, null); return Reflect.has(t, k); },
     });
   }
-  Object.setPrototypeOf(G, missLogger("window"));
-  Object.setPrototypeOf(G.navigator, missLogger("navigator"));
-  Object.setPrototypeOf(EventTarget.prototype, missLogger(null));
+  function enableDiagnostics() {
+    Object.setPrototypeOf(G, missLogger("window"));
+    Object.setPrototypeOf(G.navigator, missLogger("navigator"));
+    Object.setPrototypeOf(EventTarget.prototype, missLogger(null));
+  }
 
   function statusJson() {
     return JSON.stringify({ hostCalls, unknown, uncaught, eme, xhr: xhrStats, pendingHttp: httpPending.size, timers: timers.size, tasks: tasks.length });
   }
 
-  Object.defineProperty(G, "__platform", { value: { runTimers, dispatchHttp, dispatchScript, dispatchCdm, dispatchMedia, statusJson }, enumerable: false });
+  Object.defineProperty(G, "__platform", { value: { runTimers, dispatchHttp, dispatchScript, dispatchCdm, dispatchMedia, statusJson, enableDiagnostics }, enumerable: false });
 })();

@@ -10,7 +10,7 @@ BIN="$ROOT/target/release/bramley-musickit"
 WARMUP="${WARMUP:-15}"; SAMPLE="${SAMPLE:-60}"
 CONTROLS_AT=$(( WARMUP + SAMPLE + 5 ))
 mkdir -p "$RESULTS" "$TMPDIR"
-(cd "$ROOT" && cargo build --release --quiet -p bramley-engine --bin bramley-musickit)
+(cd "$ROOT" && cargo build --release --quiet -p bramley-engine --bin bramley-musickit --features sabotage,diagnostics)
 STATUS="$RESULTS/$NAME.status.json"
 rm -f "$STATUS"
 setsid bash -c "{ echo 'create-node adapter { factory.name=support.null-audio-sink node.name=$SINK node.description=$SINK media.class=Audio/Sink audio.position=[FL FR] priority.session=0 priority.driver=0 object.linger=false }'; exec sleep 100000; } | pw-cli >/dev/null 2>&1" &

@@ -59,11 +59,10 @@ fn scripts_are_hashed_as_fetched_and_truncation_happens_in_memory_only() {
     let (port, server) = serve(2, body);
     let whole = "7bc9f8a048f0e862488c6ab3c26eb8c19118f79f836608d914c71467892e01dc";
     for truncate in [false, true] {
-        let config = crate::EngineConfig {
-            truncate_scripts: truncate,
-            ..Default::default()
-        };
-        let mut e = crate::Engine::new(config).unwrap();
+        let mut e = crate::Engine::new(crate::EngineConfig::default()).unwrap();
+        if truncate {
+            e.sabotage_truncate_scripts();
+        }
         e.eval_script("load.js", &format!("const s = document.createElement('script'); s.src = 'http://127.0.0.1:{port}/a.js'; s.onload = s.onerror = ev => {{ globalThis.outcome = ev.type; }}; document.head.appendChild(s);")).unwrap();
         for _ in 0..2000 {
             e.tick();
@@ -117,6 +116,18 @@ fn redact_removes_known_secrets_and_anything_jwt_shaped() {
         crate::redact(text, &secrets),
         "a <redacted> b <jwt>, eyJnot-a-jwt c"
     );
+}
+
+#[test]
+fn redact_catches_cut_and_percent_encoded_secrets() {
+    let secret = "abcdefghijklmnop+qrstu/vwxyz=".to_string();
+    let cut = format!("tail {}", &secret[..20]);
+    assert_eq!(
+        crate::redact(&cut, std::slice::from_ref(&secret)),
+        "tail <redacted>"
+    );
+    let encoded = "q=abcdefghijklmnop%2Bqrstu%2Fvwxyz%3D&x";
+    assert_eq!(crate::redact(encoded, &[secret]), "q=<redacted>&x");
 }
 
 #[test]

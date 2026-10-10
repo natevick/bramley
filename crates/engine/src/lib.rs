@@ -25,7 +25,6 @@ pub struct EngineConfig {
     pub audio_sink_name: String,
     pub output_device: Option<String>,
     pub redact: Vec<String>,
-    pub truncate_scripts: bool,
 }
 
 impl EngineConfig {
@@ -51,16 +50,19 @@ impl Default for EngineConfig {
             audio_sink_name: "engine".into(),
             output_device: None,
             redact: Vec::new(),
-            truncate_scripts: false,
         }
     }
 }
 
 pub fn redact(text: &str, secrets: &[String]) -> String {
-    let mut out = secrets
-        .iter()
-        .filter(|s| !s.is_empty())
-        .fold(text.to_string(), |t, s| t.replace(s.as_str(), "<redacted>"));
+    let mut out = text.to_string();
+    for secret in secrets.iter().filter(|s| !s.is_empty()) {
+        let encoded = secret
+            .replace('+', "%2B")
+            .replace('/', "%2F")
+            .replace('=', "%3D");
+        mask_from_prefix(&mut out, &[secret, &encoded]);
+    }
     let jwt_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.');
     let mut from = 0;
     while let Some(i) = out[from..].find("eyJ").map(|i| i + from) {
@@ -73,6 +75,28 @@ pub fn redact(text: &str, secrets: &[String]) -> String {
         }
     }
     out
+}
+
+fn mask_from_prefix(text: &mut String, forms: &[&str]) {
+    const MIN_PREFIX: usize = 16;
+    for head in forms.iter().map(|f| f.get(..MIN_PREFIX).unwrap_or(f)) {
+        let mut from = 0;
+        while let Some(i) = text[from..].find(head).map(|i| i + from) {
+            let len = forms
+                .iter()
+                .map(|f| {
+                    text[i..]
+                        .bytes()
+                        .zip(f.bytes())
+                        .take_while(|(a, b)| a == b)
+                        .count()
+                })
+                .max()
+                .unwrap_or(0);
+            text.replace_range(i..i + len, "<redacted>");
+            from = i + "<redacted>".len();
+        }
+    }
 }
 
 #[cfg(test)]

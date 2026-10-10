@@ -223,21 +223,25 @@ fn set_server_certificate_reaches_the_cdm_and_rejects_an_empty_one() {
 }
 
 #[test]
-fn eme_check_grants_avc1_video_only_at_sw_secure_crypto() {
+fn eme_check_grants_video_only_for_exactly_avc1_42e01e_at_sw_secure_crypto() {
     let config = |codec: &str, robustness: &str| {
         format!(
             r#"[{{"initDataTypes":["keyids","cenc"],"distinctiveIdentifier":"optional","persistentState":"required","videoCapabilities":[{{"contentType":"video/mp4;codecs=\"{codec}\"","robustness":"{robustness}"}}],"audioCapabilities":[{{"contentType":"audio/mp4;codecs=\"mp4a.40.2\""}}]}}]"#
         )
     };
-    for robustness in ["SW_SECURE_CRYPTO", ""] {
-        let granted = eme_check("com.widevine.alpha", &config("avc1.42E01E", robustness))
-            .unwrap_or_else(|| panic!("{robustness:?} refused"));
-        assert_eq!(
-            granted["videoCapabilities"][0]["contentType"],
-            "video/mp4;codecs=\"avc1.42E01E\""
-        );
-    }
+    let granted = eme_check(
+        "com.widevine.alpha",
+        &config("avc1.42E01E", "SW_SECURE_CRYPTO"),
+    )
+    .unwrap();
+    assert_eq!(
+        granted["videoCapabilities"][0]["contentType"],
+        "video/mp4;codecs=\"avc1.42E01E\""
+    );
     for (codec, robustness) in [
+        ("avc1.42E01E", ""),
+        ("mp4a.40.2", "SW_SECURE_CRYPTO"),
+        ("avc1.42E01E,mp4a.40.2", "SW_SECURE_CRYPTO"),
         ("avc1.42E01E", "SW_SECURE_DECODE"),
         ("avc1.42E01E", "HW_SECURE_CRYPTO"),
         ("avc1.42E01E", "HW_SECURE_ALL"),
@@ -257,9 +261,10 @@ fn can_play_type_answers_maybe_only_for_avc1_mp4_video() {
     use crate::eme::can_play_type;
     for (t, answer) in [
         ("audio/mp4; codecs=\"mp4a.40.2\"", "probably"),
-        ("video/mp4", "maybe"),
+        ("video/mp4", ""),
         ("video/mp4;codecs=\"avc1.42E01E\"", "maybe"),
-        ("video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\"", "maybe"),
+        ("video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\"", ""),
+        ("video/mp4;codecs=\"mp4a.40.2\"", ""),
         ("video/mp4;codecs=\"avc1.640028\"", ""),
         ("video/mp4;codecs=\"hev1.1.6.L93.B0\"", ""),
         ("video/webm;codecs=\"vp9\"", ""),

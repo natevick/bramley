@@ -300,7 +300,7 @@ fn plays_widevine_cbcs_audio_end_to_end_into_a_null_sink() {
     );
 }
 
-#[cfg(bramley_tokens)]
+#[cfg(all(bramley_tokens, feature = "sabotage", feature = "diagnostics"))]
 #[test]
 #[ignore = "plays a full Apple Music song through unmodified musickit.js and the real CDM into a PipeWire null sink"]
 fn plays_a_full_apple_music_song_through_musickit_js() {
@@ -320,6 +320,10 @@ fn plays_a_full_apple_music_song_through_musickit_js() {
     );
     let script = &s["scripts"][1];
     assert_eq!(script["phase"], "evaluated", "{script}");
+    assert_eq!(
+        script["url"],
+        "https://js-cdn.music.apple.com/musickit/v3/musickit.js"
+    );
     assert_eq!(script["fetchedSha256"], script["evaluatedSha256"]);
     let before_controls = &s["controls"]["beforeControls"];
     let player = &s["controls"]["steps"][0]["js"];

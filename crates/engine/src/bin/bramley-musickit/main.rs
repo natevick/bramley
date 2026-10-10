@@ -16,6 +16,7 @@ struct Args {
     controls_at: Option<f64>,
     no_user_token: bool,
     corrupt_developer_token: bool,
+    truncate_musickit: bool,
 }
 
 fn parse_args() -> Result<Args> {
@@ -27,6 +28,7 @@ fn parse_args() -> Result<Args> {
         controls_at: None,
         no_user_token: false,
         corrupt_developer_token: false,
+        truncate_musickit: false,
     };
     a.config.audio_sink_name = "bramley-musickit".into();
     let mut it = std::env::args().skip(1);
@@ -42,7 +44,7 @@ fn parse_args() -> Result<Args> {
             "--controls-at" => a.controls_at = Some(value()?.parse()?),
             "--no-user-token" => a.no_user_token = true,
             "--corrupt-developer-token" => a.corrupt_developer_token = true,
-            "--truncate-musickit" => a.config.truncate_scripts = true,
+            "--truncate-musickit" => a.truncate_musickit = true,
             other => bail!("unknown arg {other}"),
         }
     }
@@ -154,6 +156,10 @@ fn main() -> Result<()> {
     let secrets = args.config.redact.clone();
     println!("PID {}", std::process::id());
     let mut engine = Engine::new(args.config.clone())?;
+    engine.enable_diagnostics();
+    if args.truncate_musickit {
+        engine.sabotage_truncate_scripts();
+    }
     let config = json!({"developerToken": presented, "userToken": user, "songs": args.songs, "musickitUrl": MUSICKIT_URL, "build": env!("CARGO_PKG_VERSION")});
     engine
         .eval_script(
@@ -172,6 +178,10 @@ fn main() -> Result<()> {
         let poll = controls.stage > 0 || last_status.elapsed() >= Duration::from_secs(1);
         if poll {
             let js = engine.eval_json("__player.state()")?;
+            if let Some(reason) = js["signInNeeded"].as_str() {
+                write_status(&engine, &args, &js, &controls, &samples, &secrets);
+                bail!("sign-in needed: {}", redact(reason, &secrets));
+            }
             if args.controls_at.is_some_and(|at| elapsed >= at) {
                 controls.advance(&engine, &js, start)?;
             }

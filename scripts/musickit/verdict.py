@@ -72,17 +72,27 @@ pause_wall = (steps.get("pause") or {}).get("wallSec", 1e9)
 pss = round(statistics.median(s["pssKiB"] for s in window) / 1024, 1) if window else None
 steady = len(window) >= 25 and pause_wall > warmup + sample
 checks["c5_steadyWindow"] = steady
+host_calls = (st.get("platform") or {}).get("hostCalls", {})
+preview_refused = any(k.startswith("HTMLMediaElement.unsupportedSrc:https://audio-ssl.itunes.apple.com") for k in host_calls)
 if not musickit_loaded or not st.get("samples"):
-    verdict = "VOID"
+    verdict, reason = "VOID", "musickit.js did not load"
 elif not all(checks.values()):
     verdict = "FAIL"
+    if player.get("signInNeeded"):
+        reason = "FAIL: sign-in needed (" + player["signInNeeded"] + "); no playback, so the 30 s preview guard was not exercised"
+    elif preview_refused:
+        reason = "FAIL: no playback (preview path unsupported); the 30 s preview guard was not exercised"
+    else:
+        reason = "FAIL: " + ", ".join(k for k, v in checks.items() if not v)
 else:
     verdict = "PASS" if pss <= PSS_PASS else "MARGINAL" if pss <= PSS_MARGINAL else "FAIL"
+    reason = verdict + ": all checks met, PSS median " + str(pss) + " MiB"
+codecs = sorted({(i.get("codec"), i.get("sampleRate")) for i in ((sb.get("init") or {}) for sb in (bc.get("sourceBuffers") or {}).values()) if i})
 print(json.dumps({
-    "name": m["name"], "verdict": verdict, "pssMedMiB": pss, "pssMaxMiB": round(max(s["pssKiB"] for s in window) / 1024, 1) if window else None, "windowSamples": len(window),
+    "name": m["name"], "verdict": verdict, "reason": reason, "pssMedMiB": pss, "pssMaxMiB": round(max(s["pssKiB"] for s in window) / 1024, 1) if window else None, "windowSamples": len(window),
     "checks": checks, "c6": c6, "appleRejections": apple_rejections,
     "detail": {
-        "phase": player.get("phase"), "errors": player.get("errors"), "isAuthorized": at_pause.get("isAuthorized"), "storefront": at_pause.get("storefrontId"), "item": at_pause.get("item"),
+        "phase": player.get("phase"), "errors": player.get("errors"), "isAuthorized": at_pause.get("isAuthorized"), "storefront": at_pause.get("storefrontId"), "item": at_pause.get("item"), "codecs": codecs, "signInNeeded": player.get("signInNeeded"),
         "maxCurrentPlaybackTime": max_cpt, "advanceLast10s": round(last[1] - ten_back[-1], 2) if ten_back else None,
         "native": {k: native.get(k) for k in ("decodedDecryptedSeconds", "decodedClearSeconds", "decryptOk", "decryptFail", "decodeErr", "underruns", "rate")},
         "licenseHosts": license_hosts, "schemes": schemes, "endpoints": endpoints,

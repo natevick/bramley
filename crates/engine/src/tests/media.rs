@@ -354,6 +354,28 @@ fn buffered_frames_decrypt_with_the_init_they_were_appended_under() {
 }
 
 #[test]
+fn seeking_to_a_new_init_never_prerolls_a_frame_of_the_old_one() {
+    let mut r = Rig::new(5, false);
+    let sb = r.sb();
+    protect(sb);
+    let split = *sb.frames.keys().nth(sb.frames.len() / 2).unwrap();
+    let mut old = (*sb.frames[&split].init).clone();
+    old.protection.as_mut().unwrap().kid = vec![8; 16];
+    let old = Rc::new(old);
+    for f in sb.frames.range_mut(..split).map(|(_, f)| f) {
+        f.init = old.clone();
+    }
+    r.cdm.0.borrow_mut().has_key = true;
+    r.m.set_keys(Some(KEYS));
+    r.m.play();
+    r.play_for(0.1);
+    assert!(r.m.waiting_for_key);
+    r.m.seek(split);
+    r.play_for(0.3);
+    assert!(!r.m.waiting_for_key && r.m.counters.decoded_decrypted_frames > 0);
+}
+
+#[test]
 fn seeking_before_metadata_sets_the_start_position_without_events() {
     let sink = FakeSink::default();
     let mut m = MediaEngine::new(Rc::new(move || Box::new(sink.clone())));

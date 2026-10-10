@@ -424,7 +424,7 @@ impl MediaEngine {
                 .range(..f.pts_us)
                 .next_back()
                 .map(|(_, p)| p)
-                .filter(|p| f.pts_us - p.end_us() <= GAP_US);
+                .filter(|p| f.pts_us - p.end_us() <= GAP_US && Rc::ptr_eq(&p.init, &f.init));
             self.cursor_us = preroll.unwrap_or(f).pts_us;
         }
         self.skip_until_us = t;

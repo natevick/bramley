@@ -347,6 +347,9 @@ fn source_buffer_setters_follow_mse_validation_and_the_window_filters_appends() 
             sb.abort();
             L("reset:" + sb.appendWindowStart + "," + sb.appendWindowEnd);
             t("offset-idle", () => { sb.timestampOffset = 5; });
+            t("offset-nan", () => { sb.timestampOffset = NaN; });
+            t("offset-infinite", () => { sb.timestampOffset = Infinity; });
+            L("offset:" + sb.timestampOffset);
         "#,
         ),
     );
@@ -363,7 +366,10 @@ fn source_buffer_setters_follow_mse_validation_and_the_window_filters_appends() 
             "window-while-updating:InvalidStateError",
             "buffered:true",
             "reset:0,Infinity",
-            "offset-idle:ok"
+            "offset-idle:ok",
+            "offset-nan:TypeError",
+            "offset-infinite:TypeError",
+            "offset:5"
         ]
     );
 }
@@ -400,6 +406,7 @@ fn media_elements_get_a_native_player_only_once_a_source_attaches() {
 #[test]
 fn unknown_globals_and_host_properties_are_logged() {
     let (mut e, sink) = engine();
+    e.enable_diagnostics();
     run(
         &mut e,
         &sink,
@@ -438,9 +445,14 @@ fn appending_a_document_fragment_moves_its_children() {
         f.appendChild(document.createElement("div"));
         document.body.appendChild(f);
         L(f.childNodes.length + ":" + document.body.childNodes.length + ":" + (document.querySelector('#mk-dialog') === d) + ":" + f.nodeType);
+        const g = document.createDocumentFragment();
+        const a = document.createElement("a"), b = document.createElement("b");
+        g.appendChild(a); g.appendChild(b);
+        document.body.insertBefore(g, d);
+        L(document.body.childNodes.map(n => n.localName).join(","));
     "#,
     );
-    assert_eq!(log, ["0:2:true:11"]);
+    assert_eq!(log, ["0:2:true:11", "a,b,div,div"]);
 }
 
 #[test]
@@ -493,4 +505,59 @@ fn the_first_init_segment_sets_a_nan_duration_so_remove_works() {
         ),
     );
     assert_eq!(log, ["durationchange", "duration-set:true", "removed:1.0"]);
+}
+
+#[test]
+fn host_objects_are_ordinary_objects_by_default() {
+    let (mut e, sink) = engine();
+    let log = run(
+        &mut e,
+        &sink,
+        r#"L(String([window, navigator, document.createElement("audio"), new MediaSource()].every(o => o instanceof Object && Object.prototype.isPrototypeOf(o))));"#,
+    );
+    assert_eq!(log, ["true"]);
+}
+
+#[test]
+fn appended_media_past_the_mvhd_duration_extends_it() {
+    let mut bytes = FIXTURE.to_vec();
+    let mvhd = bytes.windows(4).position(|w| w == b"mvhd").unwrap() + 4;
+    let timescale = u32::from_be_bytes(bytes[mvhd + 12..mvhd + 16].try_into().unwrap());
+    bytes[mvhd + 16..mvhd + 20].copy_from_slice(&timescale.to_be_bytes());
+    let (mut e, sink) = engine();
+    let log = run(
+        &mut e,
+        &sink,
+        &format!(
+            r#"
+            const ms = new MediaSource();
+            const audio = document.createElement("audio");
+            audio.src = URL.createObjectURL(ms);
+            await new Promise(r => ms.addEventListener("sourceopen", r, {{ once: true }}));
+            const sb = ms.addSourceBuffer('audio/mp4; codecs="mp4a.40.2"');
+            sb.appendBuffer(new Uint8Array("{}".match(/../g).map(h => parseInt(h, 16))));
+            await new Promise(r => sb.addEventListener("updateend", r, {{ once: true }}));
+            const end = sb.buffered.end(0);
+            L("duration-is-end:" + (ms.duration === end && end > 4));
+            sb.remove(1.5, 2);
+            await new Promise(r => sb.addEventListener("updateend", r, {{ once: true }}));
+            L("removed");
+        "#,
+            hex(&bytes)
+        ),
+    );
+    assert_eq!(log, ["duration-is-end:true", "removed"]);
+}
+
+#[test]
+fn endpoint_logging_records_only_the_scheme_of_data_urls() {
+    let (mut e, sink) = engine();
+    run(
+        &mut e,
+        &sink,
+        r#"await fetch("data:text/plain;base64,c2VjcmV0LXBheWxvYWQ="); L("fetched");"#,
+    );
+    let endpoints = e.status()["platform"]["xhr"]["endpoints"].clone();
+    let keys: Vec<&String> = endpoints.as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["GET data:"], "{endpoints}");
 }

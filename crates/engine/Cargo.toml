@@ -15,5 +15,14 @@ sha2 = "0.10"
 symphonia = { version = "0.5", default-features = false, features = ["aac"] }
 ureq = "3"
 
+[features]
+sabotage = []
+diagnostics = []
+
+[[bin]]
+name = "bramley-musickit"
+path = "src/bin/bramley-musickit/main.rs"
+required-features = ["sabotage", "diagnostics"]
+
 [build-dependencies]
 cc = "1"

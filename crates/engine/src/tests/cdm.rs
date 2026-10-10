@@ -25,35 +25,45 @@ fn retrying_a_library_without_cdm_exports_fails_cleanly_every_time() {
 #[cfg(target_os = "linux")]
 #[test]
 #[ignore = "needs the Chrome Widevine CDM installed"]
-fn real_cdm_initializes_and_answers_a_license_request_on_the_creating_thread() {
+fn real_cdm_initializes_and_answers_a_license_request_with_and_without_persistent_state() {
     use crate::cdm::CdmEvent;
-    let mut cdm = Widevine::create(&crate::EngineConfig::default_cdm_path(), false).unwrap();
-    let pssh: Vec<u8> = "000000327073736800000000edef8ba979d64acea3c827dcd51d21ed000000121210\
+    for allow_persistent_state in [false, true] {
+        let mut cdm = Widevine::create(
+            &crate::EngineConfig::default_cdm_path(),
+            allow_persistent_state,
+        )
+        .unwrap();
+        let pssh: Vec<u8> = "000000327073736800000000edef8ba979d64acea3c827dcd51d21ed000000121210\
         67b30c86756f57c5a0a38a23ac8c9178"
-        .as_bytes()
-        .chunks(2)
-        .map(|h| u8::from_str_radix(std::str::from_utf8(h).unwrap(), 16).unwrap())
-        .collect();
-    let mut events = Vec::new();
-    let pump = |cdm: &mut Box<dyn crate::cdm::CdmBackend>, events: &mut Vec<CdmEvent>| {
-        for _ in 0..100 {
-            events.extend(cdm.poll());
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-    };
-    pump(&mut cdm, &mut events);
-    cdm.create_session(1, 0, &pssh);
-    pump(&mut cdm, &mut events);
-    assert_eq!(events.first(), Some(&CdmEvent::Initialized(true)));
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, CdmEvent::NewSession { promise: 1, .. }))
-    );
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, CdmEvent::Message { kind: 0, body, .. } if body.len() > 100))
-    );
-    drop(cdm);
+            .as_bytes()
+            .chunks(2)
+            .map(|h| u8::from_str_radix(std::str::from_utf8(h).unwrap(), 16).unwrap())
+            .collect();
+        let mut events = Vec::new();
+        let pump = |cdm: &mut Box<dyn crate::cdm::CdmBackend>, events: &mut Vec<CdmEvent>| {
+            for _ in 0..100 {
+                events.extend(cdm.poll());
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        };
+        pump(&mut cdm, &mut events);
+        cdm.create_session(1, 0, &pssh);
+        pump(&mut cdm, &mut events);
+        assert_eq!(
+            events.first(),
+            Some(&CdmEvent::Initialized(true)),
+            "persistent={allow_persistent_state}"
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, CdmEvent::NewSession { promise: 1, .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, CdmEvent::Message { kind: 0, body, .. } if body.len() > 100))
+        );
+        drop(cdm);
+    }
 }

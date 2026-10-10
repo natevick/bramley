@@ -252,7 +252,7 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
             return json!({"error": "no such SourceBuffer"}).to_string();
         };
         match sb.append(&bytes, if ts_offset.is_finite() { ts_offset } else { 0.0 }) {
-            Ok(r) => json!({"init": r.init_segment, "frames": r.media_frames, "hasInitData": r.init_segment && sb.init_data.is_some(), "initDuration": sb.init.as_ref().and_then(|i| i.duration_secs)}).to_string(),
+            Ok(r) => json!({"init": r.init_segment, "frames": r.media_frames, "hasInitData": r.init_segment && sb.init_data.is_some(), "initDuration": sb.init.as_ref().and_then(|i| i.duration_secs), "end": sb.end_us().map(|e| e as f64 / 1e6)}).to_string(),
             Err(e) => json!({"error": format!("{e:#}")}).to_string(),
         }
     });
@@ -582,7 +582,6 @@ impl Engine {
             audio_sink_name,
             output_device,
             redact,
-            truncate_scripts,
         } = config;
         let cdm: CdmFactory = Box::new(move |persistent| Widevine::create(&cdm_path, persistent));
         let sink: SinkFactory = Rc::new(move || {
@@ -595,7 +594,6 @@ impl Engine {
         {
             let mut st = engine.n.borrow_mut();
             st.redact = redact;
-            st.truncate_scripts = truncate_scripts;
         }
         Ok(engine)
     }
@@ -649,6 +647,18 @@ impl Engine {
                 Err(e) => eprintln!("ENGINE job error: {e:?}"),
             }
         }
+    }
+
+    #[cfg(any(test, feature = "sabotage"))]
+    pub fn sabotage_truncate_scripts(&self) {
+        self.n.borrow_mut().truncate_scripts = true;
+    }
+
+    #[cfg(any(test, feature = "diagnostics"))]
+    pub fn enable_diagnostics(&self) {
+        self.ctx.with(|ctx| {
+            call(&ctx, &self.n, "__platform", "enableDiagnostics", ());
+        });
     }
 
     pub fn eval_script(&self, name: &str, source: &str) -> Result<()> {

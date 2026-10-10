@@ -75,9 +75,12 @@ pub fn eme_check(key_system: &str, configs: &str) -> Option<J> {
                 .collect()
         };
         let audio = supported(&audio_in, audio_type_supported);
-        let video = supported(&video_in, |ct| {
-            !parse_type(ct).1.is_empty() && video_type_answer(ct)
-        });
+        let video: Vec<J> = supported(&video_in, video_type_answer)
+            .into_iter()
+            .filter(|cap| {
+                cap.get("robustness").and_then(|x| x.as_str()) == Some("SW_SECURE_CRYPTO")
+            })
+            .collect();
         if (!audio_in.is_empty() && audio.is_empty()) || (!video_in.is_empty() && video.is_empty())
         {
             continue;
@@ -109,7 +112,7 @@ pub fn audio_type_supported(ct: &str) -> bool {
 
 fn video_type_answer(ct: &str) -> bool {
     let (mime, codecs) = parse_type(ct);
-    mime == "video/mp4" && codecs.iter().all(|c| c == "avc1.42e01e" || is_aac_lc(c))
+    mime == "video/mp4" && codecs == ["avc1.42e01e"]
 }
 
 pub fn can_play_type(ct: &str) -> &'static str {
