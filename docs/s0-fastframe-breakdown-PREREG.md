@@ -58,3 +58,8 @@ The emoji delta (`emoji − fastframe`) is reported with no threshold. Bramley d
 - Album art.
 - Font inventories on other machines. The cost depends on the installed fonts, and RESULTS states this box's inventory.
 - The budget row changes only if a measured number supersedes 85.4 for the shipped UI configuration.
+
+## Amendment, 2026-10-10 (before r3/r4; procedure only)
+Passes r1 and r2 ran all ten variants in sequence. Five variants spread more than 1 MiB between the two passes: fontsonly 1.5, themetext 1.1, noicons 1.2, nofallbacks 1.2 and emoji 1.2. Pass r2 was lower in 9 of 10 variants, so the drift looks common-mode. Both passes stay recorded as a failed pass.
+
+The new procedure runs r3 and r4 back to back for each variant, one variant at a time, all ten variants. Every bar above is unchanged, including the 1 MiB spread. If r3/r4 also fail rule 3, the decomposition is VOID. Co-tenants mapping `libLLVM.so.21.1` before r3: gnome-shell, Xvfb and three grok-bot processes, none started by this work.
