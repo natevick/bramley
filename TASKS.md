@@ -10,7 +10,12 @@
 - [x] Real-GPU UI measurement (2026-10-09): fastframe build 85.4 MiB on the AMD GPU (MARGINAL against 70); bare 59.1. UI plus engine is about 183 MiB, under 200. Follow-up: break down fastframe's +26 MiB (fonts and emoji?).
 - [x] Engine crate (2026-10-09). Merged to main after the review-fix round. Norm verified: 10/10 key fixes fail on base and pass on HEAD; measure 97.2 MiB PASS; sabotage VOID; scenario PASS (skip-pause FAIL); 56 tests; cbcs e2e passes.
 - [x] MusicKit JS in the engine plays FULL songs (merged 2026-10-10, 1e4bf9b). Norm reproduced it: PASS at 100.4 MiB. Sabotage A FAIL (sign-in needed), B FAIL, C VOID. playback regression 97.4. Review fixed; 79 tests pass. Compliance log has entries for the DRM-gate answer and the token handoff.
-- [ ] NEXT: the app shell. egui/fastframe UI on top of the engine (library, search, now playing, queue) through the documented Apple Music API in Rust plus MusicKit's public API for playback. Pre-register the total-memory bar: ≤ 200 MiB with UI and playback in one process.
+- [ ] App shell per docs/plan-app-shell.md. RUNNING 2026-10-10:
+  - S0 on branch natevick/s0-fastframe-breakdown, worktree ../bramley-wt-s0.
+  - S1a+S1b on branch natevick/s1-player-api, worktree ../bramley-wt-s1.
+  - Merge gate for each: Norm re-runs the measurements (S1: measure-musickit.sh ≤ 112 plus sabotages; S0: the positive control), then reviewer, then fast-forward.
+  - Norm's calls (Nate may override): `--play` is a dev-only flag, kept out of release builds; artwork is memory-only (no disk cache), which is the conservative reading of section D's "download".
+  - Nate-only, at S4: add the three repo secrets, enable GitHub Pages, approve the rule 7 log entry (the key also lives in GitHub secrets).
 - [ ] Engine follow-ups from the MusicKit round:
   - the unexplained early run where `session.update()` never ran;
   - `innerHTML` is a no-op, so MusicKit's error dialog masks `mediaPlaybackError`;
