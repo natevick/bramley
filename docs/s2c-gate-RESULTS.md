@@ -25,7 +25,11 @@ Run against `s2c-gate-PREREG.md` with `scripts/acceptance.sh`, from a clean tree
 - **Guard after the `session()` refactor:** `covers-session.py guardtest` killed the app 0.27 s after its last clean poll, and the default sink was unchanged.
 - **Screenshots:** from the dev build of the same commit, at `target/screens/acceptance-run{1,2}.png` (real art; for Nate only). They show 50 covers and Bohemian Rhapsody playing at about 0:41.
 
+## R2 can fail (computed after the runs, not pre-registered)
+The ballast is allocated at startup, so each ballast run's `ballast.r2.json` is an R2 reading 54–55 MiB over the shipped one. Running the committed `check(out, 'ballast', 'r2')` on them gives FAIL with the threshold as the only reason: 119.7 (run1) and 118.0 (run2) MiB PSS, against the 100 bar.
+
 ## Known limits
+- **Self-test count:** the PREREG lists four self-test cases, but `test_gate.py` has six. The extra two cover R1 failing on its threshold and the ballast holding on complete evidence.
 - **VRAM:** `vramDeltaMiB` is 0.0 because it spans only the R1 window, when the covers are already resident. It is not the covers' VRAM cost. S2b measured that at +4.0 MiB.
 - **Shared pages:** PSS sits about 5 MiB below S2b's playing figures (164.7–169.5). The reference also reads 3–4 MiB under its recorded value, so the difference is session-level drift in shared pages, not an app change.
 - **Not covered:** plan sabotage B (empty token dir), plan sabotage C (unreachable art host), and acceptance.md's "No user token" control. These belong to later harness slices.
