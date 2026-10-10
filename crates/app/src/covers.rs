@@ -21,10 +21,24 @@ const DECODERS: usize = 2;
 const COUNT: usize = 50;
 const MAX_BODY_BYTES: u64 = 4 << 20;
 
+pub const DEVELOPER_REJECTED: &str = "Bramley's developer token was rejected";
+
+#[derive(Debug)]
+struct DeveloperTokenRejected;
+
+impl std::fmt::Display for DeveloperTokenRejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(DEVELOPER_REJECTED)
+    }
+}
+
+impl std::error::Error for DeveloperTokenRejected {}
+
 pub enum Loaded {
     Cover(usize, ColorImage),
     Failed(String, usize),
     SignInNeeded,
+    DeveloperRejected,
 }
 
 #[derive(Default)]
@@ -135,7 +149,8 @@ fn signed_in(
     .context("sign-in check")?
     {
         (200, _) => Ok(true),
-        (401 | 403, _) => Ok(false),
+        (401, _) => Err(anyhow!(DeveloperTokenRejected)),
+        (403, _) => Ok(false),
         (status, body) => Err(apple_error(status, &body).context("sign-in check")),
     }
 }
@@ -209,7 +224,10 @@ fn load_chart(
         ok.then(|| chart(agent, source, &bearer, px, tally))
             .transpose()
     });
-    checked.map_err(|e| anyhow!("{}", redact(&format!("{e:#}"), &[developer, user])))
+    checked.map_err(|e| match e.is::<DeveloperTokenRejected>() {
+        true => e,
+        false => anyhow!("{}", redact(&format!("{e:#}"), &[developer, user])),
+    })
 }
 
 pub fn fetch(
@@ -225,6 +243,9 @@ pub fn fetch(
             let agent = agent();
             match load_chart(&agent, &source, px, &tally) {
                 Ok(None) => drop(tx.send(Loaded::SignInNeeded)),
+                Err(e) if e.is::<DeveloperTokenRejected>() => {
+                    drop(tx.send(Loaded::DeveloperRejected))
+                }
                 Err(e) => drop(tx.send(Loaded::Failed(format!("{e:#}"), COUNT))),
                 Ok(Some((urls, skipped))) => {
                     if skipped > 0 {
@@ -292,6 +313,7 @@ pub struct Grid {
     failed: Option<String>,
     failures: usize,
     rejected: bool,
+    developer_rejected: bool,
     #[cfg(feature = "gate-sabotage")]
     kept: Vec<ColorImage>,
 }
@@ -348,6 +370,7 @@ impl Grid {
                     self.failures += covers;
                 }
                 Loaded::SignInNeeded => self.rejected = true,
+                Loaded::DeveloperRejected => self.developer_rejected = true,
             }
         }
         any
@@ -355,6 +378,10 @@ impl Grid {
 
     pub fn rejected(&self) -> bool {
         self.rejected
+    }
+
+    pub fn developer_rejected(&self) -> bool {
+        self.developer_rejected
     }
 
     pub fn uploaded(&self) -> usize {

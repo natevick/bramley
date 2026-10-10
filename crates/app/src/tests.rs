@@ -857,7 +857,11 @@ fn fixture_source(fx: &Fixture, art_prefix: bool) -> (Source, std::path::PathBuf
 
 fn settle(grid: &mut Grid, ctx: &egui::Context) {
     let until = Instant::now() + Duration::from_secs(20);
-    while grid.uploaded() + grid.failures() < 50 && !grid.rejected() && Instant::now() < until {
+    while grid.uploaded() + grid.failures() < 50
+        && !grid.rejected()
+        && !grid.developer_rejected()
+        && Instant::now() < until
+    {
         grid.receive(ctx);
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -927,13 +931,14 @@ fn fifty_covers_become_textures_and_nothing_decoded_stays_once_a_frame_ends() {
 
 #[test]
 fn covers_need_a_storefront_200_and_a_refusal_reads_as_sign_in() {
-    for (me, rejected, error) in [
-        (401, true, None),
-        (403, true, None),
-        (0, false, Some("sign-in check")),
+    for (me, rejected, developer, error) in [
+        (401, false, true, None),
+        (403, true, false, None),
+        (0, false, false, Some("sign-in check")),
     ] {
         let (grid, fx, _) = load_covers(Serve { me, ..SERVE }, true);
-        assert_eq!((grid.rejected(), grid.uploaded()), (rejected, 0), "{me}");
+        let seen = (grid.rejected(), grid.developer_rejected(), grid.uploaded());
+        assert_eq!(seen, (rejected, developer, 0), "{me}");
         assert_eq!(
             grid.failed().map(|e| e.split(':').next().unwrap()),
             error,
@@ -1113,20 +1118,22 @@ fn a_sign_in_needed_snapshot_hides_the_covers_in_the_frame_it_arrives() {
 }
 
 #[test]
-fn a_storefront_401_shows_the_sign_in_banner_and_no_covers() {
-    let (mut app, _ends, _inbox, ctx, config) = app_on(Serve { me: 401, ..SERVE });
-    let until = Instant::now() + Duration::from_secs(10);
-    while app.status_json()["banner"].is_null() && Instant::now() < until {
-        cover_meshes(&ctx, &mut app);
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    std::fs::remove_dir_all(&config).unwrap();
-    let status = app.status_json();
-    assert_eq!(
-        (
+fn a_storefront_403_asks_for_sign_in_and_a_401_blames_the_developer_token() {
+    let developer = format!("Error({:?})", covers::DEVELOPER_REJECTED);
+    for (me, banner) in [(403, "SignInNeeded".to_owned()), (401, developer)] {
+        let (mut app, _ends, _inbox, ctx, config) = app_on(Serve { me, ..SERVE });
+        let until = Instant::now() + Duration::from_secs(10);
+        while app.status_json()["banner"].is_null() && Instant::now() < until {
+            cover_meshes(&ctx, &mut app);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::fs::remove_dir_all(&config).unwrap();
+        let status = app.status_json();
+        let seen = (
             status["banner"].as_str(),
-            status["texturesUploaded"].as_u64()
-        ),
-        (Some("SignInNeeded"), Some(0))
-    );
+            status["texturesUploaded"].as_u64(),
+        );
+        assert_eq!(seen, (Some(banner.as_str()), Some(0)), "{me}");
+        assert_eq!(cover_meshes(&ctx, &mut app), 0, "{me}");
+    }
 }

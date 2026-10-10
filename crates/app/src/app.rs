@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use crate::Args;
 use crate::cli::{self, Inbox, Request};
-use crate::covers::{Grid, Source};
+use crate::covers::{self, Grid, Source};
 use crate::playback::{Action, Banner, Playback, Spawn};
 use crate::ui;
 
@@ -129,7 +129,7 @@ impl App {
             "seq": self.playback.seq(),
             "engine": self.playback.engine(),
             "instanceGuarded": self.guarded,
-            "banner": self.playback.banner().map(|b| format!("{b:?}")),
+            "banner": self.banner().map(|b| format!("{b:?}")),
             "framesPainted": self.frames,
             "glRenderer": self.renderer,
             "texturesUploaded": self.covers.uploaded(),
@@ -173,6 +173,12 @@ impl App {
         any
     }
 
+    fn banner(&self) -> Option<Banner> {
+        let developer = self.covers.developer_rejected();
+        let rejected = || Banner::Error(covers::DEVELOPER_REJECTED.into());
+        self.playback.banner().or_else(|| developer.then(rejected))
+    }
+
     pub fn tick(&mut self, ctx: &egui::Context) {
         let changed = self.pump(ctx);
         if self.covers.rejected() {
@@ -200,7 +206,7 @@ impl App {
             ui.add_space(8.0);
         });
         egui::CentralPanel::default().show(ui, |ui| {
-            if let Some(banner) = self.playback.banner() {
+            if let Some(banner) = self.banner() {
                 ui::banner(ui, &banner);
             }
             ui.heading("Bramley");
