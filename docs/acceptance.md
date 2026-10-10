@@ -46,7 +46,7 @@ Nate delegated the definition of "done" to Norm on 2026-10-10. Bramley v1 on Lin
 - **Ballast build** (`sabotage` feature only, so it can never ship): it allocates and touches enough memory to land 15 MiB over the R1 bar, sized from the same run's real R1 median. R1 must fail. The ballast binary also must fail `check-shipped-features.sh`.
 - **Leak build** (`sabotage` feature): it leaks 3 MiB on every track change, which is ≥ 24 MiB over 8 tracks. R3 must fail.
 - **llvmpipe forced:** the run is VOID.
-- **No null sink or no PipeWire stream:** F4 is VOID, not PASS.
+- **No null sink or no PipeWire stream:** F4 is VOID, not PASS, but only once playback has started (position advancing). If playback never started, F4 is FAIL. Clarified 2026-10-10: S2a found the two rules collided, so a signed-out run came out VOID.
 - **A missing artifact counts as a FAIL:** any check with no evidence file counts as FAIL, so a harness that ran nothing cannot pass.
 
 ## Out of scope for v1
