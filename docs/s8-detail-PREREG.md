@@ -84,3 +84,19 @@ F6-S must FAIL F6-gapless.
 **Blind spot.** A flush that drops only the sink's ~200 ms server buffer at the boundary sits near the 0.3 s allowance and the 250 ms sampling. F6-gapless cannot see it.
 
 **L3 term.** `"queen essentials"` replaces "bohemian rhapsody". The shipped `bramley search` returned 10 catalog playlists for it before this amendment. If the results hold no playlist, the harness reports that separately from a failed click.
+
+## Amendment 2 (2026-10-11, after live-2 and before live-3)
+
+**What live-2 found.**
+- L1, L3 and L2's AC passed.
+- MusicKit uses **two** boundary modes, and picks between them per transition:
+  - **Mode A, gapless.** The next track is appended to the same SourceBuffer, the position continues, and no drain happens. This was live-2's L2 transitions 2 and 3.
+  - **Mode B, ended.** The old track ends, the drain is acknowledged (`acked` 1, `timeouts` 0), and the next track starts on a new timeline at 0. This was live-2's L2 transition 1.
+- Amendment 1's F6-gapless failed mode B on its "never moved backwards" rule, even though mode B is the drain-acknowledged end that F6 asks for.
+
+**F6-gapless, revised (post-registration, labelled as such).** A transition PASSes when:
+- the seek landed within 1 s of `start + duration − 20`;
+- the old item's last position, item-relative, reached `duration − 3`;
+- **either** mode A's continuity holds (no backward move, and no forward jump bigger than the wall time + 0.3 s), **or** mode B's F6-literal condition holds (`acked` ≥ 1 and `timeouts` = 0).
+
+F6-literal is unchanged and still reported. F6-S must still FAIL. In live-2, F6-S's third transition was 3.96 s short of its end.
