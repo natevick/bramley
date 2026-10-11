@@ -83,7 +83,7 @@ def transition(binary, env, st, at, cut, start):
     s, _ = s7.poll(st, lambda s: playing(s, at) and (s.get('duration') or 0) > 30 and (s.get('position') or 0) > start + 2, 30)
     if not s or not playing(s, at):
         return {'reached': False}
-    ids, duration, before = detail(s)['trackIds'], s['duration'], (s['drainsAcked'], s['drainTimeouts'])
+    ids, duration, before, sent = detail(s)['trackIds'], s['duration'], (s['drainsAcked'], s['drainTimeouts']), s.get('seq', 0)
     target = round(duration - 20, 1)
     cli(binary, env, 'seek', str(target))
     land, last, prev, end, sent_next = None, start, None, time.time() + 40, False
@@ -99,7 +99,7 @@ def transition(binary, env, st, at, cut, start):
             res['gapless'] = land is not None and abs(land - start - target) <= 1 and res['tailShortBy'] <= 3 and (res['continuous'] or res['literal'])
             return res
         if s.get('itemId') == ids[at]:
-            if land is None and s.get('applied', 0) >= s.get('seq', 1) and pos > start + 1:
+            if land is None and s.get('seq', 0) > sent and s.get('applied', 0) >= s['seq']:
                 land = pos
             if land is not None:
                 last = max(last, pos)
