@@ -1,4 +1,4 @@
-import argparse, importlib.util, json, os, shutil, statistics, subprocess, threading, time, http.server
+import argparse, contextlib, importlib.util, json, os, shutil, statistics, subprocess, threading, time, http.server
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
@@ -35,6 +35,19 @@ class Fixture(s6.Fixture):
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+
+@contextlib.contextmanager
+def fixture(config):
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Fixture)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f'http://127.0.0.1:{server.server_address[1]}'
+    for f, v in (('developer-token', s6.FIXTURE_DEVELOPER), ('music-user-token', s6.FIXTURE_USER)):
+        open(os.path.join(config, f), 'w').write(v)
+    try:
+        yield base, ['--developer-token-url', base + '/developer-token.json']
+    finally:
+        server.shutdown()
 
 
 def launch(binary, env, sock, sink, name, extra, out):
@@ -102,12 +115,13 @@ def live(binary, out):
             print(json.dumps(results[-1]), flush=True)
         results.append(search_run(binary, env, sock, sink, 'play', ['--click-first-song'], out))
         print(json.dumps(results[-1]), flush=True)
-        results.append(search_run(binary, env, sock, sink, 'sabotage', ['--api-base', 'http://127.0.0.1:9'], out))
+        with cs.isolated('s7-sabotage', False) as (fake_env, config), fixture(config) as (_, extra):
+            results.append(search_run(binary, fake_env, sock, sink, 'sabotage', extra + ['--api-base', 'http://127.0.0.1:9'], out))
         print(json.dumps(results[-1]), flush=True)
         sink_name = sink
     f3, play, sabotage = results[:5], results[5], results[6]
     walls = [r['wallMs'] for r in f3]
-    found = lambda r: (r['search'] or {}).get('state') == 'results' and (r['search'] or {}).get('results', 0) >= 2
+    found = lambda r: (r['search'] or {}).get('state') == 'results' and (r['search'] or {}).get('songs', 0) >= 1 and (r['search'] or {}).get('albums', 0) >= 1
     f3_ok = all(w is not None for w in walls) and statistics.median(walls) <= 2000 and all(found(r) and r['engineStarted'] is False and not r['streamsSeen'] and not r['guardKilled'] for r in f3)
     play_ok = play.get('state') == 'Playing' and play.get('advanced', 0) >= 2 and play['streamsSeen'] == [sink_name] and not play['guardKilled']
     sabotage_ok = (sabotage['search'] or {}).get('state') == 'error'
@@ -119,31 +133,25 @@ def live(binary, out):
     return f3_ok and play_ok and sabotage_ok
 
 
-def shot(binary, which):
-    out, other = SHOTS[which], SHOTS['synthetic' if which == 'real' else 'real']
-    if os.path.commonpath([out, os.path.join(ROOT, 'docs')]) == os.path.join(ROOT, 'docs') or os.path.commonpath([out, other]) in (out, other):
-        raise SystemExit(f'refusing: {out}')
-    shutil.rmtree(out, ignore_errors=True)
+def shot(binary, which, stamp):
+    root, other = SHOTS[which], SHOTS['synthetic' if which == 'real' else 'real']
+    if os.path.commonpath([root, os.path.join(ROOT, 'docs')]) == os.path.join(ROOT, 'docs') or os.path.commonpath([root, other]) in (root, other):
+        raise SystemExit(f'refusing: {root}')
+    out = os.path.join(root, stamp)
     os.makedirs(out)
-    open(os.path.join(out, s6.MARK[which]), 'w').close()
-    server, png = None, os.path.join(out, SHOT + '.png')
-    with cs.session(out, f'bramley-s7-{which}') as (sock, sink, _), cs.isolated(f's7-{which}', which == 'real') as (env, config):
+    open(os.path.join(root, s6.MARK[which]), 'w').close()
+    png = os.path.join(out, SHOT + '.png')
+    with cs.session(out, f'bramley-s7-{which}') as (sock, sink, _), cs.isolated(f's7-{which}', which == 'real') as (env, config), contextlib.ExitStack() as stack:
         extra, term = ['--screenshot', png, '--after', '9'], TERM
         if which == 'synthetic':
-            server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Fixture)
-            threading.Thread(target=server.serve_forever, daemon=True).start()
-            base = f'http://127.0.0.1:{server.server_address[1]}'
-            for f, v in (('developer-token', s6.FIXTURE_DEVELOPER), ('music-user-token', s6.FIXTURE_USER)):
-                open(os.path.join(config, f), 'w').write(v)
-            extra += ['--api-base', base, '--developer-token-url', base + '/developer-token.json']
+            base, token_url = stack.enter_context(fixture(config))
+            extra += ['--api-base', base] + token_url
             term = 'fixture'
         p, guard, st = launch(binary, env, sock, sink, SHOT, extra + ['--search', term], out)
         try:
             exited = p.wait(60)
         finally:
             finish(p, guard)
-            if server:
-                server.shutdown()
     s = cs.status(st) or {}
     res = {'exit': exited, 'search': s.get('search'), 'glRenderer': s.get('glRenderer'), 'engineStarted': s.get('engineStarted'), 'streamsSeen': sorted(map(str, guard.seen)), **(s6.png_facts(png) if os.path.exists(png) else {'size': None})}
     res['ok'] = exited == 0 and 'radeonsi' in str(s.get('glRenderer')) and (s.get('search') or {}).get('art', 0) > 0 and res['size'] == [1100, 720] and not guard.seen
@@ -163,9 +171,12 @@ def main():
     a = ap.parse_args()
     if subprocess.run(['python3', '-I', os.path.join(ROOT, 'scripts', 'acceptance', 'gate.py'), '--preflight']).returncode:
         raise SystemExit('refusing: the box is not quiet')
-    out = os.path.join(OUT, a.mode + time.strftime('-%H%M%S'))
+    stamp = time.strftime('%Y%m%d-%H%M%S')
+    if a.mode != 'live':
+        raise SystemExit(0 if shot(a.binary, a.mode, stamp) else 1)
+    out = os.path.join(OUT, 'live-' + stamp)
     os.makedirs(out)
-    ok = live(a.binary, out) if a.mode == 'live' else shot(a.binary, a.mode)
+    ok = live(a.binary, out)
     raise SystemExit(0 if ok else 1)
 
 

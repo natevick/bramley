@@ -489,7 +489,8 @@ mod search {
         while !done() && Instant::now() < end {
             std::thread::sleep(Duration::from_millis(10));
         }
-        assert_eq!(seen.lock().unwrap().len(), 2, "{:?}", seen.lock().unwrap());
+        let fetched = seen.lock().unwrap().clone();
+        assert_eq!(fetched.len(), 2, "{fetched:?}");
     }
 
     #[test]
