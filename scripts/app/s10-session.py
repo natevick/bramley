@@ -94,14 +94,18 @@ def live_runs(a, out, sink, env, found, names):
         four(res)
         seen = [q[0]]
         for expect in q[1:]:
+            time.sleep(2)
+            until(lambda n: n.get('state') == 'Playing', 30, 'playing before a seek')
+            seek, end = time.time(), time.time() + 30
             cli('seek', str(max(0.0, (now().get('duration') or 30) - 5)))
-            end = time.time() + 30
             while time.time() < end:
                 n = now()
                 if n.get('itemId') and n['itemId'] != seen[-1]:
                     seen.append(n['itemId'])
                 if playing(n, {expect}):
                     break
+                if seek and time.time() - seek > 15:
+                    seek = cli('seek', str(max(0.0, (n.get('duration') or 30) - 5))) and None
                 time.sleep(0.5)
         res['seen'] = seen
         res['F8'] = seen == q and res['exits'] == [0] * 4 and res['queueOk'] and not res['nowQueueTitles']
@@ -161,12 +165,13 @@ def live_runs(a, out, sink, env, found, names):
         return os.path.exists(png) and not res.get('error')
 
     songs_click = ['--route', 'songs', '--click-row', '0']
-    results = [run('f8', COMMON, f8),
-               run('jump', COMMON + ['--jump-to', '3'], jump),
-               run('topup', COMMON + songs_click + ['--jump-to', str(JUMP)], topup),
-               run('topup-sabotage', COMMON + songs_click + ['--jump-to', str(JUMP)], lambda p, s, r: topup(p, s, r, True))]
+    runs = [('f8', COMMON, f8),
+            ('jump', COMMON + ['--jump-to', '3'], jump),
+            ('topup', COMMON + songs_click + ['--jump-to', str(JUMP)], topup),
+            ('topup-sabotage', COMMON + songs_click + ['--jump-to', str(JUMP)], lambda p, s, r: topup(p, s, r, True))]
+    results = [run(*r) for r in runs if not a.only or r[0] in a.only]
     os.makedirs(PRIVATE, exist_ok=True)
-    shots = {'f8': shot('f8', [], four), 'songs': shot('songs', songs_click, lambda r: safe())}
+    shots = {} if a.only else {'f8': shot('f8', [], four), 'songs': shot('songs', songs_click, lambda r: safe())}
     return {'found': {'songs': found['songs'], 'queue': q, 'x': x}, 'results': results, 'privateShots': shots}
 
 
@@ -213,6 +218,7 @@ def main():
     ap.add_argument('mode', choices=('live', 'synthetic'))
     ap.add_argument('binary')
     ap.add_argument('--out', required=True)
+    ap.add_argument('--only', nargs='*', default=[])
     a = ap.parse_args()
     a.binary = os.path.abspath(a.binary)
     os.makedirs(a.out, exist_ok=True)

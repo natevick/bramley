@@ -90,3 +90,9 @@ live-3 repeated live-2: F8 PASS and J PASS; the top-up landed (98 → 197, pages
 - **The jump target is 95**, which cuts the near-end seeks from 8 to 3. Each seek now waits for `Playing` first, and a seek that doesn't advance within 30 s counts as a stall. Up to 3 stalls are allowed and reported.
 
 T-S in live-3 stalled at index 96 before reaching X, so it did not fail for the reason the PREREG names. It is not claimed.
+
+## Amendment 4 (after live-6; no bar changed)
+
+live-5 (with `6b7b59d`) PASSed T, J and T-S, which FAILed as designed. F8 stopped at C in live-1, 4, 5 and 6, but passed in live-2, live-3, all 12 control runs (6 on main, 6 on this branch, at two pacings) and a replay of the harness loop. In every failing run, the last position was C's start plus about 19 s on the native clock. A seek that lands resets that clock to item time, and the replay shows 62.2 → 67.8. So the seek on C never took. The harness sent it the instant C was first reported, while MusicKit was still loading it, and C, playing from its start, outlasts the 30 s window.
+
+**Changed procedure:** before each seek, F8 waits 2 s and then for `Playing`. If no transition has come 15 s after a seek, it re-seeks once. The 30 s window and every bar are unchanged. live-6 also stalled three times at index 95 in T and T-S on the branch-only build: a track-end hang the `6b7b59d` build plays through. The T bar is judged on the `6b7b59d` build and reported on both builds.
