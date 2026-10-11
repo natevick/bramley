@@ -1150,10 +1150,22 @@ fn ureq_wire_dumps_never_reach_the_log_at_any_level() {
             .build();
         crate::withhold_wire_dumps(&record, "2042 6561  .Bearer.eyJh").is_some()
     };
+    let query = log::Record::builder()
+        .level(log::Level::Debug)
+        .target("ureq::run")
+        .args(format_args!(
+            "GET https://api.music.apple.com/v1/catalog/us/search?term=queen"
+        ))
+        .build();
+    let shown = crate::withhold_wire_dumps(&query, "GET …/search?term=queen");
+    assert!(shown.is_some_and(|s| !s.contains("queen")));
     assert!(line(log::Level::Trace, "ureq_proto::util"));
     assert!(line(log::Level::Trace, "ureq_proto::client"));
-    assert!(!line(log::Level::Debug, "ureq_proto::client"));
-    assert!(!line(log::Level::Debug, "ureq::run"));
+    assert!(line(log::Level::Debug, "ureq_proto::client"));
+    assert!(line(log::Level::Debug, "ureq::run"));
+    assert!(!line(log::Level::Warn, "ureq::run"));
+    assert!(!line(log::Level::Info, "ureq_proto::client"));
+    assert!(!line(log::Level::Error, "ureq"));
     assert!(line(log::Level::Trace, "ureq::run"));
     assert!(line(log::Level::Trace, "ureq"));
     assert!(!line(log::Level::Trace, "ureqx"));

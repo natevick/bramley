@@ -162,7 +162,7 @@ fn withhold_wire_dumps(
         record.target().split("::").next(),
         Some("ureq" | "ureq_proto")
     );
-    let wire = record.level() == log::Level::Trace && ureq;
+    let wire = record.level() >= log::Level::Debug && ureq;
     wire.then_some("<HTTP bytes withheld: they carry tokens>".into())
 }
 
