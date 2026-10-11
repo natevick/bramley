@@ -87,6 +87,7 @@ pub struct App {
     user: Credentials,
     sign_in: Option<(signin::Server, bool)>,
     notice: Option<&'static str>,
+    agent_notice: bool,
     generation: Arc<AtomicU64>,
     checking: Option<Job>,
     clearing: Option<(Job, Waiting)>,
@@ -141,6 +142,7 @@ impl App {
             user,
             sign_in: None,
             notice: None,
+            agent_notice: false,
             generation: Arc::default(),
             checking: None,
             clearing: None,
@@ -183,6 +185,7 @@ impl App {
             "banner": self.banner().map(|b| format!("{b:?}")),
             "signInUrl": self.waiting(),
             "notice": self.notice,
+            "agentNotice": self.agent_notice,
             "tokenStorage": self.user.storage(),
             "framesPainted": self.frames,
             "glRenderer": self.renderer,
@@ -265,6 +268,12 @@ impl App {
         let mut any = false;
         while let Ok((request, deadline, reply)) = self.inbox.try_recv() {
             any = true;
+            if matches!(request, Request::Agent | Request::Library(_)) {
+                self.agent_notice |= !self.user.dir().join(crate::mcp::DISCLOSED).exists();
+            }
+            if request == Request::Agent {
+                continue;
+            }
             if let Some(call) = cli::api_call(&request)
                 && Instant::now() <= deadline
             {
@@ -317,6 +326,13 @@ impl App {
             let _ = reply.send(answer.to_string());
         }
         any
+    }
+
+    fn dismiss_agent_notice(&mut self) {
+        match crate::mcp::record_disclosed(self.user.dir()) {
+            Ok(()) => self.agent_notice = false,
+            Err(e) => eprintln!("bramley: the agent notice could not be recorded: {e}"),
+        }
     }
 
     fn waiting(&self) -> Option<&str> {
@@ -426,7 +442,7 @@ impl App {
             ui::player_bar::show(ui, &shown, started, self.shell.queue_open, emit);
             ui.add_space(8.0);
         });
-        let (mut sign_in, mut sign_out) = (false, false);
+        let (mut sign_in, mut sign_out, mut dismissed) = (false, false, false);
         let signed_in = covers_allowed(&self.playback);
         egui::Panel::left("library")
             .default_size(200.0)
@@ -449,10 +465,14 @@ impl App {
             if let Some(warning) = self.user.developer().warning() {
                 ui::notice(ui, &warning);
             }
+            dismissed = self.agent_notice && crate::mcp::notice(ui).clicked();
             ui::content::show(ui, &mut self.shell, &self.covers, &mut self.navs);
         });
         if sign_out {
             self.sign_out();
+        }
+        if dismissed {
+            self.dismiss_agent_notice();
         }
         if let Some(Err(why)) = sign_in.then(|| self.start_sign_in()) {
             self.notice = Some(why);

@@ -17,6 +17,7 @@ const APPLY_TIME: Duration = Duration::from_secs(3);
 const REPLY_MARGIN: Duration = Duration::from_secs(1);
 const LIBRARY_VIA_MCP: &str =
     "your library is shared only with an agent you connect through `bramley mcp`";
+const AGENT: &str = "mcp";
 const LATE: &str = "the app did not answer in time; the command was not applied";
 const COMMANDS: &str = "usage: bramley [play [id] | pause | toggle | next | prev | seek <seconds> | volume <0-100> | now | queue add <id> | search <term> | sign-in | sign-out | mcp]";
 
@@ -27,6 +28,7 @@ pub enum Request {
     Toggle,
     Search(String),
     Library(bramley_api::Shelf),
+    Agent,
     SignIn,
     SignOut,
     Do(Action),
@@ -96,6 +98,11 @@ pub fn wire(args: &[String]) -> String {
     json!({ "args": args, "deadline_ms": deadline_ms }).to_string()
 }
 
+pub fn agent_wire(args: &[String]) -> String {
+    let deadline_ms = unix_ms() + APPLY_TIME.as_millis() as u64;
+    json!({ "args": args, "deadline_ms": deadline_ms, "via": AGENT }).to_string()
+}
+
 pub fn deadline(client_ms: u64, now_ms: u64, now: Instant) -> Instant {
     now + APPLY_TIME.min(Duration::from_millis(client_ms.saturating_sub(now_ms)))
 }
@@ -112,8 +119,8 @@ pub fn outcome(reply: &str) -> Result<(), (i32, String)> {
     }
 }
 
-pub fn send(slot: &Slot, args: &[String]) -> Result<String, (i32, String)> {
-    slot.send(&wire(args)).map_err(|e| match e.kind() {
+pub fn send(slot: &Slot, line: &str) -> Result<String, (i32, String)> {
+    slot.send(line).map_err(|e| match e.kind() {
         ErrorKind::NotFound | ErrorKind::ConnectionRefused => {
             let dir = slot.dir().display();
             let why = format!("Bramley is not running (nothing at {dir}); start it first");
@@ -136,7 +143,7 @@ pub fn client(slot: &Slot, args: &[String], out: &mut impl Write, err: &mut impl
         Ok(Request::Library(_)) => return fail(USAGE, LIBRARY_VIA_MCP),
         Ok(request) => request,
     };
-    match send(slot, args) {
+    match send(slot, &wire(args)) {
         Ok(reply) => {
             let _ = writeln!(out, "{reply}");
             let url = serde_json::from_str::<Value>(&reply).unwrap_or_default()["signInUrl"].take();
@@ -185,6 +192,9 @@ pub fn handler(
         if deadline <= now {
             return Some(late);
         }
+        if line["via"] == AGENT {
+            inbox.send((Request::Agent, deadline, channel().0)).ok()?;
+        }
         let (reply, answer) = channel();
         inbox.send((request, deadline, reply)).ok()?;
         if let Some(ctx) = waker.get() {
@@ -203,7 +213,9 @@ pub fn command(
     let refused = |why| Some(("refused", why));
     let action = match request {
         _ if Instant::now() > deadline => return Some(("error", LATE)),
-        Request::Show | Request::Now | Request::SignIn | Request::SignOut => return None,
+        Request::Show | Request::Now | Request::SignIn | Request::SignOut | Request::Agent => {
+            return None;
+        }
         Request::Search(_) | Request::Library(_) => {
             return Some(("error", "API requests run on the API worker"));
         }
@@ -215,6 +227,6 @@ pub fn command(
     } else if playback.banner() == Some(Banner::SignInNeeded) {
         refused("sign in needed: nothing was played")
     } else {
-        refused("nothing is playing; start a song with bramley play <id>")
+        refused("nothing is playing yet; play a song first")
     }
 }

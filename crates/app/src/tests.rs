@@ -509,6 +509,17 @@ fn cli_round_trip_acks_each_command_with_the_seq_it_was_assigned() {
 }
 
 #[test]
+fn mcp_requests_reach_the_app_marked_as_an_agent() {
+    let slot = slot("agent");
+    let app = FakeApp::start(&slot, false);
+    let channel = crate::mcp::agent_channel(slot);
+    let reply = channel(&words("now")).unwrap();
+    app.finish();
+    let reply: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    assert_eq!(reply["agentNotice"], true, "{reply}");
+}
+
+#[test]
 fn cli_play_while_signed_out_is_refused_and_spawns_nothing() {
     let slot = slot("signed-out");
     let app = FakeApp::start(&slot, true);
@@ -1962,6 +1973,88 @@ fn cli_library_playlists_runs_on_the_api_worker_and_relays_the_page() {
         (Some(1), Some("p.1"))
     );
     assert_eq!(crate::cli::outcome(&reply), Ok(()));
+}
+
+fn click(ctx: &egui::Context, app: &mut crate::app::App, label: &str) {
+    ctx.enable_accesskit();
+    let mut frame = |events| {
+        let input = egui::RawInput {
+            events,
+            ..Default::default()
+        };
+        let mut output = ctx.run_ui(input, |ui| app.draw(ui));
+        output.textures_delta.clear();
+        output.platform_output.accesskit_update
+    };
+    let tree = frame(Vec::new()).unwrap();
+    let button = tree.nodes.iter().find(|(_, n)| n.label() == Some(label));
+    let bounds = button
+        .and_then(|(_, n)| n.bounds())
+        .expect("no such button");
+    let at = egui::pos2(
+        ((bounds.x0 + bounds.x1) / 2.0) as f32,
+        ((bounds.y0 + bounds.y1) / 2.0) as f32,
+    );
+    let press = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    frame(vec![egui::Event::PointerMoved(at), press(true)]);
+    frame(vec![press(false)]);
+}
+
+#[test]
+fn an_agent_request_raises_the_app_notice_and_only_dismissal_records_it() {
+    use crate::cli::Request;
+    let line = crate::cli::agent_wire(&words("now"));
+    let (inbox_tx, inbox) = channel();
+    let mut handle = crate::cli::handler(inbox_tx, Arc::new(std::sync::OnceLock::new()));
+    let asked = std::thread::spawn(move || handle(&line));
+    let (first, _, _) = inbox.recv_timeout(Duration::from_secs(2)).unwrap();
+    let (second, _, reply) = inbox.recv_timeout(Duration::from_secs(2)).unwrap();
+    reply.send("{}".into()).unwrap();
+    asked.join().unwrap();
+    assert_eq!((first, second), (Request::Agent, Request::Now));
+    let config = token_dir("agent-notice");
+    let ctx = egui::Context::default();
+    let spawn = spawning(|| Err(anyhow!("no player in this test")));
+    let (inbox_tx, inbox) = channel();
+    let user = (mock_user(&config), false);
+    let args = crate::Args::default();
+    let mut app = crate::app::App::new(&ctx, args, spawn, user, (inbox, true), None);
+    let shown = |app: &crate::app::App| app.status_json()["agentNotice"] == true;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    assert!(!shown(&app));
+    inbox_tx
+        .send((Request::Agent, deadline, channel().0))
+        .unwrap();
+    app.pump(&ctx);
+    let marker = config.join(crate::mcp::DISCLOSED);
+    let (raised, unrecorded) = (shown(&app), !marker.exists());
+    click(&ctx, &mut app, "Got it");
+    let (cleared, recorded) = (!shown(&app), marker.exists());
+    std::fs::remove_file(&marker).unwrap();
+    let library = || {
+        (
+            Request::Library(bramley_api::Shelf::Playlists),
+            deadline,
+            channel().0,
+        )
+    };
+    inbox_tx.send(library()).unwrap();
+    app.pump(&ctx);
+    let by_library = shown(&app);
+    click(&ctx, &mut app, "Got it");
+    inbox_tx
+        .send((Request::Agent, deadline, channel().0))
+        .unwrap();
+    inbox_tx.send(library()).unwrap();
+    app.pump(&ctx);
+    let again = shown(&app);
+    std::fs::remove_dir_all(&config).unwrap();
+    assert!(raised && unrecorded && cleared && recorded && by_library && !again);
 }
 
 #[test]

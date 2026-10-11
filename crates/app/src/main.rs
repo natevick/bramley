@@ -193,11 +193,11 @@ fn withhold_wire_dumps(
     record: &log::Record<'_>,
     _message: &str,
 ) -> Option<std::borrow::Cow<'static, str>> {
-    let ureq = matches!(
+    let carries_payloads = matches!(
         record.target().split("::").next(),
-        Some("ureq" | "ureq_proto")
+        Some("ureq" | "ureq_proto" | "rmcp")
     );
-    let wire = record.level() >= log::Level::Debug && ureq;
+    let wire = record.level() >= log::Level::Debug && carries_payloads;
     wire.then_some("<HTTP bytes withheld: they carry tokens>".into())
 }
 
