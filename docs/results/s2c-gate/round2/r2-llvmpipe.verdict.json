@@ -1,0 +1,80 @@
+{
+ "commit": "662e8152408e483dead9a89d0ecadea6a1680b98",
+ "dirty": false,
+ "llvmpipeForced": true,
+ "binaries": {
+  "bramley": "fcaa23f59f1846f5",
+  "bramley-ballast": "0cf36ad41894fea1",
+  "bramley-dev": "526b5ce52c1f14e3"
+ },
+ "reference": {
+  "reference": {
+   "pss": 83.5,
+   "uss": 61.1,
+   "rss": 111.5
+  },
+  "reference-after": {
+   "pss": 83.3,
+   "uss": 60.9,
+   "rss": 111.2
+  },
+  "recordedPss": 83.3
+ },
+ "weston": [
+  "AMD Radeon RX 5700 XT (radeonsi, navi10, ACO, DRM 3.64, 7.0.0-31-generic)"
+ ],
+ "R1": {
+  "pss": 185.6,
+  "uss": 163.4,
+  "rss": 213.4,
+  "verdict": "VOID",
+  "reasons": [
+   "shipped renderer is not radeonsi: ['llvmpipe (LLVM 21.1.8, 256 bits)']"
+  ],
+  "bar": 200.0,
+  "zone": 3,
+  "referenceDrift": 0.2
+ },
+ "R2": {
+  "pss": 88.3,
+  "uss": 66.1,
+  "rss": 116.1,
+  "verdict": "VOID",
+  "reasons": [
+   "shipped renderer is not radeonsi: ['llvmpipe (LLVM 21.1.8, 256 bits)']"
+  ],
+  "bar": 100.0,
+  "zone": 3,
+  "referenceDrift": 0.2
+ },
+ "errors": {},
+ "screenshotExists": true,
+ "vramDeltaMiB": 0.0,
+ "ballast": {
+  "pss": 239.8,
+  "uss": 217.6,
+  "rss": 267.6,
+  "verdict": "VOID",
+  "reasons": [
+   "ballast renderer is not radeonsi: ['llvmpipe (LLVM 21.1.8, 256 bits)']",
+   "USS median 217.6 > 200.0"
+  ],
+  "bar": 200.0,
+  "zone": 1,
+  "referenceDrift": 0.2,
+  "ballastMiB": 52,
+  "ussRise": 54.2,
+  "holds": false,
+  "thresholdOnly": false,
+  "landedWithinBand": true,
+  "failsShippedCheck": true,
+  "ussRoseByBallast": true
+ },
+ "llvmpipeControl": {
+  "holds": true,
+  "renderers": [
+   "llvmpipe (LLVM 21.1.8, 256 bits)"
+  ]
+ },
+ "gate": "VOID"
+}

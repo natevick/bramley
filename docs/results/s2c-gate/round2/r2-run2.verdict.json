@@ -1,0 +1,69 @@
+{
+ "commit": "662e8152408e483dead9a89d0ecadea6a1680b98",
+ "dirty": false,
+ "llvmpipeForced": false,
+ "binaries": {
+  "bramley": "fcaa23f59f1846f5",
+  "bramley-ballast": "0cf36ad41894fea1",
+  "bramley-dev": "526b5ce52c1f14e3"
+ },
+ "reference": {
+  "reference": {
+   "pss": 83.7,
+   "uss": 61.3,
+   "rss": 111.5
+  },
+  "reference-after": {
+   "pss": 83.5,
+   "uss": 61.1,
+   "rss": 111.3
+  },
+  "recordedPss": 83.3
+ },
+ "weston": [
+  "AMD Radeon RX 5700 XT (radeonsi, navi10, ACO, DRM 3.64, 7.0.0-31-generic)"
+ ],
+ "R1": {
+  "pss": 164.2,
+  "uss": 141.8,
+  "rss": 192.3,
+  "verdict": "PASS",
+  "reasons": [],
+  "bar": 200.0,
+  "zone": 2,
+  "referenceDrift": 0.4
+ },
+ "R2": {
+  "pss": 67.0,
+  "uss": 44.6,
+  "rss": 95.0,
+  "verdict": "PASS",
+  "reasons": [],
+  "bar": 100.0,
+  "zone": 2,
+  "referenceDrift": 0.4
+ },
+ "errors": {},
+ "screenshotExists": true,
+ "vramDeltaMiB": 0.0,
+ "ballast": {
+  "pss": 239.8,
+  "uss": 217.4,
+  "rss": 267.9,
+  "verdict": "FAIL",
+  "reasons": [
+   "USS median 217.4 > 200.0"
+  ],
+  "bar": 200.0,
+  "zone": 1,
+  "referenceDrift": 0.4,
+  "ballastMiB": 74,
+  "ussRise": 75.6,
+  "holds": true,
+  "thresholdOnly": true,
+  "landedWithinBand": true,
+  "failsShippedCheck": true,
+  "ussRoseByBallast": true
+ },
+ "gate": "PASS"
+}
