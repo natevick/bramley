@@ -262,8 +262,11 @@ pub fn show(ui: &mut egui::Ui, detail: &mut Detail, actions: &mut Vec<Action>) {
             let length = track
                 .duration_ms
                 .map_or(String::new(), |ms| clock(ms as f64 / 1000.0));
-            let text = format!("{:>3}   {name}   {length}", index + 1);
-            let row = egui::Button::new(text).frame(false).truncate();
+            let text = format!("{:>3}   {name}", index + 1);
+            let row = egui::Button::new(text)
+                .right_text(length)
+                .frame(false)
+                .truncate();
             let size = [ui.available_width(), ROW_PT];
             let row = ui.add_sized(size, row);
             let row = labeled(row, WidgetType::Button, &format!("Play {name}"));
