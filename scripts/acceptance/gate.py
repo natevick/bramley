@@ -339,7 +339,8 @@ def guard_fired(out):
 def real_state():
     token = os.path.join(cs.REAL_CONFIG, 'music-user-token')
     st = os.stat(token) if os.path.exists(token) else None
-    return {'tokenMtimeNs': st and st.st_mtime_ns, 'tokenSize': st and st.st_size, 'keyringItems': cs.keyring_items('bramley')}
+    cache = {f: [s.st_mtime_ns, s.st_size] for f in sorted(os.listdir(cs.REAL_CACHE)) for s in [os.stat(os.path.join(cs.REAL_CACHE, f))]} if os.path.isdir(cs.REAL_CACHE) else None
+    return {'tokenMtimeNs': st and st.st_mtime_ns, 'tokenSize': st and st.st_size, 'keyringItems': cs.keyring_items('bramley'), 'cache': cache}
 
 
 def run(out, llvmpipe):

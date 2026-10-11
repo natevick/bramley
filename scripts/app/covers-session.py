@@ -3,6 +3,7 @@ import argparse, contextlib, glob, hashlib, http.server, json, os, re, shutil, s
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SONG = '6781024437'
 REAL_CONFIG = os.path.expanduser('~/.config/bramley')
+REAL_CACHE = os.path.expanduser('~/.cache/bramley')
 SIGNED_IN = ('idle', 'play', 'shot', 'guardtest')
 SECRETS = ['gdbus', 'call', '--session', '--dest', 'org.freedesktop.secrets']
 
@@ -14,14 +15,16 @@ def keyring_items(service):
 
 def assert_isolated(env):
     config, service = env.get('BRAMLEY_CONFIG_DIR'), env.get('BRAMLEY_KEYRING_SERVICE', 'bramley')
-    if not config or os.path.realpath(config) == os.path.realpath(REAL_CONFIG) or service in ('', 'bramley'):
-        raise RuntimeError(f'refusing to launch against the real config or keyring: {config!r}, {service!r}')
+    cache = env.get('XDG_CACHE_HOME')
+    real_cache = not cache or os.path.realpath(os.path.join(cache, 'bramley')) == os.path.realpath(REAL_CACHE)
+    if not config or os.path.realpath(config) == os.path.realpath(REAL_CONFIG) or service in ('', 'bramley') or real_cache:
+        raise RuntimeError(f'refusing to launch against the real config, cache or keyring: {config!r}, {cache!r}, {service!r}')
 
 
 @contextlib.contextmanager
 def isolated(tag, signed_in):
     config = os.path.join(ROOT, 'target', 'tmp', f'config-{tag}-{os.getpid()}')
-    env = {'BRAMLEY_CONFIG_DIR': config, 'BRAMLEY_KEYRING_SERVICE': f'bramley-gate-{tag}'}
+    env = {'BRAMLEY_CONFIG_DIR': config, 'BRAMLEY_KEYRING_SERVICE': f'bramley-gate-{tag}', 'XDG_CACHE_HOME': os.path.join(config, 'cache')}
     try:
         os.makedirs(config, mode=0o700)
         for f in ('developer-token', 'music-user-token') if signed_in else ('developer-token',):
