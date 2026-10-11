@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::client::allowed;
-use crate::{Call, Client, Error, Job, Kind, Reply, Shelf, Tokens, worker};
+use crate::{Call, Client, Error, Job, Kind, Reply, Session, Shelf, Tokens, worker};
 
 const DEVELOPER: &str = "dev-token-fixture-0123456789";
 const USER: &str = "user-token-fixture-9876543210";
@@ -73,10 +73,16 @@ fn serve(routes: Vec<(&str, Vec<Response>)>) -> Server {
                 Some(q) => q[0].clone(),
                 None => (404, String::new(), Vec::new()),
             };
-            let head = format!(
-                "HTTP/1.1 {status} X\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n",
-                body.len()
-            );
+            let chunked = extra.contains("chunked");
+            let length = match chunked || extra.contains(UNFRAMED) {
+                true => String::new(),
+                false => format!("Content-Length: {}\r\n", body.len()),
+            };
+            let body = match chunked {
+                true => [&chunks(&body)[..], b"0\r\n\r\n"].concat(),
+                false => body,
+            };
+            let head = format!("HTTP/1.1 {status} X\r\n{extra}{length}Connection: close\r\n\r\n");
             let _ = stream
                 .write_all(head.as_bytes())
                 .and_then(|()| stream.write_all(&body));
@@ -85,14 +91,27 @@ fn serve(routes: Vec<(&str, Vec<Response>)>) -> Server {
     Server { base, hits }
 }
 
-fn client(server: &Server, user: Option<&str>) -> Client {
+const UNFRAMED: &str = "X-Unframed: 1\r\n";
+
+fn chunks(body: &[u8]) -> Vec<u8> {
+    let chunk = |c: &[u8]| [format!("{:x}\r\n", c.len()).as_bytes(), c, b"\r\n"].concat();
+    body.chunks(1 << 16).flat_map(chunk).collect()
+}
+
+fn raw(base: &str, user: Option<&str>) -> Client {
     let user = user.map(str::to_owned);
-    Client::at(&server.base, move || {
+    Client::at(base, move || {
         Ok(Tokens {
             developer: DEVELOPER.into(),
             user: user.clone(),
         })
     })
+}
+
+fn client(server: &Server, user: Option<&str>) -> Session<'static> {
+    Box::leak(Box::new(raw(&server.base, user)))
+        .session()
+        .unwrap()
 }
 
 const STOREFRONT: &str = include_str!("fixtures/storefront.json");
@@ -166,7 +185,8 @@ fn library_pages_follow_next_with_the_library_limit_and_report_the_total() {
     let api = client(&server, Some(USER));
     let first = api.library(Shelf::Playlists).unwrap();
     assert_eq!((first.items.len(), first.total), (2, Some(3)));
-    let all = api.all(first).unwrap();
+    let (all, truncated) = api.all(first).unwrap();
+    assert!(!truncated);
     let ids: Vec<_> = all.iter().map(|i| (i.id.as_str(), i.kind)).collect();
     assert_eq!(
         ids,
@@ -190,8 +210,16 @@ fn library_pages_follow_next_with_the_library_limit_and_report_the_total() {
 fn an_empty_library_playlist_is_an_empty_page_not_an_error() {
     let none =
         r#"{"errors": [{"status": "404", "detail": "No related resources found for tracks"}]}"#;
+    let gone =
+        r#"{"errors": [{"status": "404", "detail": "Resource with requested id was not found"}]}"#;
     let path = "/v1/me/library/playlists/p.EMPTY/tracks";
-    let server = serve(vec![(path, vec![(404, String::new(), none.into())])]);
+    let deleted = "/v1/me/library/playlists/p.GONE/tracks";
+    let server = serve(vec![
+        (path, vec![(404, String::new(), none.into())]),
+        (deleted, vec![(404, String::new(), gone.into())]),
+    ]);
+    let got = client(&server, Some(USER)).playlist_tracks("p.GONE");
+    assert!(matches!(got, Err(Error::Http(404, _))), "{got:?}");
     let page = client(&server, Some(USER))
         .playlist_tracks("p.EMPTY")
         .unwrap();
@@ -220,7 +248,7 @@ fn an_album_brings_its_first_tracks_and_pages_the_rest() {
         (album.item.name.as_deref(), album.item.track_count),
         (Some("Album A"), Some(3))
     );
-    let tracks = api.all(album.tracks).unwrap();
+    let tracks = api.all(album.tracks).unwrap().0;
     let ids: Vec<_> = tracks.iter().map(|t| t.id.as_str()).collect();
     assert_eq!(ids, ["1000001", "1000003", "1000004"]);
     assert_eq!(
@@ -259,13 +287,13 @@ fn statuses_map_to_typed_errors_without_either_token_in_the_text() {
     let closed = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", closed.local_addr().unwrap());
     drop(closed);
-    let gone = Client::at(&base, || {
-        Ok(Tokens {
-            developer: DEVELOPER.into(),
-            user: Some(USER.into()),
-        })
-    });
-    let text = gone.library(Shelf::Songs).unwrap_err().to_string();
+    let gone = raw(&base, Some(USER));
+    let text = gone
+        .session()
+        .unwrap()
+        .library(Shelf::Songs)
+        .unwrap_err()
+        .to_string();
     assert!(
         !text.is_empty() && !text.contains(DEVELOPER) && !text.contains(USER),
         "{text}"
@@ -295,6 +323,13 @@ fn a_429_waits_out_a_short_retry_after_and_refuses_a_long_one_or_an_endless_one(
         Err(Error::RateLimited(0))
     );
     assert_eq!(server.targets().len(), 1 + 3);
+
+    let path = "/v1/me/library/songs";
+    let server = serve(vec![(path, vec![wait("1"), wait("1"), ok("{}")])]);
+    let started = Instant::now();
+    let got = client(&server, Some(USER)).library(Shelf::Songs);
+    assert_eq!(got, Err(Error::RateLimited(1)));
+    assert!(started.elapsed() < Duration::from_millis(1900));
 }
 
 #[test]
@@ -353,14 +388,28 @@ fn a_redirect_is_refused_and_never_followed() {
 #[test]
 fn an_oversized_body_is_refused() {
     let big = format!(
-        r#"{{"data": [{{"id": "us", "pad": "{}"}}]}}"#,
+        r#"{{"data": [{{"id": "us", "type": "storefronts", "pad": "{}"}}]}}"#,
         "x".repeat(3 << 20)
     );
-    let server = serve(vec![("/v1/me/storefront", vec![ok(&big)])]);
-    assert_eq!(
-        client(&server, Some(USER)).storefront(),
-        Err(Error::TooLarge)
-    );
+    let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+    gzip.write_all(big.as_bytes()).unwrap();
+    let gzip = gzip.finish().unwrap();
+    assert!(gzip.len() < 1 << 16);
+    for (framing, extra, body) in [
+        ("length", "", big.as_bytes().to_vec()),
+        (
+            "chunked",
+            "Transfer-Encoding: chunked\r\n",
+            big.as_bytes().to_vec(),
+        ),
+        ("unframed", UNFRAMED, big.as_bytes().to_vec()),
+        ("gzip", "Content-Encoding: gzip\r\n", gzip),
+    ] {
+        let route = vec![(200, extra.to_owned(), body)];
+        let server = serve(vec![("/v1/me/storefront", route)]);
+        let got = client(&server, Some(USER)).storefront();
+        assert_eq!(got, Err(Error::TooLarge), "{framing}");
+    }
 }
 
 #[test]
@@ -374,12 +423,16 @@ fn signed_out_library_calls_ask_for_sign_in_without_a_request() {
 #[test]
 fn the_worker_answers_each_job_off_the_calling_thread() {
     let server = searchable(vec![ok(SEARCH)]);
-    let jobs = worker(client(&server, Some(USER)));
+    let jobs = worker(raw(&server.base, Some(USER))).unwrap();
+    let expired = Job::new(Call::Search("late".into()), Instant::now(), |_| {
+        panic!("ran")
+    });
+    jobs.send(expired).unwrap();
     let (tx, rx) = channel();
     let caller = std::thread::current().id();
     for call in [Call::Search("a".into()), Call::Album("..".into())] {
         let tx = tx.clone();
-        let job = Job::new(call, move |r| {
+        let job = Job::new(call, Instant::now() + Duration::from_secs(10), move |r| {
             tx.send((r, std::thread::current().id())).unwrap()
         });
         jobs.send(job).unwrap();
@@ -389,6 +442,99 @@ fn the_worker_answers_each_job_off_the_calling_thread() {
     assert_ne!(ran_on, caller);
     let (refused, _) = rx.recv_timeout(Duration::from_secs(10)).unwrap();
     assert!(matches!(refused, Err(Error::Refused(_))), "{refused:?}");
+    assert!(!server.targets().iter().any(|t| t.contains("late")));
+}
+
+#[test]
+fn the_storefront_is_cached_per_user_and_dropped_on_sign_out_401_and_403() {
+    let refused = |status| (status, String::new(), b"{}".to_vec());
+    let search = vec![
+        ok(SEARCH),
+        ok(SEARCH),
+        refused(401),
+        ok(SEARCH),
+        refused(403),
+        ok(SEARCH),
+    ];
+    let server = searchable(search);
+    let user = Arc::new(Mutex::new(Some(USER.to_owned())));
+    let (token, reads) = (user.clone(), Arc::new(Mutex::new(0)));
+    let counted = reads.clone();
+    let api = Client::at(&server.base, move || {
+        *counted.lock().unwrap() += 1;
+        let user = token.lock().unwrap().clone();
+        Ok(Tokens {
+            developer: DEVELOPER.into(),
+            user,
+        })
+    });
+    let fronts = || {
+        server
+            .targets()
+            .iter()
+            .filter(|t| t.ends_with("storefront"))
+            .count()
+    };
+    let search = || api.session().unwrap().search("a");
+    let mut seen = vec![];
+    for step in [
+        "ok",
+        "ok",
+        "401",
+        "ok",
+        "403",
+        "ok",
+        "signed out",
+        "back",
+        "new user",
+    ] {
+        match step {
+            "new user" => *user.lock().unwrap() = Some("user-token-fixture-other".into()),
+            "signed out" => *user.lock().unwrap() = None,
+            "back" => *user.lock().unwrap() = Some(USER.into()),
+            _ => {}
+        }
+        let got = search();
+        seen.push((step, got.as_ref().err().cloned(), fronts()));
+    }
+    let http403 = Error::Http(403, "Apple Music returned an error".into());
+    assert_eq!(
+        seen,
+        [
+            ("ok", None, 1),
+            ("ok", None, 1),
+            ("401", Some(Error::DeveloperToken), 1),
+            ("ok", None, 2),
+            ("403", Some(http403), 2),
+            ("ok", None, 3),
+            ("signed out", Some(Error::SignInNeeded), 3),
+            ("back", None, 4),
+            ("new user", None, 5),
+        ]
+    );
+    assert_eq!(*reads.lock().unwrap(), 9);
+}
+
+#[test]
+fn a_decode_error_names_the_position_not_the_value() {
+    let private = r#"{"data": [{"id": "1", "type": "library-albums", "attributes": {"trackCount": "Private Name"}}]}"#;
+    let server = serve(vec![("/v1/me/library/albums", vec![ok(private)])]);
+    let got = client(&server, Some(USER))
+        .library(Shelf::Albums)
+        .unwrap_err();
+    assert!(
+        matches!(got, Error::Decode(_)) && !got.to_string().contains("Private"),
+        "{got}"
+    );
+}
+
+#[test]
+fn all_returns_what_it_collected_and_flags_a_truncated_walk() {
+    let looping = r#"{"data": [{"id": "1", "type": "library-songs"}], "next": "/v1/me/library/songs?offset=1"}"#;
+    let server = serve(vec![("/v1/me/library/songs", vec![ok(looping)])]);
+    let api = client(&server, Some(USER));
+    let (items, truncated) = api.all(api.library(Shelf::Songs).unwrap()).unwrap();
+    assert_eq!((items.len(), truncated), (201, true));
 }
 
 #[cfg(bramley_tokens)]
@@ -397,16 +543,17 @@ fn live_search_and_the_largest_library_playlist() {
     let dir = std::path::PathBuf::from(std::env::var("HOME").unwrap()).join(".config/bramley");
     let read =
         move |name: &str| std::fs::read_to_string(dir.join(name)).map(|t| t.trim().to_owned());
-    let api = Client::new(move || {
+    let client = Client::new(move || {
         let developer = read("developer-token").map_err(|e| e.to_string())?;
         Ok(Tokens {
             developer,
             user: read("music-user-token").ok(),
         })
     });
+    let api = client.session().unwrap();
     let found = api.search("bohemian rhapsody").unwrap();
     assert!(found.songs.items.iter().any(|s| s.id == "6781024437"));
-    let playlists = api.all(api.library(Shelf::Playlists).unwrap()).unwrap();
+    let playlists = api.all(api.library(Shelf::Playlists).unwrap()).unwrap().0;
     let mut largest = (0, String::new());
     for playlist in &playlists {
         let total = api
@@ -416,7 +563,7 @@ fn live_search_and_the_largest_library_playlist() {
             .unwrap_or(0);
         largest = largest.max((total, playlist.id.clone()));
     }
-    let tracks = api.all(api.playlist_tracks(&largest.1).unwrap()).unwrap();
+    let tracks = api.all(api.playlist_tracks(&largest.1).unwrap()).unwrap().0;
     assert_eq!(tracks.len() as u32, largest.0);
     let albums = api.library(Shelf::Albums).unwrap().total;
     let songs = api.library(Shelf::Songs).unwrap().total;

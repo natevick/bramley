@@ -540,6 +540,7 @@ name = "bramley-api"
 version = "0.1.0"
 dependencies = [
  "bramley-engine",
+ "flate2",
  "serde",
  "serde_json",
  "ureq",

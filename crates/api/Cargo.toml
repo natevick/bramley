@@ -13,3 +13,6 @@ ureq = "3"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(bramley_tokens)"] }
+
+[dev-dependencies]
+flate2 = "1"

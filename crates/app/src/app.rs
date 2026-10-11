@@ -162,18 +162,25 @@ impl App {
             if let Request::Search(term) = &request
                 && Instant::now() <= deadline
             {
-                let api = self
-                    .api
-                    .get_or_insert_with(|| bramley_api::worker(crate::api_client()));
-                let job =
-                    bramley_api::Job::new(bramley_api::Call::Search(term.clone()), move |found| {
-                        let _ = reply.send(cli::search_reply(found));
-                    });
-                if let Err(unsent) = api.send(job) {
-                    self.api = None;
-                    (unsent.0.done)(Err(bramley_api::Error::Network(
-                        "the API worker stopped".into(),
-                    )));
+                let call = bramley_api::Call::Search(term.clone());
+                let job = bramley_api::Job::new(call, deadline, move |found| {
+                    let _ = reply.send(cli::search_reply(found));
+                });
+                let worker = match self.api.take() {
+                    Some(api) => Ok(api),
+                    None => bramley_api::worker(bramley_api::Client::new(crate::api_tokens)),
+                };
+                let unsent = match worker {
+                    Ok(api) => api
+                        .send(job)
+                        .map(|()| self.api = Some(api))
+                        .err()
+                        .map(|e| e.0),
+                    Err(_) => Some(job),
+                };
+                if let Some(job) = unsent {
+                    let stopped = "the API worker could not run".into();
+                    (job.done)(Err(bramley_api::Error::Network(stopped)));
                 }
                 continue;
             }

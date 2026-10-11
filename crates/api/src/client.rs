@@ -1,4 +1,6 @@
-use std::sync::Arc;
+use std::hash::{BuildHasher, RandomState};
+use std::io::Read;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bramley_engine::{redact, user_agent};
@@ -15,6 +17,7 @@ const SEARCH_TYPES: &str = "songs,albums,artists,playlists";
 const SEARCH_LIMIT: &str = "10";
 const LIBRARY_LIMIT: &str = "100";
 const LIBRARY: &str = "/v1/me/library/";
+const NO_TRACKS: &str = "No related resources found for tracks";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
@@ -61,11 +64,21 @@ pub enum Shelf {
     Songs,
 }
 
+type Storefront = Arc<Mutex<Option<(u64, String)>>>;
+
 #[derive(Clone)]
 pub struct Client {
     agent: ureq::Agent,
     base: String,
     tokens: TokenSource,
+    storefront: Storefront,
+    hasher: RandomState,
+}
+
+pub struct Session<'a> {
+    client: &'a Client,
+    tokens: Tokens,
+    user_key: Option<u64>,
 }
 
 impl Client {
@@ -91,14 +104,37 @@ impl Client {
             agent,
             base: base.to_owned(),
             tokens: Arc::new(tokens),
+            storefront: Storefront::default(),
+            hasher: RandomState::new(),
         }
     }
 
+    pub fn session(&self) -> Result<Session<'_>> {
+        let tokens = (self.tokens)().map_err(Error::Config)?;
+        let user_key = tokens.user.as_ref().map(|u| self.hasher.hash_one(u));
+        if user_key.is_none() {
+            *self.storefront.lock().unwrap() = None;
+        }
+        Ok(Session {
+            client: self,
+            tokens,
+            user_key,
+        })
+    }
+}
+
+impl Session<'_> {
     pub fn storefront(&self) -> Result<String> {
+        let cached = self.client.storefront.lock().unwrap().clone();
+        if let Some((_, id)) = cached.filter(|(key, _)| Some(*key) == self.user_key) {
+            return Ok(id);
+        }
         let found: Envelope<Item> = self.json("/v1/me/storefront", &[])?;
         let id = found.data.into_iter().next().map(|s| s.id);
-        id.filter(|id| segment(id))
-            .ok_or_else(|| Error::Decode("no usable storefront".into()))
+        let id = id.filter(|id| segment(id));
+        let id = id.ok_or_else(|| Error::Decode("no usable storefront".into()))?;
+        *self.client.storefront.lock().unwrap() = self.user_key.map(|key| (key, id.clone()));
+        Ok(id)
     }
 
     pub fn search(&self, term: &str) -> Result<SearchResults> {
@@ -139,7 +175,7 @@ impl Client {
     pub fn playlist_tracks(&self, id: &str) -> Result<Page> {
         let path = format!("{LIBRARY}playlists/{}/tracks", id_segment(id)?);
         match self.json(&path, &[("limit", LIBRARY_LIMIT)]) {
-            Err(Error::Http(404, _)) => Ok(Page {
+            Err(Error::Http(404, why)) if why == NO_TRACKS => Ok(Page {
                 total: Some(0),
                 ..Page::default()
             }),
@@ -154,22 +190,24 @@ impl Client {
         self.json(next, query)
     }
 
-    pub fn all(&self, mut page: Page) -> Result<Vec<Item>> {
+    pub fn all(&self, mut page: Page) -> Result<(Vec<Item>, bool)> {
         let mut items = std::mem::take(&mut page.items);
         for _ in 0..MAX_PAGES {
             let Some(next) = page.next.take() else {
-                return Ok(items);
+                return Ok((items, false));
             };
             page = self.next(&next)?;
             items.append(&mut page.items);
         }
-        Err(Error::Refused(format!("more than {MAX_PAGES} pages")))
+        Ok((items, page.next.is_some()))
     }
 
     fn json<T: DeserializeOwned>(&self, target: &str, query: &[(&str, &str)]) -> Result<T> {
         let body = self.get(target, query)?;
-        serde_json::from_slice(&body)
-            .map_err(|e| Error::Decode(format!("unreadable response: {e}")))
+        serde_json::from_slice(&body).map_err(|e| {
+            let at = format!("line {} column {}", e.line(), e.column());
+            Error::Decode(format!("unreadable response at {at}"))
+        })
     }
 
     fn get(&self, target: &str, query: &[(&str, &str)]) -> Result<Vec<u8>> {
@@ -179,8 +217,9 @@ impl Client {
                 "{path:?} is not an allowed API path"
             )));
         }
-        let tokens = (self.tokens)().map_err(Error::Config)?;
-        let user = match path.starts_with("/v1/me/") {
+        let tokens = &self.tokens;
+        let me = path.starts_with("/v1/me/");
+        let user = match me {
             true => Some(tokens.user.as_deref().ok_or(Error::SignInNeeded)?),
             false => None,
         };
@@ -195,7 +234,10 @@ impl Client {
         let (mut budget, mut retries) = (RETRY_BUDGET, 0);
         loop {
             let bearer = format!("Bearer {}", tokens.developer);
-            let mut request = self.agent.get(format!("{}{target}", self.base));
+            let mut request = self
+                .client
+                .agent
+                .get(format!("{}{target}", self.client.base));
             request = request.header("Authorization", &bearer);
             if let Some(user) = user {
                 request = request.header("Music-User-Token", user);
@@ -206,16 +248,27 @@ impl Client {
             let mut response = request.call().map_err(hide)?;
             let status = response.status().as_u16();
             let wait = retry_after(response.headers());
-            let body = response
+            let mut body = Vec::new();
+            let reader = response
                 .body_mut()
                 .with_config()
                 .limit(MAX_BODY_BYTES)
-                .read_to_vec();
-            let body = body.map_err(hide)?;
+                .reader();
+            reader
+                .take(MAX_BODY_BYTES + 1)
+                .read_to_end(&mut body)
+                .map_err(|e| hide(ureq::Error::from(e)))?;
+            if body.len() as u64 > MAX_BODY_BYTES {
+                return Err(Error::TooLarge);
+            }
             match status {
                 200 => return Ok(body),
+                401 | 403 => *self.client.storefront.lock().unwrap() = None,
+                _ => {}
+            }
+            match status {
                 401 => return Err(Error::DeveloperToken),
-                403 => return Err(Error::SignInNeeded),
+                403 if me => return Err(Error::SignInNeeded),
                 429 if wait <= budget && retries < MAX_RETRIES => {
                     (budget, retries) = (budget - wait, retries + 1);
                     std::thread::sleep(wait);

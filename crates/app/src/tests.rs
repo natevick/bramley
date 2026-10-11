@@ -1154,7 +1154,9 @@ fn ureq_wire_dumps_never_reach_the_log_at_any_level() {
     assert!(line(log::Level::Trace, "ureq_proto::client"));
     assert!(!line(log::Level::Debug, "ureq_proto::client"));
     assert!(!line(log::Level::Debug, "ureq::run"));
-    assert!(!line(log::Level::Trace, "ureq::run"));
+    assert!(line(log::Level::Trace, "ureq::run"));
+    assert!(line(log::Level::Trace, "ureq"));
+    assert!(!line(log::Level::Trace, "ureqx"));
     assert!(!line(log::Level::Trace, "zbus::connection"));
 }
 
@@ -1215,7 +1217,7 @@ fn searched(answer: bramley_api::Result<bramley_api::Reply>) -> String {
     app.pump(&ctx);
     let job: bramley_api::Job = queued.try_recv().unwrap();
     let asked = bramley_api::Call::Search("bohemian rhapsody".into());
-    assert_eq!(job.call, asked);
+    assert_eq!((job.call, job.deadline), (asked, deadline));
     assert!(
         answered.try_recv().is_err(),
         "the UI answered before the worker"

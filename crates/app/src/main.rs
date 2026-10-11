@@ -97,13 +97,11 @@ fn read_token(dir: &Path, name: &str) -> Result<String> {
     }
 }
 
-fn api_client() -> bramley_api::Client {
-    bramley_api::Client::new(|| {
-        let dir = config_dir().map_err(|e| format!("{e:#}"))?;
-        let developer = read_token(&dir, "developer-token").map_err(|e| format!("{e:#}"))?;
-        let user = read_token(&dir, "music-user-token").ok();
-        Ok(bramley_api::Tokens { developer, user })
-    })
+fn api_tokens() -> Result<bramley_api::Tokens, String> {
+    let dir = config_dir().map_err(|e| format!("{e:#}"))?;
+    let developer = read_token(&dir, "developer-token").map_err(|e| format!("{e:#}"))?;
+    let user = read_token(&dir, "music-user-token").ok();
+    Ok(bramley_api::Tokens { developer, user })
 }
 
 fn signed_out(dir: &Path) -> bool {
@@ -160,7 +158,11 @@ fn withhold_wire_dumps(
     record: &log::Record<'_>,
     _message: &str,
 ) -> Option<std::borrow::Cow<'static, str>> {
-    let wire = record.level() == log::Level::Trace && record.target().starts_with("ureq_proto");
+    let ureq = matches!(
+        record.target().split("::").next(),
+        Some("ureq" | "ureq_proto")
+    );
+    let wire = record.level() == log::Level::Trace && ureq;
     wire.then_some("<HTTP bytes withheld: they carry tokens>".into())
 }
 
