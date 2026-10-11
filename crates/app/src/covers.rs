@@ -210,7 +210,8 @@ fn load_chart(
     tally: &Tally,
 ) -> Result<Option<Chart>> {
     let tokens = source.user.developer();
-    let developer = tokens.get().map_err(|why| anyhow!(why))?;
+    let cancelled = || tally.cancel.load(Ordering::SeqCst);
+    let developer = tokens.wait(cancelled).map_err(|why| anyhow!(why))?;
     let Some(user) = source.user.load().map_err(|why| anyhow!(why))? else {
         return Ok(None);
     };

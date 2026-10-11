@@ -313,8 +313,8 @@ impl App {
             return Ok(());
         }
         let developer = self.user.developer().peek();
-        let developer =
-            developer.ok_or("sign-in needs Bramley's developer token, which is missing")?;
+        let developer = developer
+            .ok_or("Bramley's developer token is still being fetched; try sign-in again shortly")?;
         let (user, generation) = (self.user.clone(), self.generation.clone());
         let at = generation.load(Ordering::SeqCst);
         let keep: signin::Keep = Box::new(move |token| {

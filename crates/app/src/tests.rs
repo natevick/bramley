@@ -1973,7 +1973,11 @@ fn published(days: i64, token: &str, pad: usize) -> Vec<u8> {
     body.to_string().into_bytes()
 }
 
-fn token_server(status: u16, extra: String, body: Vec<u8>) -> (String, Arc<Mutex<usize>>) {
+fn token_server_one(status: u16, extra: String, body: Vec<u8>) -> (String, Arc<Mutex<usize>>) {
+    token_server(vec![(status, extra, body)])
+}
+
+fn token_server(mut replies: Vec<(u16, String, Vec<u8>)>) -> (String, Arc<Mutex<usize>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!(
         "http://{}/bramley/developer-token.json",
@@ -1990,6 +1994,10 @@ fn token_server(status: u16, extra: String, body: Vec<u8>) -> (String, Arc<Mutex
                 line.clear();
             }
             *counted.lock().unwrap() += 1;
+            let (status, extra, body) = match replies.len() {
+                1 => replies[0].clone(),
+                _ => replies.remove(0),
+            };
             let head = format!(
                 "HTTP/1.1 {status} X\r\n{extra}Content-Length: {}\r\n\r\n",
                 body.len()
@@ -2030,7 +2038,7 @@ fn cache_of(dir: &std::path::Path) -> Vec<u8> {
 
 #[test]
 fn a_cached_token_with_30_or_more_days_left_is_used_without_a_request() {
-    let (url, hits) = token_server(200, String::new(), published(180, "fetched", 0));
+    let (url, hits) = token_server_one(200, String::new(), published(180, "fetched", 0));
     let (token, dir) = dev_token(&url, Some(published(100, "cached", 0)), false);
     let got = (token.get(), token.get());
     let status = token.status();
@@ -2044,7 +2052,7 @@ fn a_cached_token_with_30_or_more_days_left_is_used_without_a_request() {
 
 #[test]
 fn under_30_days_one_fetch_replaces_the_cache_owner_only() {
-    let (url, hits) = token_server(200, String::new(), published(180, "fetched", 0));
+    let (url, hits) = token_server_one(200, String::new(), published(180, "fetched", 0));
     let (token, dir) = dev_token(&url, Some(published(20, "cached", 0)), false);
     let got = (token.get(), token.get());
     let cache = String::from_utf8(cache_of(&dir)).unwrap();
@@ -2068,7 +2076,7 @@ fn under_30_days_one_fetch_replaces_the_cache_owner_only() {
 #[test]
 fn a_failed_renewal_uses_the_cache_and_warns_with_the_days_left() {
     for (days, status, served) in [(20, 500, 180), (10, 500, 180), (100, 200, 10)] {
-        let (url, _) = token_server(status, String::new(), published(served, "fetched", 0));
+        let (url, _) = token_server_one(status, String::new(), published(served, "fetched", 0));
         let cached = (days < 30).then(|| published(days, "cached", 0));
         let (token, dir) = dev_token(&url, cached, false);
         let got = token.get().unwrap();
@@ -2087,7 +2095,7 @@ fn a_failed_renewal_uses_the_cache_and_warns_with_the_days_left() {
 
 #[test]
 fn with_no_cache_a_failed_fetch_falls_back_to_the_config_file_and_then_errors_loudly() {
-    let (url, hits) = token_server(500, String::new(), Vec::new());
+    let (url, hits) = token_server_one(500, String::new(), Vec::new());
     let (token, dir) = dev_token(&url, None, true);
     let fallback = (token.get(), token.status()["devTokenSource"].clone());
     assert_eq!((token.get().is_ok(), *hits.lock().unwrap()), (true, 1));
@@ -2098,7 +2106,7 @@ fn with_no_cache_a_failed_fetch_falls_back_to_the_config_file_and_then_errors_lo
     std::fs::remove_dir_all(&dir).unwrap();
     assert_eq!(fallback, (Ok("config-dir-token".into()), json!("config")));
     assert!(
-        missing.contains("developer token is unavailable: HTTP 500"),
+        missing.contains("developer token is unavailable: couldn't reach 127.0.0.1: HTTP 500"),
         "{missing}"
     );
     assert_eq!((token.missing(), wrote), (Some(missing), false));
@@ -2106,7 +2114,8 @@ fn with_no_cache_a_failed_fetch_falls_back_to_the_config_file_and_then_errors_lo
 
 #[test]
 fn malformed_expired_oversize_or_redirected_tokens_leave_the_cache_untouched() {
-    let (elsewhere, followed) = token_server(200, String::new(), published(180, "elsewhere", 0));
+    let (elsewhere, followed) =
+        token_server_one(200, String::new(), published(180, "elsewhere", 0));
     let oversize = published(180, "big", 0).len();
     let refused = [
         (200, String::new(), b"{not json".to_vec()),
@@ -2124,7 +2133,7 @@ fn malformed_expired_oversize_or_redirected_tokens_leave_the_cache_untouched() {
         ),
     ];
     for (status, extra, body) in refused {
-        let (url, _) = token_server(status, extra, body);
+        let (url, _) = token_server_one(status, extra, body);
         let old = published(20, "cached", 0);
         let (token, dir) = dev_token(&url, Some(old.clone()), false);
         let got = token.get();
@@ -2144,7 +2153,7 @@ fn a_developer_token_401_on_covers_refetches_once_and_only_a_new_token_is_retrie
             ..SERVE
         });
         let (mut source, config) = fixture_source(&fx, true);
-        let (url, hits) = token_server(200, String::new(), published(180, served, 0));
+        let (url, hits) = token_server_one(200, String::new(), published(180, served, 0));
         let cache = source.user.dir().join("cache");
         std::fs::create_dir_all(&cache).unwrap();
         std::fs::write(
@@ -2194,4 +2203,61 @@ fn no_developer_token_anywhere_is_a_banner_in_the_app() {
     let banner = app.status_json()["banner"].clone();
     std::fs::remove_dir_all(&dir).unwrap();
     assert_eq!(banner, json!(format!("{:?}", Banner::Error(missing))));
+}
+
+#[test]
+fn a_failed_fetch_retries_after_its_backoff_and_keeps_the_real_cause_until_then() {
+    let fetched = published(180, "fetched", 0);
+    let (url, hits) = token_server(vec![
+        (500, String::new(), Vec::new()),
+        (200, String::new(), fetched),
+    ]);
+    let (token, dir) = dev_token(&url, None, false);
+    let first = token.get().unwrap_err();
+    let again = token.get().unwrap_err();
+    let held = (*hits.lock().unwrap(), token.missing());
+    let started = Instant::now();
+    let got = token.wait(|| started.elapsed() > Duration::from_secs(15));
+    let waited = started.elapsed();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(
+        first.ends_with("couldn't reach 127.0.0.1: HTTP 500"),
+        "{first}"
+    );
+    assert_eq!((again, held), (first.clone(), (1, Some(first))));
+    assert_eq!(got, Ok("fetched".into()));
+    assert!(waited >= Duration::from_secs(3), "{waited:?}");
+    assert_eq!((*hits.lock().unwrap(), token.missing()), (2, None));
+}
+
+#[test]
+fn a_401_refetch_happens_at_most_once_a_minute() {
+    let (url, hits) = token_server_one(200, String::new(), published(180, "revoked", 0));
+    let (token, dir) = dev_token(&url, Some(published(100, "revoked", 0)), false);
+    let renewed = [token.refetch("revoked"), token.refetch("revoked")];
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!((renewed, *hits.lock().unwrap()), ([false, false], 1));
+}
+
+#[test]
+fn covers_wait_for_a_developer_token_that_arrives_after_a_failed_fetch() {
+    let fx = fixture(SERVE);
+    let (mut source, config) = fixture_source(&fx, true);
+    std::fs::remove_file(config.join("developer-token")).unwrap();
+    let served = published(180, FIXTURE_TOKEN, 0);
+    let (url, hits) = token_server(vec![
+        (500, String::new(), Vec::new()),
+        (200, String::new(), served),
+    ]);
+    let developer = DeveloperToken::new(Some(url), &config.join("cache"), &config);
+    source.user = source.user.with_developer(developer);
+    let ctx = egui::Context::default();
+    let mut grid = Grid::new(Some(source));
+    grid.follow(&ctx, true);
+    settle(&mut grid, &ctx);
+    std::fs::remove_dir_all(&config).unwrap();
+    assert_eq!(
+        (grid.uploaded(), grid.failed(), *hits.lock().unwrap()),
+        (50, None, 2)
+    );
 }

@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const URL: &str = "https://natevick.github.io/bramley/developer-token.json";
 const MAX_BYTES: u64 = 64 << 10;
@@ -9,6 +9,9 @@ const DAY: u64 = 86_400;
 const RENEW_DAYS: u64 = 30;
 const WARN_DAYS: u64 = 14;
 const UNAVAILABLE: &str = "Bramley's developer token is unavailable";
+const BACKOFF_S: [u64; 3] = [5, 30, 60];
+const REFETCH_EVERY: Duration = Duration::from_secs(60);
+const POLL: Duration = Duration::from_secs(1);
 
 struct Published {
     token: String,
@@ -23,13 +26,21 @@ struct Health {
     error: Option<String>,
 }
 
+#[derive(Default)]
+struct Attempts {
+    failures: usize,
+    due: Option<Instant>,
+    cause: Option<String>,
+    refetched: Option<Instant>,
+}
+
 #[derive(Clone)]
 pub struct DeveloperToken {
     url: Option<String>,
     cache: PathBuf,
     config: PathBuf,
     agent: ureq::Agent,
-    tried: Arc<Mutex<bool>>,
+    attempts: Arc<Mutex<Attempts>>,
     health: Arc<Mutex<Health>>,
 }
 
@@ -68,7 +79,7 @@ impl DeveloperToken {
             cache: cache_dir.join("developer-token.json"),
             config: config.to_owned(),
             agent,
-            tried: Arc::default(),
+            attempts: Arc::default(),
             health: Arc::default(),
         }
     }
@@ -86,10 +97,14 @@ impl DeveloperToken {
     }
 
     fn fetch(&self, url: &str) -> Result<Published, String> {
-        let mut response = self.agent.get(url).call().map_err(|e| e.to_string())?;
+        let host = url.parse::<ureq::http::Uri>().ok();
+        let host = host.as_ref().and_then(|u| u.host()).unwrap_or(url);
+        let unreachable = |why: String| format!("couldn't reach {host}: {why}");
+        let mut response = self.agent.get(url).call();
+        let response = response.as_mut().map_err(|e| unreachable(e.to_string()))?;
         match response.status().as_u16() {
             200 => {}
-            status => return Err(format!("HTTP {status}")),
+            status => return Err(unreachable(format!("HTTP {status}"))),
         }
         let body = response.body_mut().with_config().limit(MAX_BYTES);
         let body = body.read_to_vec().map_err(|e| e.to_string())?;
@@ -121,21 +136,30 @@ impl DeveloperToken {
     }
 
     pub fn get(&self) -> Result<String, String> {
-        let mut tried = lock(&self.tried);
+        let mut attempts = lock(&self.attempts);
         let cached = self.cached();
         let renew_at = now() + RENEW_DAYS * DAY;
         if let Some(fresh) = cached.as_ref().filter(|c| c.exp >= renew_at) {
             return Ok(self.note("cache", fresh, None));
         }
-        let failed = match (*tried, &self.url) {
-            (false, Some(url)) => {
-                *tried = true;
-                match self.fetch(url) {
-                    Ok(fetched) => return Ok(self.note("fetched", &fetched, None)),
-                    Err(why) => why,
+        let due = attempts.due.is_none_or(|due| Instant::now() >= due);
+        let failed = match &self.url {
+            Some(url) if due => {
+                let fetched = self.fetch(url);
+                let failures = fetched.is_err().then_some(attempts.failures + 1);
+                let step = BACKOFF_S[failures.unwrap_or(BACKOFF_S.len()).min(BACKOFF_S.len()) - 1];
+                attempts.due = Some(Instant::now() + Duration::from_secs(step));
+                attempts.failures = failures.unwrap_or(0);
+                match fetched {
+                    Ok(fetched) => {
+                        attempts.cause = None;
+                        return Ok(self.note("fetched", &fetched, None));
+                    }
+                    Err(why) => attempts.cause.insert(why).clone(),
                 }
             }
-            _ => "already tried this run".into(),
+            Some(_) => attempts.cause.clone().unwrap_or_default(),
+            None => "no address to fetch it from".into(),
         };
         if let Some(stale) = cached {
             return Ok(self.note("cache", &stale, Some(&failed)));
@@ -152,17 +176,33 @@ impl DeveloperToken {
         Err(why)
     }
 
+    pub fn wait(&self, cancelled: impl Fn() -> bool) -> Result<String, String> {
+        loop {
+            let got = self.get();
+            if got.is_ok() || cancelled() {
+                return got;
+            }
+            std::thread::sleep(POLL);
+        }
+    }
+
     pub fn peek(&self) -> Option<String> {
         let cached = self.cached().map(|c| c.token);
         cached.or_else(|| crate::read_token(&self.config, "developer-token").ok())
     }
 
     pub fn refetch(&self, rejected: &str) -> bool {
-        let _one = lock(&self.tried);
+        let mut attempts = lock(&self.attempts);
         if self.cached().is_some_and(|c| c.token != rejected) {
             return true;
         }
-        let Some(url) = &self.url else { return false };
+        let recent = attempts
+            .refetched
+            .is_some_and(|at| at.elapsed() < REFETCH_EVERY);
+        let Some(url) = self.url.as_ref().filter(|_| !recent) else {
+            return false;
+        };
+        attempts.refetched = Some(Instant::now());
         match self.fetch(url) {
             Ok(fetched) => self.note("fetched", &fetched, None) != rejected,
             Err(_) => false,

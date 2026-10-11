@@ -228,7 +228,7 @@ fn main() -> Result<()> {
     let developer = devtoken::DeveloperToken::system(token_url, &config);
     let user = Credentials::system(&config, developer);
     let prefetch = user.developer().clone();
-    std::thread::spawn(move || prefetch.get());
+    std::thread::spawn(move || prefetch.wait(|| false));
     let source = cover_source(&args, &user);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
