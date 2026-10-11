@@ -86,3 +86,11 @@ Header of `https://js-cdn.music.apple.com/musickit/v3/musickit.js` (ETag `"a62a1
   - **macOS:** Keychain items have per-app ACLs, so the socket is a small real widening there. Re-check this before the macOS port ships.
   - **Windows:** the channel is a token-gated loopback TCP port, so library data travels over 127.0.0.1. `bramley mcp` itself still never listens on the network. Re-check this before the Windows port ships.
   - The plain CLI refuses `bramley library playlists`. That only keeps the command out of the CLI's surface; it is not a protection, because the socket accepts the request from any same-user client.
+- **2026-10-11, library and track names stay out of files (Norm's call, Nate may override).** Section D allows user metadata only for the in-app function the user sees. It says nothing about copies on disk, so the rule leans strict:
+  - The `--status` file never carries `title`, `artist` or any library or catalog name. The in-memory `now` reply over the instance socket keeps them; the same-user trust entry above already covers that channel.
+  - Ids (`itemId`, `p.`/`i.`/`l.`) and counts may appear in the status file.
+  - Harnesses that need library names for a leak grep:
+    - write them 0600 under the repo's gitignored `target/tmp`;
+    - delete them at the end of every session, including on failure;
+    - never write them into evidence files.
+  - Private screenshots with real art and names are the one on-disk exception. They come from the dev build and never enter the repo.

@@ -91,6 +91,8 @@ Different sessions, so a 2–3 MiB gap is noise, not a saving. S9 costs nothing 
 
 ## Not established
 
+- **Memory beyond about 45k songs (estimate only).** Scrolling 4,481 songs added at most +2.6 MiB, about 0.6 KiB a song; that is an upper bound, since glyph-atlas growth is in it too. At that rate, about 45–50k songs scrolled to the end would use up R2's ~26 MiB of headroom. Apple allows 100k. Not measured beyond 4.5k. Follow-up: a slimmer row model or windowed pages.
+- **A short queue while pages are still loading.** A click queues the clicked song and the following rows that are already loaded. Clicking the last loaded row while the next page is in flight queues a single song, and playback stops after it. Follow-up: top up with `playLater` as the queue nears its end.
 - Since fa91ced, a click on the last row queues just that one song. L2 and both click checks at HEAD prove that the clicked song plays; they do not prove the songs queued after it. The evidence that a 100-id `i.` queue starts at its first entry is the pre-fix diagnostic, in which song 4,431, the window's first, played.
 - be0b972 (sidebar names truncate) landed after live-5. Only gate s9-3 covers it.
 - The R1/R2-library readings come from the dev build in a single session, without the reference binary; they are not R1/R2 readings.
