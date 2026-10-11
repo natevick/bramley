@@ -143,6 +143,18 @@ fn spawner(ctx: egui::Context, output_device: Option<String>) -> Spawn {
     })
 }
 
+fn logging() -> fastframe_log::Logging {
+    fastframe_log::Logging::new("bramley", env!("CARGO_PKG_VERSION")).redact(withhold_wire_dumps)
+}
+
+fn withhold_wire_dumps(
+    record: &log::Record<'_>,
+    _message: &str,
+) -> Option<std::borrow::Cow<'static, str>> {
+    let wire = record.level() == log::Level::Trace && record.target().starts_with("ureq_proto");
+    wire.then_some("<HTTP bytes withheld: they carry tokens>".into())
+}
+
 #[cfg(unix)]
 const CHANNEL_FILE: &str = "instance.sock";
 #[cfg(not(unix))]
@@ -165,7 +177,7 @@ fn main() -> Result<()> {
     let args = parse_args(argv.into_iter())?;
     #[cfg(feature = "gate-sabotage")]
     let ballast = touched_ballast()?;
-    let _ = fastframe_log::Logging::new("bramley", env!("CARGO_PKG_VERSION")).init();
+    let _ = logging().init();
     let (inbox_tx, inbox) = channel();
     let waker = Arc::new(OnceLock::new());
     let _guard = match slot.claim(&cli::wire(&[]), cli::handler(inbox_tx, waker.clone())) {

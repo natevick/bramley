@@ -15,6 +15,7 @@ fastframe-fonts = { git = "https://github.com/natevick/fastframe", rev = "e32305
 fastframe-log = { git = "https://github.com/natevick/fastframe", rev = "e32305a83234733677f81580a6d8e56e2b3a9624" }
 fastframe-instance = { git = "https://github.com/natevick/fastframe", rev = "e32305a83234733677f81580a6d8e56e2b3a9624" }
 fastframe-text = { git = "https://github.com/natevick/fastframe", rev = "e32305a83234733677f81580a6d8e56e2b3a9624" }
+log = "0.4"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 png = { version = "0.18", optional = true }
 serde_json = "1"

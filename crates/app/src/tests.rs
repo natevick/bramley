@@ -1141,3 +1141,63 @@ fn a_storefront_403_asks_for_sign_in_and_a_401_blames_the_developer_token() {
         assert_eq!(cover_meshes(&ctx, &mut app), 0, "{me}");
     }
 }
+
+#[test]
+fn ureq_wire_dumps_never_reach_the_log_at_any_level() {
+    let line = |level, target| {
+        let record = log::Record::builder()
+            .level(level)
+            .target(target)
+            .args(format_args!("2042 6561 7265 7220 6579 4a68  .Bearer.eyJh"))
+            .build();
+        crate::withhold_wire_dumps(&record, "2042 6561  .Bearer.eyJh").is_some()
+    };
+    assert!(line(log::Level::Trace, "ureq_proto::util"));
+    assert!(line(log::Level::Trace, "ureq_proto::client"));
+    assert!(!line(log::Level::Debug, "ureq_proto::client"));
+    assert!(!line(log::Level::Debug, "ureq::run"));
+    assert!(!line(log::Level::Trace, "ureq::run"));
+    assert!(!line(log::Level::Trace, "zbus::connection"));
+}
+
+#[test]
+fn main_installs_a_logger_that_withholds_ureq_wire_dumps() {
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("../../target/tmp/log-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let log = dir.join("app.log");
+    crate::logging()
+        .file(&log)
+        .filter("ureq=trace,ureq_proto=trace")
+        .init()
+        .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut head = String::new();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        while reader.read_line(&mut head).unwrap() > 2 {}
+        stream
+            .write_all(b"HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
+            .unwrap();
+    });
+    let secret = "user-token-for-the-log-test-0123456789";
+    ureq::get(&format!("http://{addr}/"))
+        .header("Music-User-Token", secret)
+        .call()
+        .unwrap();
+    let text = std::fs::read_to_string(&log).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    let hex: String = text
+        .lines()
+        .filter_map(|l| l.split("ureq_proto::util] ").nth(1))
+        .flat_map(|l| l.split("  ").next().unwrap_or("").split(' '))
+        .collect();
+    let bytes: Vec<u8> = (0..hex.len() / 2)
+        .filter_map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).ok())
+        .collect();
+    assert!(text.contains("<HTTP bytes withheld"), "{text}");
+    assert!(!text.contains(secret) && !String::from_utf8_lossy(&bytes).contains(secret));
+}

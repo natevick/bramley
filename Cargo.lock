@@ -528,6 +528,7 @@ dependencies = [
  "fastframe-log",
  "fastframe-text",
  "image",
+ "log",
  "png",
  "serde_json",
  "ureq",
