@@ -6,7 +6,7 @@ Commits were rebased onto main after S9 merged. The old hashes in amendment 1 ma
 
 ## Review round (2026-10-11): current results
 
-This section supersedes the round-1 results below wherever they differ. Inputs were the S8 review and Nate's F6 ruling, now recorded in acceptance.md: "no cut tail: drain acknowledged (end of stream) or continuous gapless output". PREREG amendments 4 and 5 hold the measurable form.
+**Rebased onto main 750bfc2**, which carries the engine short-frame fix and its tests. The fix's S8 copy is dropped, and `crates/` is identical to the gated build eef8d07, now b91735a. Gate and live hashes below are the pre-rebase builds that actually ran. This section supersedes the round-1 results below wherever they differ. Inputs were the S8 review and Nate's F6 ruling, now recorded in acceptance.md: "no cut tail: drain acknowledged (end of stream) or continuous gapless output". PREREG amendments 4 and 5 hold the measurable form.
 
 **Withdrawn: the round-1 F6-gapless PASS** (live-3, live-5).
 - Its F6-S sent `next` at `duration − 4 s`, not the registered 3 s, and that deviation was not disclosed.
