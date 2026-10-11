@@ -5,7 +5,7 @@ SONG = '6781024437'
 
 
 def pw_dump():
-    return json.loads(subprocess.run(['pw-dump'], capture_output=True, text=True, check=True, timeout=5).stdout)
+    return json.loads(subprocess.run(['pw-dump'], capture_output=True, text=True, check=True, timeout=1).stdout)
 
 
 def props(dump):
@@ -32,11 +32,16 @@ def default_sink():
     return next((l.split('=', 1)[1].strip().strip('"') for l in out.splitlines() if 'node.name' in l), None)
 
 
+def restore_default(name):
+    ids = [i for i, p in props(pw_dump()).items() if p.get('node.name') == name]
+    return bool(ids) and subprocess.run(['wpctl', 'set-default', str(ids[0])]).returncode == 0 and default_sink() == name
+
+
 class Guard(threading.Thread):
     def __init__(self, pid, allowed):
         super().__init__(daemon=True)
         self.pid, self.allowed = pid, allowed
-        self.stop, self.killed, self.last_clean, self.seen, self.polls = False, None, None, set(), 0
+        self.stop, self.killed, self.last_clean, self.seen, self.polls, self.log = False, None, None, set(), 0, []
 
     def run(self):
         while not self.stop and os.path.exists(f'/proc/{self.pid}'):
@@ -47,6 +52,7 @@ class Guard(threading.Thread):
                 return
             self.polls += 1
             self.seen |= targets
+            self.log.append([round(time.time(), 2), sorted(str(t) for t in targets)])
             bad = sorted(str(t) for t in targets if t != self.allowed)
             if bad:
                 self.kill(f'stream linked to {bad}')
@@ -313,8 +319,8 @@ def session(out, prefix):
         wait_for(lambda: os.path.exists(f"{os.environ['XDG_RUNTIME_DIR']}/{sock}"), 10, 'weston')
         wait_for(lambda: sink_exists(sink), 10, 'null sink')
         summary['defaultAtStart'] = default_sink()
-        if summary['defaultAtStart'] == sink:
-            raise RuntimeError('the null sink became the default; refusing')
+        if summary['defaultAtStart'] in (None, sink):
+            raise RuntimeError(f"default sink is {summary['defaultAtStart']}; refusing")
         yield sock, sink, summary
     finally:
         os.killpg(pw.pid, signal.SIGTERM)
@@ -322,6 +328,8 @@ def session(out, prefix):
         time.sleep(1.5)
         summary['sinkGone'] = not sink_exists(sink)
         summary['defaultAtEnd'] = default_sink()
+        if summary.get('defaultAtStart') and summary['defaultAtEnd'] != summary['defaultAtStart']:
+            summary['defaultRestored'] = restore_default(summary['defaultAtStart'])
         print(json.dumps(summary), flush=True)
         json.dump(summary, open(os.path.join(out, 'session.verdict.json'), 'w'))
 

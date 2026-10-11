@@ -13,7 +13,12 @@ Nate delegated the definition of "done" to Norm on 2026-10-10. Bramley v1 on Lin
   - Screenshots come from the `dev` build of the same commit, or from compositor capture. Since 2026-10-10 the shipped binary has no `--screenshot`, so it never writes album art to disk (compliance §D; decisions.md).
   - Screenshots with real album art go to Nate privately, never into the public repo.
 - **Network-dependent timings:** the threshold applies to the median of 5 repetitions.
-- **Memory validity** (procedure added 2026-10-10; no threshold changed): absolute PSS on the dev box drifted 10–20 MiB between sessions for the same binary. Every R1/R2/R3 run therefore also measures a fixed reference binary in the same session and reports USS and RSS next to PSS. If the reference has drifted more than 5 MiB from its recorded value, the run is VOID and gets re-run.
+- **Memory validity** (procedure added 2026-10-10; no threshold changed): absolute PSS on the dev box drifted 10–20 MiB between sessions for the same binary. Every R1/R2/R3 run therefore also measures a fixed reference binary in the same session, before and after the app runs, and reports USS and RSS next to PSS.
+  - **Zones** (amended 2026-10-10, S2c review: procedure, no thresholds changed). USS ≤ PSS ≤ RSS always holds, so each check's medians fall into one of three zones:
+    1. **USS over the bar:** FAIL. Sharing can't rescue it.
+    2. **RSS at or under the bar:** PASS-eligible. Drift is reported but doesn't void. A pass on RSS is strictly stronger than a pass on PSS.
+    3. **Otherwise:** judged on PSS. The run is VOID and gets re-run if either reference reading drifted more than 5 MiB from its recorded value (the worse of the two counts).
+  - A counted run refuses to start while another weston, another Bramley, or any non-standing process mapping the radeonsi/LLVM libraries is running.
 
 ## Functional checks (end to end)
 
@@ -45,7 +50,7 @@ Nate delegated the definition of "done" to Norm on 2026-10-10. Bramley v1 on Lin
 
 - **No user token:** F4, F5, F6, F9 and R1 must fail; F2 must pass.
 - **Corrupted developer token:** F3 and F4 must fail.
-- **Ballast build** (`sabotage` feature only, so it can never ship): it allocates and touches enough memory to land 15 MiB over the R1 bar, sized from the same run's real R1 median. R1 must fail. The ballast binary also must fail `check-shipped-features.sh`.
+- **Ballast build** (`sabotage` feature only, so it can never ship): it allocates and touches enough memory to land 15 MiB over the R1 bar in USS, sized from the same run's real R1 USS median (amended 2026-10-10: procedure, no thresholds changed; it was the PSS median). R1 must fail in zone 1, and the ballast's measured USS rise must match its size within 3 MiB. The ballast binary also must fail `check-shipped-features.sh`.
 - **Leak build** (`sabotage` feature): it leaks 3 MiB on every track change, which is ≥ 24 MiB over 8 tracks. R3 must fail.
 - **llvmpipe forced:** the run is VOID.
 - **No null sink or no PipeWire stream:** F4 is VOID, not PASS, but only once playback has started (position advancing). If playback never started, F4 is FAIL. Clarified 2026-10-10: S2a found the two rules collided, so a signed-out run came out VOID.

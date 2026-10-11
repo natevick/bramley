@@ -90,3 +90,43 @@ Runs from a dirty tree don't count. A VOID run is re-run and reported, never dro
 - The screenshot, taken with the dev build of the same commit at about 45 s. It goes to `target/screens/`, never into the repo.
 
 Committed verdict files hold numbers and reasons only: no logs, art URLs or tokens.
+
+## Amendment 1 (2026-10-10, S2c review round 1, before any further counted run)
+Procedure only. The 200/100 bars, the 5 MiB drift bar, the recorded 83.3 and 215 ± 5 are unchanged. Runs before this amendment (run1, run2, llvmpipe1, norm-run1) are scored under the original rules and are not re-scored.
+
+- **Zones:** each check's medians, recomputed from the samples, fall into one zone.
+  1. **USS > bar:** FAIL.
+  2. **RSS ≤ bar:** PASS-eligible. Drift is reported but does not void.
+  3. **Otherwise:** judged on PSS. VOID if the reference drifted more than 5 MiB.
+- **Reference:** it is measured before the app runs and again after the ballast, with the same method. The worse drift counts. Its sha, pid and renderer checks apply to both readings.
+- **Precedence:**
+  - Any missing evidence is FAIL and beats VOID. The evidence files are `build.json`, `session.verdict.json`, `weston.log`, both reference files, the check's own file and `<run>.guard.json`.
+  - A tree that is dirty, or whose dirty state is unknown, is FAIL.
+- **New VOIDs:**
+  - weston's own `GL renderer:` log line is missing, or isn't radeonsi;
+  - `wpctl` returns nothing at the start, at the end or before play;
+  - the default sink changed, even if the harness restored it;
+  - a guard kill, now on R1 **and** R2;
+  - in the R1 window, fewer than 30 guard polls, or any poll where our stream isn't linked to the null sink only (each poll is timestamped).
+- **New FAILs:**
+  - a `bramley now` snapshot whose `pid` isn't the sampled app's;
+  - the ballast VOID alone makes the gate VOID, not FAIL.
+- **Audio:**
+  - pw-dump times out after 1 s, and a timeout kills the app.
+  - Once the app first reports Playing with position > 0, the guard must have seen our stream linked to the null sink within 2 s. Otherwise it kills the app (VOID).
+  - After any guard kill, the remaining playing phases are skipped.
+  - If the default sink changed, the session restores it and records the change.
+- **Ballast:**
+  - Sized `ceil(215 − shipped R1 USS median)` MiB, so it lands in zone 1.
+  - It holds only if all of the following are true:
+    1. R1 is FAIL with only the USS reason;
+    2. the USS median is within 215 ± 5;
+    3. the measured USS rise over shipped is within 3 MiB of the requested size;
+    4. the feature check fails as before.
+  - `sizedFromThisRun` was a self-comparison and is dropped.
+- **Pre-flight:** `acceptance.sh` refuses to start (exit 2) and prints what it found when it sees any of the following:
+  - another weston;
+  - another bramley;
+  - any process outside the standing set that maps libgallium, radeonsi or libLLVM. The standing set is gnome-shell, Xvfb and grok-bot, all running since 2026-09-16, before run1, run2 and the 83.3 recording.
+- **Build order:** ballast, then dev, then shipped, so `target/release/bramley` ends as the shipped build.
+- **Pass condition:** unchanged. Two consecutive counted runs PASS with the ballast holding, plus one `--llvmpipe` run whose control holds.
