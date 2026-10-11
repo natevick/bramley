@@ -419,7 +419,7 @@ pub fn sidebar(ui: &mut egui::Ui, lib: &mut Library, current: &Route, navs: &mut
             if ui
                 .add_sized(
                     [ui.available_width(), 24.0],
-                    egui::Button::selectable(*current == open, name),
+                    egui::Button::selectable(*current == open, name).truncate(),
                 )
                 .clicked()
             {
