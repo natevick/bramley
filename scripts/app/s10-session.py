@@ -19,6 +19,7 @@ PRIVATE = os.path.join(ROOT, 'target', 'screens', 'PRIVATE-real-art', 's10')
 PUBLIC = os.path.join(ROOT, 'docs', 'screens', 's10')
 QUEUE_KEYS = ('"queue"', '"queuePosition"', '"queueLength"')
 COMMON = ['--size', '1100x720']
+JUMP = 90
 
 
 def discover(config):
@@ -113,28 +114,31 @@ def live_runs(a, out, sink, env, found, names):
         cs.wait_for(lambda: snap().get('engineStarted'), 60, 'the click')
         if sabotage:
             cs.wait_for(lambda: cli('queue', 'add', x)[0] == 0, 20, 'queue add X')
-        res['clickedPlays'] = bool(until(lambda n: playing(n, found['song0']) or (n.get('queuePosition') or 0) > 0, 60, 'the clicked song'))
+        n = until(lambda n: n.get('itemId') in found['song0'] or (n.get('queuePosition') or 0) > 0, 60, 'the clicked song')
+        res['clickedPlays'] = n.get('itemId') in found['song0']
         res['pssWindow'] = round(statistics.median(s9.pss(p, 10)), 1)
-        n = until(lambda n: n.get('queuePosition') == 98, 90, 'position 98')
-        res['lengthAt98'] = n.get('queueLength')
+        n = until(lambda n: n.get('queuePosition') == JUMP, 90, f'position {JUMP}')
+        window = res['window'] = n.get('queueLength') - (1 if sabotage else 0)
         try:
-            n = until(lambda n: (n.get('queueLength') or 0) >= 200, 60, 'the top-up')
+            until(lambda n: (n.get('queueLength') or 0) >= window + 90, 60, 'the top-up')
             res['pssTopped'] = round(statistics.median(s9.pss(p, 10)), 1)
         except RuntimeError:
             pass
         res['toppedTo'] = now().get('queueLength')
-        for at in (99, 100):
+        while (now().get('queuePosition') or 0) < window:
+            at = now().get('queuePosition') or 0
             cli('seek', str(max(0.0, (now().get('duration') or 30) - 4)))
             try:
-                until(lambda n: (n.get('queuePosition') or 0) >= at and n.get('state') == 'Playing', 30, f'position {at}')
+                until(lambda n: (n.get('queuePosition') or 0) > at and n.get('state') == 'Playing', 30, f'past {at}')
             except RuntimeError:
                 break
+        time.sleep(2)
         n = now()
-        res['at100'] = n.get('queuePosition') == 100
-        res['item100IsSong100'] = playing(n, found['song100'])
-        res['item100IsX'] = n.get('itemId') == x
+        res['atWindowEnd'] = n.get('queuePosition') == window
+        res['nextIsSong100'] = playing(n, found['song100'])
+        res['nextIsX'] = n.get('itemId') == x
         res['pages'] = snap().get('library', {}).get('songs', {}).get('pages')
-        res['T'] = found['songs'] > 100 and res['clickedPlays'] and (res['toppedTo'] or 0) >= 200 and res['at100'] and res['item100IsSong100'] and (res['pages'] or 0) >= 2
+        res['T'] = found['songs'] > 100 and res['clickedPlays'] and window > JUMP and (res['toppedTo'] or 0) >= window + 90 and res['atWindowEnd'] and res['nextIsSong100'] and (res['pages'] or 0) >= 2
         clean('topup-sabotage' if sabotage else 'topup', res)
 
     def run(name, args, steps):
@@ -151,8 +155,8 @@ def live_runs(a, out, sink, env, found, names):
     songs_click = ['--route', 'songs', '--click-row', '0']
     results = [run('f8', COMMON, f8),
                run('jump', COMMON + ['--jump-to', '3'], jump),
-               run('topup', COMMON + songs_click + ['--jump-to', '98'], topup),
-               run('topup-sabotage', COMMON + songs_click + ['--jump-to', '98'], lambda p, s, r: topup(p, s, r, True))]
+               run('topup', COMMON + songs_click + ['--jump-to', str(JUMP)], topup),
+               run('topup-sabotage', COMMON + songs_click + ['--jump-to', str(JUMP)], lambda p, s, r: topup(p, s, r, True))]
     os.makedirs(PRIVATE, exist_ok=True)
     shots = {'f8': shot('f8', [], four), 'songs': shot('songs', songs_click, lambda r: safe())}
     return {'found': {'songs': found['songs'], 'queue': q, 'x': x}, 'results': results, 'privateShots': shots}

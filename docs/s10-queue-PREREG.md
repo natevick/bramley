@@ -60,3 +60,20 @@ The harness calls the documented catalog and library endpoints itself (complianc
 - The order check can pass if MusicKit skipped an item quickly. Every transition must also show `Playing` with position > 0 on the new id.
 - `queueLength ≥ 200` alone could come from a double append. T also requires item 100 to be song 100, and the unit test pins one batch per landing.
 - A `Playing` state with a catalog id for a library song is accepted; S9's L2 rule is to accept either id.
+
+## Amendment 1 (after live-1, before any passing T or F8 run)
+
+live-1 FAILed F8 and could not score T. A timeline of each (`now` polled every second; ids and counts only) found two causes. Neither is a queue-logic fault.
+
+- **T's procedure assumed that a 100-id window gives a 100-item queue. It doesn't.**
+  - MusicKit's `spliceQueueItems` drops unplayable ids. In live-1, the first 100 library songs gave `queueLength` 98, so `--jump-to 98` never fired (it waits for a length above 98).
+  - **Changed procedure:**
+    - Launch with `--jump-to 90` and record the window length W, which is `queueLength` at position 90. In T-S that is minus one, for X.
+    - The top-up must grow the queue to at least W + 90: one batch of 100 ids, less the ones MusicKit filters. This replaces "≥ 200".
+    - The harness seeks near each track's end until `queuePosition` is W. The item there, the first after the window, must be song 100 (library or catalog id), Playing with position > 0. This replaces "position 100 is song 100".
+  - W ≤ 90 makes T VOID. So does an unplayable song 100.
+  - T-S is unchanged in intent: the queue stays at W + 1 and the item at W is X.
+- **F8 stalled near the end of track C.** The final snapshot read Playing at 62.7 s of a 67 s track, with AAC decode errors in the log at that moment. The diagnostic run went A→B→C→D in order. This is the engine hang S8 found: a last frame under 2 ms re-decoded forever, fixed in `6b7b59d` on `natevick/s8-detail`, not on main.
+  - F8, J, T and T-S are run twice: on this branch's dev build, and on the same build with `6b7b59d` cherry-picked (throwaway worktree, never committed here).
+  - Both results are reported, and the cherry-picked one is labelled.
+  - The bars are unchanged.
