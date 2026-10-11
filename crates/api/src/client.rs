@@ -9,6 +9,7 @@ use serde::de::DeserializeOwned;
 use crate::models::{Detail, Envelope, Item, Page, SearchResults, Searched, WithTracks};
 
 pub const API_BASE: &str = "https://api.music.apple.com";
+const LOOPBACK: &str = "http://127.0.0.1:";
 const MAX_BODY_BYTES: u64 = 2 << 20;
 const MAX_PAGES: usize = 200;
 const RETRY_BUDGET: Duration = Duration::from_secs(1);
@@ -87,10 +88,23 @@ impl Client {
     pub fn new(
         tokens: impl Fn() -> std::result::Result<Tokens, String> + Send + Sync + 'static,
     ) -> Self {
-        Self::at(API_BASE, tokens)
+        Self::build(API_BASE, tokens)
     }
 
     pub fn at(
+        base: &str,
+        tokens: impl Fn() -> std::result::Result<Tokens, String> + Send + Sync + 'static,
+    ) -> Result<Self> {
+        let port = base.strip_prefix(LOOPBACK);
+        if base != API_BASE && !port.is_some_and(|p| p.parse::<u16>().is_ok()) {
+            return Err(Error::Refused(format!(
+                "{base:?} is not Apple Music or loopback"
+            )));
+        }
+        Ok(Self::build(base, tokens))
+    }
+
+    fn build(
         base: &str,
         tokens: impl Fn() -> std::result::Result<Tokens, String> + Send + Sync + 'static,
     ) -> Self {

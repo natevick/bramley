@@ -106,6 +106,7 @@ fn raw(base: &str, user: Option<&str>) -> Client {
             user: user.clone(),
         })
     })
+    .unwrap()
 }
 
 fn client(server: &Server, user: Option<&str>) -> Session<'static> {
@@ -467,7 +468,8 @@ fn the_storefront_is_cached_per_user_and_dropped_on_sign_out_401_and_403() {
             developer: DEVELOPER.into(),
             user,
         })
-    });
+    })
+    .unwrap();
     let fronts = || {
         server
             .targets()
@@ -590,6 +592,7 @@ fn a_developer_token_401_renews_once_and_retries_only_with_a_new_token() {
                 user: Some(USER.into()),
             })
         })
+        .unwrap()
         .renewing(move |rejected| {
             seen.lock().unwrap().push(rejected.to_owned());
             *current.lock().unwrap() = "renewed-token";
@@ -604,5 +607,23 @@ fn a_developer_token_401_renews_once_and_retries_only_with_a_new_token() {
             false => assert_eq!(ran, Err(Error::DeveloperToken)),
         }
         assert_eq!(ran.is_ok(), renews);
+    }
+}
+
+#[test]
+fn a_client_only_talks_to_apple_music_or_loopback() {
+    let tokens = || Err::<Tokens, _>("unused".to_owned());
+    assert!(Client::at(crate::API_BASE, tokens).is_ok());
+    assert!(Client::at("http://127.0.0.1:8080", tokens).is_ok());
+    for base in [
+        "https://api.music.apple.com.evil",
+        "http://127.0.0.1:80@evil",
+        "https://evil",
+        "http://127.0.0.1:",
+    ] {
+        assert!(
+            matches!(Client::at(base, tokens), Err(Error::Refused(_))),
+            "{base}"
+        );
     }
 }

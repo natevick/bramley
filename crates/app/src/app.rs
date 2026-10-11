@@ -341,7 +341,10 @@ impl App {
                 let (user, developer) = (self.user.clone(), self.user.developer().clone());
                 let client =
                     bramley_api::Client::at(&self.api_base, move || crate::api_tokens(&user));
-                bramley_api::worker(client.renewing(move |old| developer.refetch(old)))
+                let renewing = client.map(|c| c.renewing(move |old| developer.refetch(old)));
+                renewing
+                    .map_err(drop)
+                    .and_then(|c| bramley_api::worker(c).map_err(drop))
             }
         };
         let unsent = match worker {
