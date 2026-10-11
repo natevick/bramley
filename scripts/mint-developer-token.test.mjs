@@ -18,6 +18,7 @@ test("a throwaway-key mint verifies with 180-day claims and no origin", () => {
   });
   assert.equal(LIFETIME_S, 180 * 86400);
   assert.deepEqual([minted.iat, minted.exp], [1_700_000_000, 1_700_000_000 + LIFETIME_S]);
+  assert.equal(Buffer.from(minted.token.split(".")[2], "base64url").length, 64);
   assert.ok(verifies(minted.token, pem));
 });
 

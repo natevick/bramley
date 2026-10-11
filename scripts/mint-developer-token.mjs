@@ -1,9 +1,9 @@
 import { createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { realpathSync, statSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 export const LIFETIME_S = 180 * 86400;
-const CHECK_URL = "https://api.music.apple.com/v1/catalog/us/songs/6781024437";
+const CHECK_URL = "https://api.music.apple.com/v1/catalog/us/search?term=a&types=songs&limit=1";
 const b64u = (b) => Buffer.from(b).toString("base64url");
 
 export function mint({ pem, kid, iss, now = Math.floor(Date.now() / 1000) }) {
@@ -41,10 +41,11 @@ async function main(out) {
   });
   if (reply.status !== 200) throw new Error(`Apple's catalog answered HTTP ${reply.status}`);
   writeFileSync(out, JSON.stringify(minted));
+  if (!(statSync(out).size > 0)) throw new Error(`${out} is empty`);
   console.log(`published token expires ${new Date(minted.exp * 1000).toISOString()}`);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   main(process.argv[2] ?? "developer-token.json").catch((e) => {
     console.error(`mint failed: ${e.message}`);
     process.exit(1);
