@@ -25,6 +25,9 @@ impl Route {
 
     #[cfg(feature = "dev")]
     pub fn parse(name: &str) -> Option<Route> {
+        if let Some(id) = name.strip_prefix("album:") {
+            return Some(Route::Album(id.to_owned()));
+        }
         if let Some(id) = name.strip_prefix("playlist:") {
             return Some(Route::Playlist(id.to_owned()));
         }

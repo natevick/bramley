@@ -5,7 +5,7 @@ use super::labeled;
 use super::nav::Nav;
 use crate::playback::{Action, play_or_pause};
 
-fn clock(seconds: f64) -> String {
+pub(super) fn clock(seconds: f64) -> String {
     let s = seconds.max(0.0) as u64;
     format!("{}:{:02}", s / 60, s % 60)
 }

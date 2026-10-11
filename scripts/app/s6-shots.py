@@ -35,7 +35,7 @@ class Fixture(http.server.BaseHTTPRequestHandler):
         elif self.path == '/v1/me/storefront':
             body = b'{"data":[{"id":"us"}]}'
         elif self.path.startswith('/v1/catalog/us/charts'):
-            albums = [{'attributes': {'artwork': {'url': f'{base}/art/{i}/{{w}}x{{h}}bb.jpg'}}} for i in range(50)]
+            albums = [{'id': str(1000 + i), 'attributes': {'artwork': {'url': f'{base}/art/{i}/{{w}}x{{h}}bb.jpg'}}} for i in range(50)]
             body = json.dumps({'results': {'albums': [{'data': albums}]}}).encode()
         elif found:
             body = art(int(found[1]), int(found[2]))

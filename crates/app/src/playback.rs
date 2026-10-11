@@ -24,6 +24,7 @@ impl std::error::Error for SignedOut {}
 pub enum Action {
     PlaySong(String),
     PlayIn(Queue, usize),
+    Shuffle(Queue),
     Play,
     Pause,
     Seek(f64),
@@ -64,6 +65,7 @@ pub struct Playback {
     snap: Snapshot,
     pending: Option<Pending>,
     signed_out: bool,
+    shuffled: bool,
 }
 
 impl Playback {
@@ -78,6 +80,7 @@ impl Playback {
             snap: Snapshot::default(),
             pending: None,
             signed_out,
+            shuffled: false,
         }
     }
 
@@ -95,8 +98,9 @@ impl Playback {
 
     pub fn apply(&mut self, action: Action) -> bool {
         let (command, state, position) = match action {
-            Action::PlaySong(id) => return self.play(Queue::Songs(vec![id]), 0),
-            Action::PlayIn(queue, start) => return self.play(queue, start),
+            Action::PlaySong(id) => return self.play(Queue::Songs(vec![id]), 0, false),
+            Action::PlayIn(queue, start) => return self.play(queue, start, false),
+            Action::Shuffle(queue) => return self.play(queue, 0, true),
             _ if !self.started() => return false,
             Action::Play => (Command::Play, Some(PlayState::Playing), None),
             Action::Pause => (Command::Pause, Some(PlayState::Paused), None),
@@ -110,16 +114,20 @@ impl Playback {
         true
     }
 
-    fn play(&mut self, queue: Queue, start: usize) -> bool {
+    fn play(&mut self, queue: Queue, start: usize, shuffle: bool) -> bool {
         if self.signed_out {
             return false;
         }
         if !self.started() {
             self.starting = Some((self.spawn)());
-            (self.seq, self.snap) = (0, Snapshot::default());
+            (self.seq, self.snap, self.shuffled) = (0, Snapshot::default(), false);
             self.engine += 1;
         }
         self.send(Command::SetQueue { queue, start }, None, Some(0.0));
+        if shuffle != self.shuffled {
+            self.shuffled = shuffle;
+            self.send(Command::Shuffle(shuffle), None, None);
+        }
         self.send(Command::Play, Some(PlayState::Playing), None);
         true
     }

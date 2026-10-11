@@ -1,4 +1,5 @@
 pub mod content;
+pub mod detail;
 pub mod library;
 pub mod nav;
 pub mod player_bar;

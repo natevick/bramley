@@ -16,6 +16,7 @@ use crate::cli::{self, Inbox, Request};
 use crate::covers::{self, Grid, Source};
 use crate::credentials::Credentials;
 use crate::playback::{Action, Banner, Playback, Spawn, play_or_pause};
+use crate::ui::detail::Detail;
 use crate::ui::library::Library;
 use crate::ui::nav::{Nav, Shell};
 use crate::ui::search::Search;
@@ -90,6 +91,9 @@ pub struct App {
     api_port: Option<u16>,
     search: Search,
     library: Library,
+    detail: Detail,
+    #[cfg(feature = "dev")]
+    click_cover: Option<usize>,
     playback: Playback,
     user: Credentials,
     sign_in: Option<(signin::Server, bool)>,
@@ -147,6 +151,13 @@ impl App {
         {
             library.scroll_end = args.scroll_end.map(|after| Instant::now() + after);
             library.click_last = args.click_last;
+        }
+        #[allow(unused_mut)]
+        let mut detail = Detail::new(source.as_ref().and_then(|s| s.art_prefix.clone()));
+        #[cfg(feature = "dev")]
+        {
+            detail.click_track = args.click_track;
+            search.click_first_playlist = args.click_first_playlist;
             (shell.route, shell.queue_open) = (args.route.unwrap_or_default(), args.queue_open);
             if let Some(term) = &args.search {
                 shell.query.clone_from(term);
@@ -160,6 +171,9 @@ impl App {
             api_port: loopback_port(args.api_base.as_deref()),
             search,
             library,
+            detail,
+            #[cfg(feature = "dev")]
+            click_cover: args.click_cover,
             playback: Playback::new(spawn, signed_out),
             user,
             sign_in: None,
@@ -189,6 +203,11 @@ impl App {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn go(&mut self, route: ui::nav::Route) {
+        self.shell.apply(Nav::Go(route));
+    }
+
     pub fn status_json(&self) -> Value {
         let shown = self.playback.shown();
         let mut status = json!({
@@ -201,6 +220,8 @@ impl App {
             "position": shown.position,
             "duration": shown.duration,
             "applied": shown.applied,
+            "drainsAcked": shown.drains_acked,
+            "drainTimeouts": shown.drain_timeouts,
             "seq": self.playback.seq(),
             "engine": self.playback.engine(),
             "instanceGuarded": self.guarded,
@@ -221,6 +242,7 @@ impl App {
             "queueOpen": self.shell.queue_open,
             "search": self.search.status(),
             "library": self.library.status(),
+            "detail": self.detail.status(),
         });
         if let (Some(status), Value::Object(token)) =
             (status.as_object_mut(), self.user.developer().status())
@@ -247,6 +269,7 @@ impl App {
             | self.covers.receive(ctx)
             | self.search.receive(ctx)
             | self.library.receive(ctx)
+            | self.detail.receive(ctx)
             | self.answer_requests(ctx)
             | self.follow_sign_in()
             | self.follow_account()
@@ -474,6 +497,17 @@ impl App {
         for job in (self.library).tick(now, covers_allowed(&self.playback), wake) {
             self.send_api(job);
         }
+        let (route, waker) = (&self.shell.route, ctx.clone());
+        let wake = move || waker.request_repaint();
+        if let Some(job) = (self.detail).tick(now, covers_allowed(&self.playback), route, wake) {
+            self.send_api(job);
+        }
+        #[cfg(feature = "dev")]
+        if let Some(id) = self.click_cover.and_then(|n| self.covers.album(n)) {
+            self.navs
+                .push(Nav::Go(ui::nav::Route::Album(id.to_owned())));
+            self.click_cover = None;
+        }
         if changed
             || self
                 .status_at
@@ -521,7 +555,12 @@ impl App {
                 ui::notice(ui, &warning);
             }
             dismissed = self.agent_notice && crate::mcp::notice(ui).clicked();
-            let view = (&mut self.shell, &mut self.search, &mut self.library);
+            let view = (
+                &mut self.shell,
+                &mut self.search,
+                &mut self.library,
+                &mut self.detail,
+            );
             let emit = (&mut self.actions, &mut self.navs);
             ui::content::show(ui, view, &self.covers, emit);
         });

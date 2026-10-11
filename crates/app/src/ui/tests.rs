@@ -233,6 +233,22 @@ fn typing_then_enter_reaches_the_api_worker_only_when_signed_in() {
 }
 
 #[test]
+fn an_open_album_reaches_the_api_worker_only_when_signed_in() {
+    for signed_out in [false, true] {
+        let ctx = egui::Context::default();
+        let (mut app, (api, jobs)) = (app(&ctx, signed_out), channel());
+        app.api = Some(api);
+        app.go(Route::Album("123".into()));
+        app.tick(&ctx);
+        frame(&ctx, &mut app, RawInput::default());
+        let calls: Vec<_> = jobs.try_iter().map(|job| job.call).collect();
+        let want = (!signed_out).then(|| bramley_api::Call::Album("123".into()));
+        assert_eq!(calls, Vec::from_iter(want));
+        assert_eq!(app.status_json()["engineStarted"], false);
+    }
+}
+
+#[test]
 fn typing_while_signed_out_never_spins_the_repaint_loop() {
     let ctx = egui::Context::default();
     let mut app = app(&ctx, true);

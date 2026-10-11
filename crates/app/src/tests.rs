@@ -135,6 +135,35 @@ fn play_in_starts_the_engine_on_its_queue_at_the_start_index_unless_signed_out()
 }
 
 #[test]
+fn shuffle_sets_the_container_then_shuffles_and_the_next_play_unshuffles() {
+    let (mut p, ends) = fake(false);
+    let album = Queue::Album("1".into());
+    p.apply(Action::Shuffle(album.clone()));
+    p.apply(Action::PlayIn(album.clone(), 2));
+    p.apply(Action::PlayIn(album.clone(), 3));
+    p.receive();
+    let sent: Vec<Command> = ends.borrow()[0].0.try_iter().collect();
+    let set = |start| Command::SetQueue {
+        queue: album.clone(),
+        start,
+    };
+    let expected = [
+        (set(0), Command::Shuffle(true)),
+        (set(2), Command::Shuffle(false)),
+    ];
+    let expected: Vec<Command> = expected
+        .into_iter()
+        .flat_map(|(set, shuffle)| [set, shuffle, Command::Play])
+        .chain([set(3), Command::Play])
+        .collect();
+    assert_eq!(sent, expected);
+    let (mut signed_out, ends) = fake(true);
+    assert!(!signed_out.apply(Action::Shuffle(album.clone())));
+    assert!(!signed_out.apply(Action::PlayIn(album, 0)));
+    assert!(ends.borrow().is_empty());
+}
+
+#[test]
 fn shown_state_holds_until_a_snapshot_has_applied_the_command() {
     let (mut p, ends) = fake(false);
     p.apply(Action::PlaySong("42".into()));
@@ -855,7 +884,7 @@ fn fixture(serve: Serve) -> Fixture {
                 let albums: Vec<_> = (0..50)
                     .map(|i| match i {
                         4 if serve.bad_albums => json!({"attributes": {}}),
-                        _ => json!({"attributes": {"artwork": {"url": url(i)}}}),
+                        _ => json!({"id": format!("{}", 1000 + i), "attributes": {"artwork": {"url": url(i)}}}),
                     })
                     .collect();
                 let chart = json!({"results": {"albums": [{"data": albums}]}});
@@ -997,6 +1026,43 @@ fn fifty_covers_become_textures_and_nothing_decoded_stays_once_a_frame_ends() {
         (0, 0, 0),
         "sign-in lost kept covers"
     );
+}
+
+#[test]
+fn clicking_a_home_cover_opens_that_albums_detail() {
+    let (grid, _fx, ctx) = load_covers(SERVE, true);
+    ctx.enable_accesskit();
+    let mut navs = Vec::new();
+    let mut frame = |events| {
+        let input = egui::RawInput {
+            events,
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| grid.show(ui, &mut navs));
+        out.textures_delta.clear();
+        out.platform_output.accesskit_update
+    };
+    let nodes = frame(Vec::new()).expect("an accesskit tree").nodes;
+    let third = nodes
+        .iter()
+        .find(|(_, n)| n.label() == Some("Open album 3"));
+    let at = third
+        .and_then(|(_, n)| n.bounds())
+        .expect("a labelled cover");
+    let at = egui::pos2(
+        ((at.x0 + at.x1) / 2.0) as f32,
+        ((at.y0 + at.y1) / 2.0) as f32,
+    );
+    let button = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    frame(vec![egui::Event::PointerMoved(at), button(true)]);
+    frame(vec![button(false)]);
+    let opened = crate::ui::nav::Nav::Go(crate::ui::nav::Route::Album("1002".into()));
+    assert_eq!((navs, grid.album(2)), (vec![opened], Some("1002")));
 }
 
 #[test]

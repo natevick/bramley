@@ -43,6 +43,8 @@ pub struct Search {
     #[cfg(feature = "dev")]
     pub click_first_song: bool,
     #[cfg(feature = "dev")]
+    pub click_first_playlist: bool,
+    #[cfg(feature = "dev")]
     pub typed_once_signed_in: Option<String>,
 }
 
@@ -57,9 +59,11 @@ impl Search {
             took: None,
             tx,
             rx,
-            art: Art::new(art_prefix),
+            art: Art::new(art_prefix, ART_PT),
             #[cfg(feature = "dev")]
             click_first_song: false,
+            #[cfg(feature = "dev")]
+            click_first_playlist: false,
             #[cfg(feature = "dev")]
             typed_once_signed_in: None,
         }
@@ -209,6 +213,7 @@ pub(super) fn art_key(item: &Item) -> String {
 
 pub struct Art {
     prefix: Option<String>,
+    pt: f32,
     current: Arc<AtomicU64>,
     pub(super) tx: Sender<Fetched>,
     rx: Receiver<Fetched>,
@@ -217,10 +222,11 @@ pub struct Art {
 }
 
 impl Art {
-    fn new(prefix: Option<String>) -> Self {
+    pub(super) fn new(prefix: Option<String>, pt: f32) -> Self {
         let (tx, rx) = channel();
         Art {
             prefix,
+            pt,
             current: Arc::default(),
             tx,
             rx,
@@ -238,12 +244,16 @@ impl Art {
         self.current.load(Ordering::SeqCst)
     }
 
-    fn clear(&mut self) {
+    pub(super) fn texture(&self, item: &Item) -> Option<&TextureHandle> {
+        self.textures.get(&art_key(item))?.as_ref()
+    }
+
+    pub(super) fn clear(&mut self) {
         self.current.fetch_add(1, Ordering::SeqCst);
         self.textures.clear();
     }
 
-    fn receive(&mut self, ctx: &egui::Context) -> bool {
+    pub(super) fn receive(&mut self, ctx: &egui::Context) -> bool {
         let mut any = false;
         for (set, key, image) in self.rx.try_iter() {
             any = true;
@@ -255,7 +265,7 @@ impl Art {
         any
     }
 
-    fn want(&mut self, ctx: &egui::Context, item: &Item) {
+    pub(super) fn want(&mut self, ctx: &egui::Context, item: &Item) {
         let template = item.artwork.as_deref();
         let key = art_key(item);
         let fresh = !self.textures.contains_key(&key);
@@ -263,7 +273,7 @@ impl Art {
             return;
         };
         self.textures.insert(key.clone(), None);
-        let px = covers::px(ART_PT, ctx.pixels_per_point());
+        let px = covers::px(self.pt, ctx.pixels_per_point());
         let url = art_url(template, px).filter(|url| allowed_art(url, self.prefix.as_deref()));
         if self.jobs.is_none() {
             let (current, done) = (self.current.clone(), self.tx.clone());
@@ -336,6 +346,13 @@ pub fn show(
         search.click_first_song = false;
         clicked(song, actions, navs);
     }
+    #[cfg(feature = "dev")]
+    if search.click_first_playlist
+        && let Some(playlist) = results.playlists.items.first()
+    {
+        search.click_first_playlist = false;
+        clicked(playlist, actions, navs);
+    }
     egui::ScrollArea::vertical().show(ui, |ui| {
         for (title, items) in sections(results) {
             ui.label(RichText::new(title).strong().size(15.0));
@@ -360,8 +377,8 @@ fn row(ui: &mut egui::Ui, item: &Item, art: &mut Art, emit: (&mut Vec<Action>, &
         _ => text.clone(),
     };
     let size = egui::vec2(ART_PT, ART_PT);
-    let image = match art.textures.get(&art_key(item)) {
-        Some(Some(texture)) => egui::Image::new(texture),
+    let image = match art.texture(item) {
+        Some(texture) => egui::Image::new(texture),
         _ => egui::Image::new((egui::TextureId::default(), size)).tint(Color32::TRANSPARENT),
     };
     let button = egui::Button::image_and_text(image.fit_to_exact_size(size), text).frame(false);

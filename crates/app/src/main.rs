@@ -78,6 +78,12 @@ pub struct Args {
     search: Option<String>,
     #[cfg(feature = "dev")]
     click_first_song: bool,
+    #[cfg(feature = "dev")]
+    click_first_playlist: bool,
+    #[cfg(feature = "dev")]
+    click_cover: Option<usize>,
+    #[cfg(feature = "dev")]
+    click_track: Option<usize>,
 }
 
 fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
@@ -114,6 +120,12 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
             "--search" => a.search = Some(value()?),
             #[cfg(feature = "dev")]
             "--click-first-song" => a.click_first_song = true,
+            #[cfg(feature = "dev")]
+            "--click-first-playlist" => a.click_first_playlist = true,
+            #[cfg(feature = "dev")]
+            "--click-cover" => a.click_cover = Some(value()?.parse()?),
+            #[cfg(feature = "dev")]
+            "--click-track" => a.click_track = Some(value()?.parse()?),
             other => bail!("unknown argument {other}"),
         }
     }

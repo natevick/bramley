@@ -12,6 +12,8 @@ use bramley_engine::{redact, user_agent};
 use egui::{ColorImage, TextureHandle, TextureOptions};
 use serde_json::Value;
 
+use crate::ui::nav::{Nav, Route};
+
 pub const COVER_PT: f32 = 96.0;
 pub const API_BASE: &str = "https://api.music.apple.com";
 const STOREFRONT: &str = "/v1/me/storefront";
@@ -35,7 +37,7 @@ impl std::fmt::Display for DeveloperTokenRejected {
 impl std::error::Error for DeveloperTokenRejected {}
 
 pub enum Loaded {
-    Cover(usize, ColorImage),
+    Cover(usize, String, ColorImage),
     Failed(String, usize),
     SignInNeeded,
     DeveloperRejected,
@@ -155,7 +157,7 @@ fn chart(
     bearer: &str,
     px: u32,
     tally: &Tally,
-) -> Result<(Vec<(usize, String)>, usize)> {
+) -> Result<Chart> {
     let (status, body) = get(
         agent,
         &format!("{}{CHART}", source.api),
@@ -171,13 +173,14 @@ fn chart(
         .as_array()
         .context("the chart has no albums")?;
     let usable = |album: &Value| {
+        let id = crate::cli::catalog_id(album["id"].as_str()?).ok()?;
         let url = art_url(album["attributes"]["artwork"]["url"].as_str()?, px)?;
-        allowed_art(&url, source.art_prefix.as_deref()).then_some(url)
+        allowed_art(&url, source.art_prefix.as_deref()).then_some((id, url))
     };
     let urls: Vec<_> = albums
         .iter()
         .enumerate()
-        .filter_map(|(i, a)| Some((i, usable(a)?)))
+        .filter_map(|(i, a)| usable(a).map(|(id, url)| (i, id, url)))
         .collect();
     Ok((urls.clone(), albums.len() - urls.len()))
 }
@@ -201,7 +204,7 @@ pub(crate) fn cover(agent: &ureq::Agent, url: &str, px: u32, tally: &Tally) -> R
     Ok(ColorImage::from_rgb(size, rgb.as_raw()))
 }
 
-type Chart = (Vec<(usize, String)>, usize);
+type Chart = (Vec<(usize, String, String)>, usize);
 
 fn load_chart(
     agent: &ureq::Agent,
@@ -270,7 +273,7 @@ pub fn fetch(
 
 fn decode_on_workers(
     agent: ureq::Agent,
-    (urls, px): (Vec<(usize, String)>, u32),
+    (urls, px): (Vec<(usize, String, String)>, u32),
     tx: &Sender<Loaded>,
     tally: Arc<Tally>,
     wake: impl Fn() + Clone + Send + 'static,
@@ -287,7 +290,7 @@ fn decode_on_workers(
         std::thread::Builder::new()
             .name(format!("cover-{n}"))
             .spawn(move || {
-                while let Some((index, url)) = jobs.lock().unwrap().next() {
+                while let Some((index, id, url)) = jobs.lock().unwrap().next() {
                     let decoded =
                         catch_unwind(AssertUnwindSafe(|| cover(&agent, &url, px, &tally)));
                     let loaded =
@@ -296,7 +299,7 @@ fn decode_on_workers(
                                 tally
                                     .in_flight
                                     .fetch_add(image.pixels.len() * 4, Ordering::SeqCst);
-                                Loaded::Cover(index, image)
+                                Loaded::Cover(index, id, image)
                             }
                             Err(e) => Loaded::Failed(format!("cover {index}: {e:#}"), 1),
                         };
@@ -315,7 +318,7 @@ pub struct Grid {
     source: Option<Source>,
     px: u32,
     rx: Option<Receiver<Loaded>>,
-    textures: BTreeMap<usize, TextureHandle>,
+    textures: BTreeMap<usize, (String, TextureHandle)>,
     tally: Arc<Tally>,
     failed: Option<String>,
     failures: usize,
@@ -363,13 +366,13 @@ impl Grid {
         for loaded in rx.try_iter() {
             any = true;
             match loaded {
-                Loaded::Cover(index, image) => {
+                Loaded::Cover(index, id, image) => {
                     let bytes = image.pixels.len() * 4;
                     #[cfg(feature = "gate-sabotage")]
                     self.kept.push(image.clone());
                     let texture =
                         ctx.load_texture(format!("cover-{index}"), image, TextureOptions::LINEAR);
-                    self.textures.insert(index, texture);
+                    self.textures.insert(index, (id, texture));
                     self.tally.in_flight.fetch_sub(bytes, Ordering::SeqCst);
                 }
                 Loaded::Failed(why, covers) => {
@@ -389,6 +392,11 @@ impl Grid {
 
     pub fn developer_rejected(&self) -> bool {
         self.developer_rejected
+    }
+
+    #[cfg(any(test, feature = "dev"))]
+    pub fn album(&self, n: usize) -> Option<&str> {
+        self.textures.values().nth(n).map(|(id, _)| id.as_str())
     }
 
     pub fn uploaded(&self) -> usize {
@@ -418,15 +426,21 @@ impl Grid {
         self.failed.as_deref()
     }
 
-    pub fn show(&self, ui: &mut egui::Ui) {
+    pub fn show(&self, ui: &mut egui::Ui, navs: &mut Vec<Nav>) {
         if let Some(why) = &self.failed {
             ui.label(egui::RichText::new(format!("Some covers did not load: {why}")).weak());
         }
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                for texture in self.textures.values() {
+                for (n, (id, texture)) in self.textures.values().enumerate() {
                     let size = egui::vec2(COVER_PT, COVER_PT);
-                    ui.add(egui::Image::new(texture).fit_to_exact_size(size));
+                    let image = egui::Image::new(texture).fit_to_exact_size(size);
+                    let cover = ui.add(egui::Button::image(image).frame(false));
+                    let label = format!("Open album {}", n + 1);
+                    let cover = crate::ui::labeled(cover, egui::WidgetType::Button, &label);
+                    if cover.clicked() {
+                        navs.push(Nav::Go(Route::Album(id.clone())));
+                    }
                 }
             });
         });
