@@ -1,4 +1,4 @@
-import argparse, http.server, importlib.util, json, os, shutil, statistics, subprocess, threading, time
+import argparse, http.server, importlib.util, json, os, shutil, statistics, subprocess, threading, time, zlib
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
@@ -137,19 +137,37 @@ def live_runs(a, out, sink, env, found, names):
         res['T'] = found['songs'] > 100 and res['clickedPlays'] and (res['toppedTo'] or 0) >= 200 and res['at100'] and res['item100IsSong100'] and (res['pages'] or 0) >= 2
         clean('topup-sabotage' if sabotage else 'topup', res)
 
+    def run(name, args, steps):
+        others = subprocess.run(['pgrep', '-l', 'bramley'], capture_output=True, text=True).stdout.split()
+        if others:
+            return {'name': name, 'error': f'another Bramley is running: {others}'}
+        return s9.run(a.binary, env, sink, out, name, args, lambda p, snap, res: (steps(p, snap, res), res.update(slotOwner=snap().get('instanceGuarded'))))
+
     def shot(name, args, steps):
         png = os.path.join(PRIVATE, name + '.png')
-        res = s9.run(a.binary, env, sink, out, 'shot-' + name, COMMON + ['--queue-open', '--screenshot', png, '--after', '30'] + args, lambda p, s, r: (steps(r), p.wait(60)))
+        res = run('shot-' + name, COMMON + ['--queue-open', '--screenshot', png, '--after', '30'] + args, lambda p, s, r: (steps(r), p.wait(60)))
         return os.path.exists(png) and not res.get('error')
 
     songs_click = ['--route', 'songs', '--click-row', '0']
-    results = [s9.run(a.binary, env, sink, out, 'f8', COMMON, f8),
-               s9.run(a.binary, env, sink, out, 'jump', COMMON + ['--jump-to', '3'], jump),
-               s9.run(a.binary, env, sink, out, 'topup', COMMON + songs_click + ['--jump-to', '98'], topup),
-               s9.run(a.binary, env, sink, out, 'topup-sabotage', COMMON + songs_click + ['--jump-to', '98'], lambda p, s, r: topup(p, s, r, True))]
+    results = [run('f8', COMMON, f8),
+               run('jump', COMMON + ['--jump-to', '3'], jump),
+               run('topup', COMMON + songs_click + ['--jump-to', '98'], topup),
+               run('topup-sabotage', COMMON + songs_click + ['--jump-to', '98'], lambda p, s, r: topup(p, s, r, True))]
     os.makedirs(PRIVATE, exist_ok=True)
     shots = {'f8': shot('f8', [], four), 'songs': shot('songs', songs_click, lambda r: safe())}
     return {'found': {'songs': found['songs'], 'queue': q, 'x': x}, 'results': results, 'privateShots': shots}
+
+
+def panel_rows(png, left=845):
+    data = open(png, 'rb').read()
+    w, h = int.from_bytes(data[16:20], 'big'), int.from_bytes(data[20:24], 'big')
+    idat, at = b'', 8
+    while at < len(data):
+        n, kind = int.from_bytes(data[at:at + 4], 'big'), data[at + 4:at + 8]
+        idat += data[at + 8:at + 8 + n] if kind == b'IDAT' else b''
+        at += 12 + n
+    raw, stride = zlib.decompress(idat), 1 + w * 4
+    return len({raw[i * stride + 1 + left * 4:(i + 1) * stride] for i in range(h)})
 
 
 def synthetic(a, out, sock, sink):
@@ -162,14 +180,18 @@ def synthetic(a, out, sock, sink):
                 open(os.path.join(config, f), 'w').write(v)
             env = dict(os.environ, WAYLAND_DISPLAY=sock, PULSE_SINK=sink, TMPDIR=os.path.join(ROOT, 'target', 'tmp'), **iso)
             env.pop('DISPLAY', None)
+            rows = {}
+            for name, extra in (('queue-synthetic', ['--queue-fixture']), ('noqueue-control', [])):
+                png = os.path.join(out, name + '.png')
+                cmd = [a.binary, '--route', 'songs', '--queue-open', '--screenshot', png, '--after', '6', '--api-base', base, '--developer-token-url', base + '/developer-token.json'] + COMMON + extra
+                subprocess.run(cmd, env=env, capture_output=True, timeout=60)
+                rows[name] = panel_rows(png) if os.path.exists(png) else 0
             png = os.path.join(out, 'queue-synthetic.png')
-            cmd = [a.binary, '--route', 'songs', '--queue-open', '--queue-fixture', '--screenshot', png, '--after', '6', '--api-base', base, '--developer-token-url', base + '/developer-token.json'] + COMMON
-            subprocess.run(cmd, env=env, capture_output=True, timeout=60)
-            ok = os.path.exists(png) and s6.png_facts(png)['distinctRows'] > 1
+            ok = rows['queue-synthetic'] > 2 * rows['noqueue-control'] and rows['queue-synthetic'] > 100
             if ok:
                 os.makedirs(PUBLIC, exist_ok=True)
                 shutil.copy(png, PUBLIC)
-            return {'synthetic': ok}
+            return {'synthetic': ok, 'panelRows': rows}
     finally:
         server.shutdown()
 

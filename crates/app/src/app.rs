@@ -114,6 +114,8 @@ pub struct App {
     shot: Option<Shot>,
     #[cfg(feature = "dev")]
     jump_to: Option<usize>,
+    #[cfg(feature = "dev")]
+    queue_fixture: bool,
     frames: u64,
     renderer: Option<String>,
     #[cfg(feature = "dev")]
@@ -169,12 +171,6 @@ impl App {
             }
             search.click_first_song = args.click_first_song;
         }
-        #[allow(unused_mut)]
-        let mut playback = Playback::new(spawn, signed_out);
-        #[cfg(feature = "dev")]
-        if args.queue_fixture {
-            playback.fixture(queue_fixture());
-        }
         App {
             api: None,
             #[cfg(feature = "dev")]
@@ -184,7 +180,7 @@ impl App {
             detail,
             #[cfg(feature = "dev")]
             click_cover: args.click_cover,
-            playback,
+            playback: Playback::new(spawn, signed_out),
             user,
             sign_in: None,
             notice: None,
@@ -207,6 +203,8 @@ impl App {
             }),
             #[cfg(feature = "dev")]
             jump_to: args.jump_to,
+            #[cfg(feature = "dev")]
+            queue_fixture: args.queue_fixture,
             frames: 0,
             renderer: None,
             #[cfg(feature = "dev")]
@@ -619,6 +617,9 @@ impl App {
 
     #[cfg(feature = "dev")]
     fn drive_jump(&mut self) {
+        if self.queue_fixture && !self.playback.started() {
+            self.playback.fixture(queue_fixture());
+        }
         let Some(target) = self.jump_to else { return };
         let shown = self.playback.shown();
         let settled = shown.applied >= self.playback.seq() && shown.queue_length > target;
