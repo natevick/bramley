@@ -330,9 +330,11 @@ mod search {
     fn results_group_by_kind_in_order_and_nothing_found_is_empty() {
         let ctx = egui::Context::default();
         let mut r = found(&["1", "2"]);
-        (r.artists, r.playlists) = (page("artists", &["3"]), page("playlists", &["pl.4"]));
+        (r.albums, r.artists) = (page("albums", &["3"]), page("artists", &["4"]));
         let titles: Vec<_> = sections(&r).iter().map(|(t, s)| (*t, s.len())).collect();
-        assert_eq!(titles, [("Songs", 2), ("Artists", 1), ("Playlists", 1)]);
+        assert_eq!(titles, [("Songs", 2), ("Albums", 1), ("Artists", 1)]);
+        r.playlists = page("playlists", &["pl.5"]);
+        assert_eq!(sections(&r).last().map(|(t, _)| *t), Some("Playlists"));
         let mut search = Search::new(None);
         answer(&ctx, &mut search, "zzz", &[]);
         assert_eq!(search.state, State::Empty);
