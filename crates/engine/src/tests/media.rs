@@ -417,19 +417,65 @@ fn ended_waits_until_the_output_has_drained_the_last_frame() {
     );
 }
 
+fn shorten(r: &mut Rig, at: usize, next_starts_before_end_by: i64) -> Vec<i64> {
+    let sb = r.sbs.get_mut(&SB).unwrap();
+    let mut frames: Vec<_> = std::mem::take(&mut sb.frames).into_values().collect();
+    frames[at].dur_us = 272;
+    if let Some(next) = frames.get(at + 1).map(|f| f.pts_us) {
+        let shift = frames[at].end_us() - next_starts_before_end_by - next;
+        frames[at + 1..].iter_mut().for_each(|f| f.pts_us += shift);
+    }
+    let pts = frames.iter().map(|f| f.pts_us).collect();
+    sb.frames = frames.into_iter().map(|f| (f.pts_us, f)).collect();
+    pts
+}
+
 #[test]
-fn a_last_frame_shorter_than_the_lookup_slack_is_decoded_once_and_the_track_ends() {
-    let (done, finished) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
+fn a_last_frame_shorter_than_the_lookup_slack_is_written_once_and_the_track_ends() {
+    let test = "tests::media::a_last_frame_shorter_than_the_lookup_slack_is_written_once_and_the_track_ends";
+    let child = super::in_child(test, &["timeout", "20"], || {
         let mut r = Rig::new(5, true);
-        let sb = r.sbs.get_mut(&SB).unwrap();
-        let (_, last) = sb.frames.iter_mut().next_back().unwrap();
-        last.dur_us = 272;
+        let last = r.sbs[&SB].frames.len() - 1;
+        let last_pts = shorten(&mut r, last, 0)[last];
         r.m.play();
-        let _ = done.send(r.play_for(6.0).contains(&"ended"));
+        assert!(r.play_for(6.0).contains(&"ended"));
+        let s = r.sink.state();
+        let at_last: Vec<u64> = s
+            .writes
+            .iter()
+            .filter(|w| w.0 == last_pts)
+            .map(|w| w.1)
+            .collect();
+        let frames = (272 * s.rate as u64 + 500_000) / 1_000_000;
+        assert_eq!(
+            at_last,
+            [frames],
+            "the last frame was not written exactly once"
+        );
     });
-    let ended = finished.recv_timeout(Duration::from_secs(20));
-    assert_eq!(ended, Ok(true), "the decoder kept re-reading the last frame");
+    if let Some(c) = child {
+        assert!(c.status.success(), "{:?} {}", c.status, c.stderr);
+    }
+}
+
+#[test]
+fn a_gapless_append_starting_inside_the_short_frame_plays_every_frame_once() {
+    let test =
+        "tests::media::a_gapless_append_starting_inside_the_short_frame_plays_every_frame_once";
+    let child = super::in_child(test, &["timeout", "20"], || {
+        let mut r = Rig::new(5, true);
+        let boundary = r.sbs[&SB].frames.len() / 2;
+        let mut pts = shorten(&mut r, boundary, 1);
+        r.m.play();
+        assert!(r.play_for(8.0).contains(&"ended"));
+        let mut written: Vec<i64> = r.sink.state().writes.iter().map(|w| w.0).collect();
+        written.sort();
+        pts.sort();
+        assert_eq!(written, pts, "a frame was dropped or written twice");
+    });
+    if let Some(c) = child {
+        assert!(c.status.success(), "{:?} {}", c.status, c.stderr);
+    }
 }
 
 type Sinks = Rc<std::cell::RefCell<Vec<FakeSink>>>;
