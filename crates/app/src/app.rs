@@ -15,7 +15,8 @@ use crate::Args;
 use crate::cli::{self, Inbox, Request};
 use crate::covers::{self, Grid, Source};
 use crate::credentials::Credentials;
-use crate::playback::{Action, Banner, Playback, Spawn};
+use crate::playback::{Action, Banner, Playback, Spawn, play_or_pause};
+use crate::ui::nav::{Nav, Shell};
 use crate::{signin, ui};
 
 const REPAINT_EVERY: Duration = Duration::from_secs(1);
@@ -91,6 +92,8 @@ pub struct App {
     clearing: Option<(Job, Waiting)>,
     covers: Grid,
     actions: Vec<Action>,
+    shell: Shell,
+    navs: Vec<Nav>,
     inbox: Inbox,
     guarded: bool,
     status: Option<StatusWriter>,
@@ -116,12 +119,22 @@ impl App {
         let mut fonts = fastframe_fonts::FontSetup::default().definitions();
         rendering.apply_to(&mut fonts);
         ctx.set_fonts(fonts);
-        ctx.set_visuals(egui::Visuals::dark());
+        #[cfg(feature = "dev")]
+        let theme = args.theme.map_or(egui::ThemePreference::System, Into::into);
+        #[cfg(not(feature = "dev"))]
+        let theme = egui::ThemePreference::System;
+        ctx.set_theme(theme);
         ctx.all_styles_mut(|style| rendering.apply_to_visuals(&mut style.visuals));
         #[cfg(feature = "dev")]
         let actions = args.play.into_iter().map(Action::PlaySong).collect();
         #[cfg(not(feature = "dev"))]
         let actions = Vec::new();
+        #[allow(unused_mut)]
+        let mut shell = Shell::default();
+        #[cfg(feature = "dev")]
+        {
+            (shell.route, shell.queue_open) = (args.route.unwrap_or_default(), args.queue_open);
+        }
         App {
             api: None,
             playback: Playback::new(spawn, signed_out),
@@ -133,6 +146,8 @@ impl App {
             clearing: None,
             covers: Grid::new(source),
             actions,
+            shell,
+            navs: Vec::new(),
             inbox,
             guarded,
             status: args.status.map(StatusWriter::new),
@@ -177,6 +192,8 @@ impl App {
             "coversRequested": self.covers.requested(),
             "coversFailed": self.covers.failures(),
             "coversError": self.covers.failed(),
+            "route": self.shell.route.title(),
+            "queueOpen": self.shell.queue_open,
         });
         if let (Some(status), Value::Object(token)) =
             (status.as_object_mut(), self.user.developer().status())
@@ -401,13 +418,28 @@ impl App {
 
     pub fn draw(&mut self, ui: &mut egui::Ui) {
         self.frames += 1;
-        let shown = self.playback.shown();
+        let (shown, started) = (self.playback.shown(), self.playback.started());
+        let toggle = started.then(|| play_or_pause(shown.state));
+        ui::shortcuts(ui.ctx(), toggle, &mut self.actions, &mut self.navs);
         egui::Panel::bottom("now-playing").show(ui, |ui| {
             ui.add_space(8.0);
-            ui::now_playing(ui, &shown, self.playback.started(), &mut self.actions);
+            let emit = (&mut self.actions, &mut self.navs);
+            ui::player_bar::show(ui, &shown, started, self.shell.queue_open, emit);
             ui.add_space(8.0);
         });
         let (mut sign_in, mut sign_out) = (false, false);
+        let signed_in = covers_allowed(&self.playback);
+        egui::Panel::left("library")
+            .default_size(200.0)
+            .show(ui, |ui| {
+                ui::sidebar::show(ui, self.shell.route, &mut self.navs);
+                sign_out = ui::sidebar::account(ui, signed_in, self.user.storage());
+            });
+        if self.shell.queue_open {
+            egui::Panel::right("queue")
+                .default_size(260.0)
+                .show(ui, |ui| ui::queue_panel::show(ui, &mut self.navs));
+        }
         egui::CentralPanel::default().show(ui, |ui| {
             if let Some(banner) = self.banner() {
                 sign_in = ui::banner(ui, &banner);
@@ -418,14 +450,7 @@ impl App {
             if let Some(warning) = self.user.developer().warning() {
                 ui::notice(ui, &warning);
             }
-            ui.horizontal(|ui| {
-                ui.heading("Bramley");
-                sign_out = covers_allowed(&self.playback) && ui.button("Sign out").clicked();
-                if let Some(mode) = self.user.storage() {
-                    ui::storage(ui, mode);
-                }
-            });
-            self.covers.show(ui);
+            ui::content::show(ui, &mut self.shell, &self.covers, &mut self.navs);
         });
         if sign_out {
             self.sign_out();
@@ -433,6 +458,12 @@ impl App {
         if let Some(Err(why)) = sign_in.then(|| self.start_sign_in()) {
             self.notice = Some(why);
             eprintln!("bramley: {why}");
+        }
+        if !self.navs.is_empty() {
+            ui.ctx().request_repaint();
+        }
+        for nav in self.navs.drain(..) {
+            self.shell.apply(nav);
         }
         for action in self.actions.drain(..) {
             self.playback.apply(action);

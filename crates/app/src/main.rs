@@ -61,6 +61,14 @@ pub struct Args {
     api_base: Option<String>,
     #[cfg(feature = "dev")]
     developer_token_url: Option<String>,
+    #[cfg(feature = "dev")]
+    route: Option<ui::nav::Route>,
+    #[cfg(feature = "dev")]
+    queue_open: bool,
+    #[cfg(feature = "dev")]
+    theme: Option<egui::Theme>,
+    #[cfg(feature = "dev")]
+    size: Option<[f32; 2]>,
 }
 
 fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
@@ -81,10 +89,33 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
             "--api-base" => a.api_base = Some(value()?),
             #[cfg(feature = "dev")]
             "--developer-token-url" => a.developer_token_url = Some(value()?),
+            #[cfg(feature = "dev")]
+            "--route" => a.route = Some(ui::nav::Route::parse(&value()?).context("unknown route")?),
+            #[cfg(feature = "dev")]
+            "--queue-open" => a.queue_open = true,
+            #[cfg(feature = "dev")]
+            "--theme" => a.theme = Some(theme(&value()?).context("--theme takes dark or light")?),
+            #[cfg(feature = "dev")]
+            "--size" => a.size = Some(size(&value()?).context("--size takes WxH")?),
             other => bail!("unknown argument {other}"),
         }
     }
     Ok(a)
+}
+
+#[cfg(feature = "dev")]
+fn theme(name: &str) -> Option<egui::Theme> {
+    match name {
+        "dark" => Some(egui::Theme::Dark),
+        "light" => Some(egui::Theme::Light),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "dev")]
+fn size(text: &str) -> Option<[f32; 2]> {
+    let (w, h) = text.split_once('x')?;
+    Some([w.parse().ok()?, h.parse().ok()?])
 }
 
 fn config_dir() -> Result<PathBuf> {
@@ -230,9 +261,13 @@ fn main() -> Result<()> {
     let prefetch = user.developer().clone();
     std::thread::spawn(move || prefetch.wait(|| false));
     let source = cover_source(&args, &user);
+    #[cfg(feature = "dev")]
+    let size = args.size.unwrap_or([1100.0, 720.0]);
+    #[cfg(not(feature = "dev"))]
+    let size = [1100.0, 720.0];
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1100.0, 720.0])
+            .with_inner_size(size)
             .with_title("Bramley")
             .with_app_id("bramley"),
         ..Default::default()

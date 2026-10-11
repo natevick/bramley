@@ -1,14 +1,18 @@
-use bramley_engine::Snapshot;
-use egui::{Color32, RichText};
+pub mod content;
+pub mod nav;
+pub mod player_bar;
+pub mod queue_panel;
+pub mod sidebar;
+#[cfg(test)]
+mod tests;
 
-use crate::playback::{Action, Banner, play_or_pause};
+use egui::{Color32, Key, Modifiers, RichText, WidgetInfo, WidgetType};
+
+use crate::playback::{Action, Banner};
+use nav::Nav;
 
 const ACCENT: Color32 = Color32::from_rgb(250, 45, 72);
-
-fn clock(seconds: f64) -> String {
-    let s = seconds.max(0.0) as u64;
-    format!("{}:{:02}", s / 60, s % 60)
-}
+const ACCENT_ON_LIGHT: Color32 = Color32::from_rgb(200, 25, 50);
 
 pub fn banner(ui: &mut egui::Ui, banner: &Banner) -> bool {
     let text = match banner {
@@ -43,44 +47,45 @@ pub fn storage(ui: &mut egui::Ui, mode: &str) {
 }
 
 pub fn notice(ui: &mut egui::Ui, notice: &str) {
-    ui.label(RichText::new(notice).color(ACCENT).strong());
+    let color = if ui.visuals().dark_mode {
+        ACCENT
+    } else {
+        ACCENT_ON_LIGHT
+    };
+    ui.label(RichText::new(notice).color(color).strong());
 }
 
-pub fn now_playing(ui: &mut egui::Ui, shown: &Snapshot, started: bool, actions: &mut Vec<Action>) {
-    ui.horizontal(|ui| {
-        ui.vertical(|ui| {
-            ui.set_width(260.0);
-            let title = shown.title.as_deref().unwrap_or("Nothing playing");
-            ui.label(RichText::new(title).strong().size(15.0));
-            ui.label(RichText::new(shown.artist.as_deref().unwrap_or("")).weak());
-        });
-        ui.add_enabled_ui(started, |ui| {
-            if ui.button(RichText::new("⏮").size(18.0)).clicked() {
-                actions.push(Action::Previous);
+pub fn labeled(response: egui::Response, kind: WidgetType, label: &str) -> egui::Response {
+    let enabled = response.enabled();
+    response.widget_info(|| WidgetInfo::labeled(kind, enabled, label));
+    response
+}
+
+pub fn shortcuts(
+    ctx: &egui::Context,
+    toggle: Option<Action>,
+    actions: &mut Vec<Action>,
+    navs: &mut Vec<Nav>,
+) {
+    if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::L)) {
+        navs.push(Nav::FocusSearch);
+    }
+    let Some(toggle) = toggle.filter(|_| !ctx.text_edit_focused()) else {
+        return;
+    };
+    let fresh = |e: &egui::Event| {
+        matches!(
+            e,
+            egui::Event::Key {
+                key: Key::Space,
+                pressed: true,
+                repeat: false,
+                ..
             }
-            let action = play_or_pause(shown.state);
-            let glyph = if action == Action::Pause {
-                "⏸"
-            } else {
-                "⏵"
-            };
-            if ui.button(RichText::new(glyph).size(22.0)).clicked() {
-                actions.push(action);
-            }
-            if ui.button(RichText::new("⏭").size(18.0)).clicked() {
-                actions.push(Action::Next);
-            }
-            let duration = shown.duration.unwrap_or(0.0);
-            let mut position = shown.position.unwrap_or(0.0).min(duration);
-            ui.label(clock(position));
-            ui.spacing_mut().slider_width = (ui.available_width() - 60.0).max(80.0);
-            let slider =
-                egui::Slider::new(&mut position, 0.0..=duration.max(1.0)).show_value(false);
-            let response = ui.add_enabled(duration > 0.0, slider);
-            if response.drag_stopped() || (response.changed() && !response.dragged()) {
-                actions.push(Action::Seek(position));
-            }
-            ui.label(clock(duration));
-        });
-    });
+        )
+    };
+    let fresh = ctx.input(|i| i.events.iter().any(fresh));
+    if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Space)) && fresh {
+        actions.push(toggle);
+    }
 }

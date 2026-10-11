@@ -24,7 +24,7 @@ fn live(ends: &Ends) -> anyhow::Result<Link> {
     Ok((command_tx, snapshot_rx))
 }
 
-fn spawning(mut f: impl FnMut() -> anyhow::Result<Link> + 'static) -> Spawn {
+pub(crate) fn spawning(mut f: impl FnMut() -> anyhow::Result<Link> + 'static) -> Spawn {
     Box::new(move || {
         let (tx, rx) = channel();
         tx.send(f()).unwrap();
@@ -55,7 +55,7 @@ fn feed(p: &mut Playback, ends: &Ends, state: PlayState, position: f64, applied:
     p.receive();
 }
 
-fn mock_user(dir: &std::path::Path) -> Credentials {
+pub(crate) fn mock_user(dir: &std::path::Path) -> Credentials {
     let store = keyring_core::mock::Store::new().unwrap();
     Credentials::new(Some(store), "bramley-test", dir)
 }
@@ -694,6 +694,10 @@ fn the_api_base_override_and_screenshots_are_refused_outside_dev() {
         "--screenshot",
         "--after",
         "--developer-token-url",
+        "--route",
+        "--queue-open",
+        "--theme",
+        "--size",
     ] {
         let args = [flag, "1"].map(String::from);
         assert!(crate::parse_args(args.into_iter()).is_err(), "{flag}");
