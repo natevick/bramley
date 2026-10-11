@@ -1719,7 +1719,12 @@ fn sign_in_revalidates_with_the_new_token_and_sign_out_shuts_down_and_forgets() 
         &mut app,
         crate::cli::Request::Do(Action::PlaySong("1".into())),
     );
+    app.api = Some(channel().0);
     let out = ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignOut);
+    assert!(
+        app.api.is_none(),
+        "sign-out kept the API worker and its storefront cache"
+    );
     let shut = ends.borrow()[0]
         .0
         .try_iter()
@@ -1922,4 +1927,27 @@ fn a_rejected_developer_token_fails_cli_search() {
     let reply = searched(Err(bramley_api::Error::DeveloperToken));
     let why = covers::DEVELOPER_REJECTED.to_owned();
     assert_eq!(crate::cli::outcome(&reply), Err((1, why)));
+}
+
+#[test]
+fn cli_search_takes_the_user_token_from_the_keyring_and_refuses_without_one() {
+    let dir = token_dir("api-tokens-test");
+    std::fs::write(dir.join("developer-token"), "dev-token-for-search\n").unwrap();
+    let user = mock_user(&dir);
+    assert_eq!(user.save("keyring-only-token", || true), Ok(()));
+    let tokens = crate::api_tokens(&user).unwrap();
+    let file = dir.join("music-user-token").exists();
+    assert_eq!(
+        (tokens.developer.as_str(), tokens.user.as_deref(), file),
+        ("dev-token-for-search", Some("keyring-only-token"), false)
+    );
+    assert_eq!(user.clear(), Ok(()));
+    let signed_out = user.clone();
+    let client = bramley_api::Client::new(move || crate::api_tokens(&signed_out));
+    let reply = crate::cli::search_reply(client.run(bramley_api::Call::Search("queen".into())));
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        crate::cli::outcome(&reply),
+        Err((crate::cli::REFUSED, "sign in needed".into()))
+    );
 }

@@ -354,7 +354,7 @@ impl App {
 
     fn sign_out(&mut self) {
         self.generation.fetch_add(1, Ordering::SeqCst);
-        (self.sign_in, self.checking, self.notice) = (None, None, None);
+        (self.sign_in, self.checking, self.notice, self.api) = (None, None, None, None);
         self.playback.sign_out();
         self.covers.reset();
         let user = self.user.clone();
