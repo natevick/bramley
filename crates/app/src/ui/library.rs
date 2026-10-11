@@ -20,7 +20,7 @@ pub const ROW_PT: f32 = 40.0;
 const CELL_PT: f32 = 140.0;
 pub const MARGIN: usize = 20;
 pub const ART_CAP: usize = 96;
-pub const SONGS_WINDOW: usize = 100;
+pub const QUEUE_AHEAD: usize = 100;
 pub const DEADLINE: Duration = Duration::from_secs(15);
 const RETRY: Duration = Duration::from_secs(5);
 
@@ -184,10 +184,9 @@ pub fn play(list: List, items: &[Item], index: usize) -> Option<Action> {
         List::Playlists => return None,
         List::Albums => Action::PlayIn(Queue::Album(item.id.clone()), 0),
         List::Songs | List::Tracks => {
-            let from = index.saturating_sub(SONGS_WINDOW / 2);
-            let window = &items[from..items.len().min(from + SONGS_WINDOW)];
-            let ids = window.iter().map(|song| song.id.clone()).collect();
-            Action::PlayIn(Queue::Songs(ids), index - from)
+            let ahead = &items[index..items.len().min(index + QUEUE_AHEAD)];
+            let ids = ahead.iter().map(|song| song.id.clone()).collect();
+            Action::PlayIn(Queue::Songs(ids), 0)
         }
     })
 }

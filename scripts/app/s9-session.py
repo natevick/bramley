@@ -59,6 +59,8 @@ def discover(config):
 
 def launch(binary, env, args, out, name):
     st = os.path.join(out, name + '.status.json')
+    if os.path.exists(st):
+        os.remove(st)
     p = subprocess.Popen([binary, '--status', st] + args, env=env, stdout=open(os.path.join(out, name + '.log'), 'w'), stderr=subprocess.STDOUT, start_new_session=True)
     return p, lambda: cs.status(st) or {}
 
@@ -161,11 +163,11 @@ def live(a, out, sock, sink):
 class Fixture(s6.Fixture):
     def do_GET(self):
         base = f'http://127.0.0.1:{self.server.server_address[1]}'
-        shelf = re.fullmatch(r'/v1/me/library/(songs|playlists)\?(?:offset=(\d+)&)?limit=100', self.path)
+        shelf = re.fullmatch(r'/v1/me/library/(songs|playlists|albums)\?(?:offset=(\d+)&)?limit=100', self.path)
         if not shelf:
             return super().do_GET()
         kind, at = shelf[1], int(shelf[2] or 0)
-        total = 250 if kind == 'songs' else 12
+        total = {'songs': 250, 'albums': 40, 'playlists': 12}[kind]
         rows = [{'id': f'i.{i}', 'type': f'library-{kind}', 'attributes': {'name': f'Synthetic {kind[:-1].title()} {i + 1}', 'artistName': 'Fixture Artist', 'artwork': {'url': f'{base}/art/{i % 50}/{{w}}x{{h}}bb.jpg'}}} for i in range(at, min(at + 100, total))]
         page = {'data': rows, 'meta': {'total': total}, **({'next': f'/v1/me/library/{kind}?offset={at + 100}'} if at + 100 < total else {})}
         body = json.dumps(page).encode()
@@ -185,15 +187,17 @@ def synthetic(a, out, sock, sink):
                 open(os.path.join(config, f), 'w').write(v)
             env = dict(os.environ, WAYLAND_DISPLAY=sock, PULSE_SINK=sink, TMPDIR=os.path.join(ROOT, 'target', 'tmp'), **iso)
             env.pop('DISPLAY', None)
-            png, st = os.path.join(out, 'songs-synthetic.png'), os.path.join(out, 'synthetic.status.json')
-            cmd = [a.binary, '--status', st, '--route', 'songs', '--screenshot', png, '--after', '6', '--size', '1100x720', '--api-base', base, '--developer-token-url', base + '/developer-token.json']
-            subprocess.run(cmd, env=env, capture_output=True, timeout=60)
-            lib = (cs.status(st) or {}).get('library', {})
-            ok = os.path.exists(png) and lib.get('artTextures', 0) > 0 and s6.png_facts(png)['distinctRows'] > 1
-            if ok:
+            report = {}
+            for route in ('songs', 'albums'):
+                png, st = os.path.join(out, f'{route}-synthetic.png'), os.path.join(out, f'{route}-synthetic.status.json')
+                cmd = [a.binary, '--status', st, '--route', route, '--screenshot', png, '--after', '6', '--size', '1100x720', '--api-base', base, '--developer-token-url', base + '/developer-token.json']
+                subprocess.run(cmd, env=env, capture_output=True, timeout=60)
+                lib = (cs.status(st) or {}).get('library', {})
+                report[route] = os.path.exists(png) and lib.get('artTextures', 0) > 0 and s6.png_facts(png)['distinctRows'] > 1
+            if report['songs']:
                 os.makedirs(PUBLIC, exist_ok=True)
-                shutil.copy(png, PUBLIC)
-            return {'synthetic': ok, 'library': lib}
+                shutil.copy(os.path.join(out, 'songs-synthetic.png'), PUBLIC)
+            return report
     finally:
         server.shutdown()
 

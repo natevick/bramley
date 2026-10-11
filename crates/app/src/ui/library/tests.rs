@@ -196,21 +196,21 @@ fn clicking_a_track_plays_the_playlist_from_that_track() {
         vec![Event::PointerMoved(pos), button(true)],
     );
     let (actions, _) = frame(&ctx, &mut lib, &route, 600.0, vec![button(false)]);
-    let ids = (0..10).map(|i| format!("i.{i}")).collect();
-    assert_eq!(actions, [Action::PlayIn(Queue::Songs(ids), 3)]);
+    let ids = (3..10).map(|i| format!("i.{i}")).collect();
+    assert_eq!(actions, [Action::PlayIn(Queue::Songs(ids), 0)]);
 }
 
 #[test]
-fn songs_play_in_a_window_around_the_click_and_albums_play_whole() {
+fn songs_queue_from_the_click_onwards_and_albums_play_whole() {
     let items: Vec<_> = (0..250).map(item).collect();
-    let Some(Action::PlayIn(Queue::Songs(ids), start)) = super::play(List::Songs, &items, 120)
-    else {
-        panic!("a songs queue");
+    let Some(Action::PlayIn(Queue::Songs(ids), 0)) = super::play(List::Songs, &items, 120) else {
+        panic!("a songs queue starting at its first entry");
     };
-    assert_eq!(
-        (ids.len(), ids[start].as_str(), ids[0].as_str()),
-        (super::SONGS_WINDOW, "i.120", "i.70")
-    );
+    assert_eq!((ids.len(), ids[0].as_str()), (super::QUEUE_AHEAD, "i.120"));
+    let Some(Action::PlayIn(Queue::Songs(last), 0)) = super::play(List::Songs, &items, 249) else {
+        panic!("a songs queue for the last row");
+    };
+    assert_eq!(last, ["i.249"]);
     assert_eq!(
         super::play(List::Albums, &items, 4),
         Some(Action::PlayIn(Queue::Album("i.4".into()), 0))
