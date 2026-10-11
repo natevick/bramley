@@ -139,7 +139,8 @@ def live(a, out, sock, sink):
             cs.wait_for(lambda: end_reached(lib(snap), 'tracks', found['tracksTotal']), 120, 'the end of the playlist')
             res['L1'] = found['tracksTotal'] >= 100 and bars(lib(snap))
             cs.wait_for(lambda: snap().get('state') == 'Playing' and (snap().get('position') or 0) > 0, 30, 'playing')
-            res['clickedIsPlaying'] = (snap().get('itemId') in played_ids)
+            cs.wait_for(lambda: snap().get('itemId'), 10, 'a now-playing item')
+            res['clickedIsPlaying'] = snap().get('itemId') in played_ids
             res['r1LibraryPss'] = round(statistics.median(pss(p, 20)), 1)
             res['L2'] = res['clickedIsPlaying'] and snap().get('state') == 'Playing'
 

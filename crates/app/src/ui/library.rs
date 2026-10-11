@@ -178,13 +178,12 @@ impl Library {
     }
 }
 
-pub fn play(list: List, items: &[Item], index: usize, playlist: &str) -> Option<Action> {
+pub fn play(list: List, items: &[Item], index: usize) -> Option<Action> {
     let item = items.get(index)?;
     Some(match list {
         List::Playlists => return None,
         List::Albums => Action::PlayIn(Queue::Album(item.id.clone()), 0),
-        List::Tracks => Action::PlayIn(Queue::Playlist(playlist.to_owned()), index),
-        List::Songs => {
+        List::Songs | List::Tracks => {
             let from = index.saturating_sub(SONGS_WINDOW / 2);
             let window = &items[from..items.len().min(from + SONGS_WINDOW)];
             let ids = window.iter().map(|song| song.id.clone()).collect();
@@ -401,7 +400,7 @@ pub fn show(
         Some(index) if list == List::Playlists => {
             navs.push(Nav::Go(Route::Playlist(items[index].id.clone())))
         }
-        Some(index) => actions.extend(play(list, items, index, &lib.playlist)),
+        Some(index) => actions.extend(play(list, items, index)),
         None => {}
     }
 }

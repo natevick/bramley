@@ -162,7 +162,7 @@ fn the_art_cache_evicts_the_least_recently_used_texture_and_frees_it() {
 }
 
 #[test]
-fn clicking_a_track_plays_its_playlist_from_that_track() {
+fn clicking_a_track_plays_the_playlist_from_that_track() {
     let (ctx, mut lib) = (egui::Context::default(), Library::default());
     ctx.enable_accesskit();
     let route = Route::Playlist("p.LIST".into());
@@ -196,16 +196,14 @@ fn clicking_a_track_plays_its_playlist_from_that_track() {
         vec![Event::PointerMoved(pos), button(true)],
     );
     let (actions, _) = frame(&ctx, &mut lib, &route, 600.0, vec![button(false)]);
-    assert_eq!(
-        actions,
-        [Action::PlayIn(Queue::Playlist("p.LIST".into()), 3)]
-    );
+    let ids = (0..10).map(|i| format!("i.{i}")).collect();
+    assert_eq!(actions, [Action::PlayIn(Queue::Songs(ids), 3)]);
 }
 
 #[test]
 fn songs_play_in_a_window_around_the_click_and_albums_play_whole() {
     let items: Vec<_> = (0..250).map(item).collect();
-    let Some(Action::PlayIn(Queue::Songs(ids), start)) = super::play(List::Songs, &items, 120, "")
+    let Some(Action::PlayIn(Queue::Songs(ids), start)) = super::play(List::Songs, &items, 120)
     else {
         panic!("a songs queue");
     };
@@ -214,10 +212,10 @@ fn songs_play_in_a_window_around_the_click_and_albums_play_whole() {
         (super::SONGS_WINDOW, "i.120", "i.70")
     );
     assert_eq!(
-        super::play(List::Albums, &items, 4, ""),
+        super::play(List::Albums, &items, 4),
         Some(Action::PlayIn(Queue::Album("i.4".into()), 0))
     );
-    assert_eq!(super::play(List::Playlists, &items, 4, ""), None);
+    assert_eq!(super::play(List::Playlists, &items, 4), None);
 }
 
 #[test]
