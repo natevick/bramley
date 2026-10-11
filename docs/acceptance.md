@@ -17,7 +17,12 @@ Nate delegated the definition of "done" to Norm on 2026-10-10. Bramley v1 on Lin
   - **Zones** (amended 2026-10-10, S2c review: procedure, no thresholds changed). USS ≤ PSS ≤ RSS always holds, so each check's medians fall into one of three zones:
     1. **USS over the bar:** FAIL. Sharing can't rescue it.
     2. **RSS at or under the bar:** PASS-eligible. Drift is reported but doesn't void. A pass on RSS is strictly stronger than a pass on PSS.
-    3. **Otherwise:** judged on PSS. The run is VOID and gets re-run if either reference reading drifted more than 5 MiB from its recorded value (the worse of the two counts).
+    3. **Otherwise:** judged on PSS, with the one-direction drift rule below. A reference reading's drift is its PSS median minus the recorded value, and the worse reading in each direction counts.
+       - **Upward drift over 5 MiB** (less sharing, which can only make the app read higher): a PASS stands, a FAIL is VOID.
+       - **Downward drift over 5 MiB** (more sharing, which can only flatter the app): a PASS is VOID, a FAIL stands.
+       - **5 MiB or less:** judged on PSS alone.
+       - A VOID run gets re-run.
+  - **Amendment: one-direction drift rule (2026-10-10, approved by Nate; applies to runs after this commit; earlier VOIDs stay VOID).** Zone 3 used to VOID on drift over 5 MiB in either direction. The reference binary never changes, yet its PSS climbed 9 MiB across one quiet day while the app's lead over it held at 80.0–83.1 MiB (`docs/drift-rule-proposal.md`). Drift now voids only the verdict it could have produced. Zones 1 and 2, the 200/100 MiB bars and the 5 MiB drift bar are unchanged. If one reading drifts up and the other down, both by more than 5 MiB, either verdict is VOID.
   - A counted run refuses to start while another weston, another Bramley, or any non-standing process mapping the radeonsi/LLVM libraries is running.
 
 ## Functional checks (end to end)

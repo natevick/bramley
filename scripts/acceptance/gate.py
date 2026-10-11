@@ -224,9 +224,8 @@ def session_problems(out):
         if any(r.get('pid') != ref.get('pid') for r in ref['samples']):
             voids.append(f'{name} snapshot from another process')
         voids += renderer_voids([r.get('glRenderer') for r in ref['samples']], name)
-        drifts.append(medians(ref['samples'])['pss'] - REFERENCE['pss'])
-    worst = max(drifts, key=abs) if drifts else None
-    return missing, fails, voids, worst
+        drifts.append(round(medians(ref['samples'])['pss'] - REFERENCE['pss'], 1))
+    return missing, fails, voids, drifts
 
 
 def audio_voids(ev, guard, sink):
@@ -242,7 +241,7 @@ def audio_voids(ev, guard, sink):
 
 
 def check(out, name, kind):
-    missing, fails, voids, worst = session_problems(out)
+    missing, fails, voids, drifts = session_problems(out)
     ev, guard = load(out, f'{name}.{kind}.json'), load(out, f'{name}.guard.json')
     missing += [f'missing evidence: {f}' for f, d in ((f'{name}.{kind}.json', ev), (f'{name}.guard.json', guard)) if d is None]
     if missing:
@@ -282,11 +281,13 @@ def check(out, name, kind):
         zone = 1 if m['uss'] > bar else 2 if m['rss'] <= bar else 3
         if zone == 1:
             fails.append(f'USS median {m["uss"]} > {bar}')
-        if zone == 3 and abs(worst) > DRIFT_BAR:
-            voids.append(f'reference drifted {worst:+.1f} MiB from {REFERENCE["pss"]} (bar {DRIFT_BAR})')
         if zone == 3 and m['pss'] > bar:
             fails.append(f'PSS median {m["pss"]} > {bar}')
-    return dict(m, verdict='VOID' if voids else 'FAIL' if fails else 'PASS', reasons=voids + fails, bar=bar, zone=zone, referenceDrift=round(worst, 1))
+    outcome = 'VOID' if voids else 'FAIL' if fails else 'PASS'
+    if zone == 3:
+        suspect = {'FAIL': [d for d in drifts if d > DRIFT_BAR], 'PASS': [d for d in drifts if d < -DRIFT_BAR]}.get(outcome, [])
+        voids += [f'reference drifted {d:+.1f} MiB from {REFERENCE["pss"]} (bar {DRIFT_BAR}), which voids a {outcome}' for d in suspect]
+    return dict(m, verdict='VOID' if voids else outcome, reasons=voids + fails, bar=bar, zone=zone, referenceDrift=max(drifts, key=abs))
 
 
 def verdict(out):

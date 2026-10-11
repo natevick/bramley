@@ -26,7 +26,7 @@ def write_valid(out, renderer=RADEONSI):
     w('session.verdict.json', {'sink': SINK, 'defaultAtStart': 'iec958', 'defaultAtEnd': 'iec958', 'sinkGone': True})
     weston_says(RADEONSI)(out)
     for ref in gate.REFERENCE_RUNS:
-        w(f'{ref}.json', {'sha256': gate.REFERENCE['sha256'], 'pid': 7, 'samples': rows(20, 84.0, 62.0, 104.0, playing=False)})
+        w(f'{ref}.json', {'sha256': gate.REFERENCE['sha256'], 'pid': 7, 'samples': rows(20, round(gate.REFERENCE['pss'] + 0.7, 1), 62.0, 104.0, playing=False)})
     log = [[990.0 + i / 4, [SINK]] for i in range(400)]
     for name, r1 in (('shipped', (170.0, 148.0, 198.0)), ('ballast', (233.0, 215.0, 260.0))):
         w(f'{name}.r2.json', {'pid': 7, 'samples': rows(20, 72.0, 50.0, 98.0, renderer, playing=False)})
@@ -56,8 +56,12 @@ def both(*fns):
     return lambda out: [fn(out) for fn in fns]
 
 
-DRIFTED = edit('reference-after.json', lambda d: [r.__setitem__('pss', 76.0) for r in d['samples']])
+def drift(by, ref='reference-after'):
+    return edit(f'{ref}.json', lambda d: [r.__setitem__('pss', round(gate.REFERENCE['pss'] + by, 1)) for r in d['samples']])
+
+
 ZONE3 = both(every('shipped', 'rss', 205.0), every('shipped', 'pss', 180.0))
+ZONE3_OVER = both(ZONE3, every('shipped', 'pss', 201.0))
 CASES = [
     ('R2 engine started', edit('shipped.r2.json', lambda d: d['samples'][3].__setitem__('engineStarted', True)), 'R2', 'FAIL', 'engine started'),
     ('R2 USS over the bar', every('shipped', 'uss', 101.0, 'r2'), 'R2', 'FAIL', 'USS median 101.0'),
@@ -75,8 +79,19 @@ CASES = [
     ('reference sha', edit('reference.json', lambda d: d.__setitem__('sha256', 'feed')), 'R1', 'VOID', 'sha'),
     ('reference renderer', edit('reference-after.json', lambda d: d['samples'][0].__setitem__('glRenderer', LLVMPIPE)), 'R2', 'VOID', 'reference-after renderer'),
     ('reference pid', edit('reference.json', lambda d: d['samples'][0].__setitem__('pid', 8)), 'R2', 'VOID', 'reference snapshot'),
-    ('zone 3 drift after', both(ZONE3, DRIFTED), 'R1', 'VOID', 'drifted -7.3'),
-    ('zone 2 drift reported only', DRIFTED, 'R1', 'PASS', None),
+    ('zone 3 drift after', both(ZONE3, drift(-7.3)), 'R1', 'VOID', 'drifted -7.3'),
+    ('zone 2 drift reported only', drift(-7.3), 'R1', 'PASS', None),
+    ('upward drift lets a PASS stand', both(ZONE3, drift(+6.0)), 'R1', 'PASS', None),
+    ('upward drift voids a FAIL', both(ZONE3_OVER, drift(+6.0)), 'R1', 'VOID', 'drifted +6.0 MiB'),
+    ('downward drift voids a PASS', both(ZONE3, drift(-6.0)), 'R1', 'VOID', 'drifted -6.0 MiB'),
+    ('downward drift lets a FAIL stand', both(ZONE3_OVER, drift(-6.0)), 'R1', 'FAIL', 'PSS median 201.0'),
+    ('upward drift at the bar lets a FAIL stand', both(ZONE3_OVER, drift(+5.0)), 'R1', 'FAIL', 'PSS median 201.0'),
+    ('upward drift just over the bar voids a FAIL', both(ZONE3_OVER, drift(+5.1)), 'R1', 'VOID', 'drifted +5.1 MiB'),
+    ('downward drift at the bar lets a PASS stand', both(ZONE3, drift(-5.0)), 'R1', 'PASS', None),
+    ('downward drift just over the bar voids a PASS', both(ZONE3, drift(-5.1)), 'R1', 'VOID', 'drifted -5.1 MiB'),
+    ('upward drift before the app voids a FAIL', both(ZONE3_OVER, drift(+6.0, 'reference')), 'R1', 'VOID', 'drifted +6.0 MiB'),
+    ('readings drifting both ways void a PASS', both(ZONE3, drift(+6.0, 'reference'), drift(-6.0)), 'R1', 'VOID', 'drifted -6.0 MiB'),
+    ('readings drifting both ways void a FAIL', both(ZONE3_OVER, drift(-6.0, 'reference'), drift(+6.0)), 'R1', 'VOID', 'drifted +6.0 MiB'),
     ('zone 3 PSS over', both(ZONE3, every('shipped', 'pss', 201.0)), 'R1', 'FAIL', 'PSS median 201.0'),
     ('default sink changed', edit('session.verdict.json', lambda d: d.__setitem__('defaultAtEnd', 'hdmi')), 'R1', 'VOID', 'default sink'),
     ('wpctl failed', edit('session.verdict.json', lambda d: d.update(defaultAtStart=None, defaultAtEnd=None)), 'R2', 'VOID', 'default sink'),

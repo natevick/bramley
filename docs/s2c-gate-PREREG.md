@@ -130,3 +130,13 @@ Procedure only. The 200/100 bars, the 5 MiB drift bar, the recorded 83.3 and 215
   - any process outside the standing set that maps libgallium, radeonsi or libLLVM. The standing set is gnome-shell, Xvfb and grok-bot, all running since 2026-09-16, before run1, run2 and the 83.3 recording.
 - **Build order:** ballast, then dev, then shipped, so `target/release/bramley` ends as the shipped build.
 - **Pass condition:** unchanged. Two consecutive counted runs PASS with the ballast holding, plus one `--llvmpipe` run whose control holds.
+
+## Amendment 2 (2026-10-10, approved by Nate; applies to runs after this commit; earlier VOIDs stay VOID)
+Procedure only. The 200/100 bars and the 5 MiB drift bar are unchanged. Zones 1 and 2 are unchanged.
+
+- **One-direction drift rule, zone 3 only.** Each reference reading's drift is its PSS median minus the recorded value, rounded to 0.1 MiB.
+  - A reading more than 5 MiB **above** the recorded value VOIDs a FAIL; a PASS stands.
+  - A reading more than 5 MiB **below** it VOIDs a PASS; a FAIL stands.
+  - The rule is applied to the check's verdict after every other rule. If the readings drift both ways past the bar, either verdict is VOID.
+- **Why:** the reference's PSS climbed 9 MiB across one quiet day with its USS flat, while the app's lead over it held at 80.0–83.1 MiB. Upward drift can only inflate the app's PSS, and downward drift can only flatter it (`docs/drift-rule-proposal.md`).
+- **Self-test:** `test_gate.py` covers each direction against each verdict, the ±5.0 boundary (stands) and ±5.1 (flips), a drifted first reading, and readings drifting both ways.
