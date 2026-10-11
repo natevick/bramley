@@ -136,27 +136,35 @@ def live_runs(a, out, sink, env, found, names):
         n = until(lambda n: n.get('queuePosition') == JUMP, 90, f'position {JUMP}')
         window = res['window'] = n.get('queueLength') - 1 if sabotage else min(l for l in lengths if l)
         try:
-            until(lambda n: (n.get('queueLength') or 0) >= window + 90, 60, 'the top-up')
+            until(lambda n: (n.get('queueLength') or 0) > window + sabotage, 60, 'the top-up')
             res['pssTopped'] = round(statistics.median(s9.pss(p, 10)), 1)
         except RuntimeError:
             pass
-        res['toppedTo'] = now().get('queueLength')
-        res['stalls'] = 0
-        while (now().get('queuePosition') or 0) < window and res['stalls'] < 3:
-            n = until(lambda n: n.get('state') == 'Playing', 30, 'playing before a seek')
-            cli('seek', str(max(0.0, (n.get('duration') or 30) - 4)))
-            try:
-                until(lambda m: (m.get('queuePosition') or 0) > n['queuePosition'] and m.get('state') == 'Playing', 30, 'the next item')
-            except RuntimeError:
-                res['stalls'] += 1
+        res['stalls'], http = 0, None
+
+        def seek_to(target):
+            nonlocal http
+            while (now().get('queuePosition') or 0) < target and res['stalls'] < 3:
+                n = until(lambda n: n.get('state') == 'Playing', 30, 'playing before a seek')
+                http = snap().get('libraryHttp') or http
+                cli('seek', str(max(0.0, (n.get('duration') or 30) - 4)))
+                try:
+                    until(lambda m: (m.get('queuePosition') or 0) > n['queuePosition'] and m.get('state') == 'Playing', 30, 'the next item')
+                except RuntimeError:
+                    res['stalls'] += 1
+        seek_to(window)
         time.sleep(2)
         n = now()
         res['atWindowEnd'] = n.get('queuePosition') == window
         res['nextIsSong100'] = playing(n, found['song100'])
         res['nextIsX'] = n.get('itemId') == x
-        res['finalPosition'] = n.get('queuePosition')
+        seek_to(window + 8)
+        time.sleep(5)
+        res['finalPosition'] = now().get('queuePosition')
+        res['lengthsAfterWindow'] = sorted({l for l in lengths if l > window + sabotage})
         res['pages'] = snap().get('library', {}).get(shelf, {}).get('pages')
-        res['T'] = found['songs'] > 100 and res['clickedPlays'] and window > JUMP and (res['toppedTo'] or 0) >= window + 90 and res['atWindowEnd'] and res['nextIsSong100'] and (res['pages'] or 0) >= 2
+        res['libraryHttp'] = snap().get('libraryHttp') or http
+        res['T'] = found['songs'] > 100 and res['clickedPlays'] and window > JUMP and len(res['lengthsAfterWindow']) >= 2 and res['atWindowEnd'] and res['nextIsSong100'] and (res['pages'] or 0) >= 2
         clean('topup-sabotage' if sabotage else 'topup', res)
 
     def run(name, args, steps):

@@ -104,3 +104,15 @@ live-5 (with `6b7b59d`) PASSed T, J and T-S, which FAILed as designed. F8 stoppe
   - **live-1 (branch build):** the final position was 62.717 s. That is item time, so the seek to 62.2 landed. Playback then froze about 0.5 s later, with 4 AAC decode errors in the log. The cause is unexplained. It was seen once, and not again in live-6 or live-7 on the same build.
   - **live-4, live-5, live-6:** the final position was about 598 on the native clock, with 0 decode errors. That is the dropped seek amendment 4 describes.
 - **Post-registration, live-8:** T and T-S were run on the largest library playlist (`--list playlist`, the Tracks list), on the `6b7b59d` build, because the brief names a playlist. The bars are the same as T's.
+
+## Amendment 6 (after review; before any run of the reviewed build)
+
+The review changed the design: top-ups now go out in batches of at most 16 ids (one MusicKit library request each), retried with backoff. T's "grows to ≥ W + 90" assumed a single 100-id batch.
+
+**Replacement bar:** the harness seeks on to W + 8, and the queue length must take at least two distinct values above W, meaning at least two separate top-ups landed. Every other T bar holds: the item at W is song 100, Playing, and pages ≥ 2. T-S is unchanged.
+
+**H1 evidence:**
+- The T runs use a `dev` + engine `diagnostics` build of this branch.
+- It exposes per-endpoint HTTP status counts for `/v1/me/library/songs` (path only; MusicKit's `?ids=` query is never recorded) as `libraryHttp` in the dev status file.
+- H1 is supported if any non-2xx count appears in a run that shows the `setQueue` TypeError, and weakened if that error appears with all 2xx.
+- With no TypeError in the run, H1 stays open, and the counts are reported as they are.
