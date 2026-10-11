@@ -161,6 +161,8 @@ def main():
     ap.add_argument('mode', choices=('live', 'real', 'synthetic'))
     ap.add_argument('binary')
     a = ap.parse_args()
+    if subprocess.run(['python3', '-I', os.path.join(ROOT, 'scripts', 'acceptance', 'gate.py'), '--preflight']).returncode:
+        raise SystemExit('refusing: the box is not quiet')
     out = os.path.join(OUT, a.mode + time.strftime('-%H%M%S'))
     os.makedirs(out)
     ok = live(a.binary, out) if a.mode == 'live' else shot(a.binary, a.mode)
