@@ -337,7 +337,7 @@ mod search {
         jobs.extend((450..460).filter_map(|n| search.tick(ms(t0, n), true, || {})));
         let calls: Vec<_> = jobs.iter().map(|job| &job.call).collect();
         assert_eq!(calls, [&Call::Search("boh".into())]);
-        assert!(jobs[0].deadline > ms(t0, 450));
+        assert!(jobs[0].deadline > ms(t0, 450) && jobs[0].supersedable);
     }
 
     #[test]
