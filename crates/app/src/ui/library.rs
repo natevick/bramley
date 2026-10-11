@@ -323,6 +323,7 @@ fn tile(
         shown.inner
     } else {
         let button = egui::Button::image_and_text(image, text.as_str())
+            .right_text("")
             .frame(false)
             .truncate();
         ui.add_sized([width, pt + 4.0], button)
