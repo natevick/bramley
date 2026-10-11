@@ -386,6 +386,16 @@ mod search {
     }
 
     #[test]
+    fn a_search_that_never_answers_times_out_instead_of_loading_forever() {
+        let (mut search, t0) = (Search::new(None), Instant::now());
+        let job = ask(&mut search, "a", t0);
+        search.tick(job.deadline, true, || {});
+        assert!(matches!(search.state, State::Loading(_)));
+        search.tick(job.deadline + Duration::from_millis(1), true, || {});
+        assert!(matches!(search.state, State::Failed(_)));
+    }
+
+    #[test]
     fn a_failed_search_shows_neither_the_term_nor_the_wire_detail() {
         let wire = Error::Network("GET https://x/search?term=bohemian: refused".into());
         assert_eq!(cause(&wire), "Apple Music could not be reached");
