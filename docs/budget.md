@@ -18,4 +18,4 @@ Engine crate (2026-10-09): `crates/engine` playing Angel One through hls.js, the
 
 **App skeleton, S2a (2026-10-10):** `bramley` with the engine started lazily: **82.3** PSS idle (release, never played) and **182.5** playing (dev build, no covers). See `s2a-skeleton-RESULTS.md`. S2c owns the gate.
 
-**Whole-app gate, S2c (2026-10-10):** release `bramley` with 50 covers visible: R1 **160.2 / 161.0** MiB PSS playing (USS 141.9 / 142.7) and R2 **63.0 / 63.8** browsing, never played, in two consecutive `scripts/acceptance.sh` runs. Both PASS, and the same-session reference read 80.2 / 79.5 against 83.3. See `s2c-gate-RESULTS.md`.
+**Whole-app gate, S2c (2026-10-10):** release `bramley` with 50 covers visible, in two consecutive `scripts/acceptance.sh` runs under the zone rule (round 2), both PASS in zone 2. R1 playing: **165.1 / 164.2** MiB PSS (USS 142.8 / 141.8, RSS 193.2 / 192.3). R2 browsing, never played: **66.9 / 67.0**. The reference read 83.5–83.7 before and after. See `s2c-gate-RESULTS.md`.
