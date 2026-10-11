@@ -107,10 +107,12 @@ def drive(a, out, sock, sink, iso, config):
     runtime = os.path.join(out, 'xdg')
     os.makedirs(runtime, mode=0o700)
     uid_dir = f'/run/user/{os.getuid()}'
-    env = dict(os.environ, WAYLAND_DISPLAY=f'{uid_dir}/{sock}', PULSE_SERVER=f'unix:{uid_dir}/pulse/native', PULSE_SINK=sink, XDG_RUNTIME_DIR=runtime, TMPDIR=os.path.join(ROOT, 'target', 'tmp'), **iso)
+    out_sink = f'{sink}-missing' if a.mode == 'bad-sink' else sink
+    env = dict(os.environ, WAYLAND_DISPLAY=f'{uid_dir}/{sock}', PULSE_SERVER=f'unix:{uid_dir}/pulse/native', PULSE_SINK=out_sink, XDG_RUNTIME_DIR=runtime, TMPDIR=os.path.join(ROOT, 'target', 'tmp'), **iso)
     env.pop('DISPLAY', None)
     cs.assert_isolated(env)
-    v, checks = {'mode': a.mode, 'sink': sink}, {}
+    checks = {}
+    v = {'mode': a.mode, 'sink': sink, 'checks': checks}
     probe = Mcp(a.binary, env, out, 'mcp-noapp')
     probe.handshake()
     err, said = probe.tool('now_playing')
@@ -126,6 +128,7 @@ def drive(a, out, sock, sink, iso, config):
     try:
         s = cs.wait_for(lambda: (lambda s: s if s and s.get('framesPainted', 0) > 0 and s.get('glRenderer') else None)(cs.status(st)), 30, 'first frame')
         v['glRenderer'] = s['glRenderer']
+        v['amd'] = 'AMD' in s['glRenderer']
         mcp = Mcp(a.binary, env, out, 'mcp')
         init = mcp.handshake()
         listed = mcp.send('tools/list')
@@ -140,12 +143,23 @@ def drive(a, out, sock, sink, iso, config):
         v['routingBeforePlay'] = {'guardPolls': guard.polls, 'sinkExists': cs.sink_exists(sink), 'guardKilled': guard.killed}
         if not cs.sink_exists(sink) or guard.killed:
             raise RuntimeError('null sink missing or guard fired before play; refusing to play')
+        sent_at = time.time()
         err, ack = mcp.tool('play', {'id': SONG})
         v['playAck'] = {'error': err, 'reply': ack}
-        now, ok = wait_now(mcp, lambda n: n['playing'] and n['itemId'] == SONG and n['problem'] is None and (n['position'] or 0) > 35, 90 if not err else 5)
+        if a.mode == 'bad-sink':
+            now, ok = wait_now(mcp, lambda n: n['state'] == 'Error' and not n['playing'] and n['problem'], 25)
+            v['badSink'] = {'now': now, 'guardSeen': sorted(str(t) for t in guard.seen), 'guardKilled': guard.killed}
+            checks['bad sink'] = not err and ok and not guard.seen and not guard.killed
+            return v
+        started = []
+        def audible(n):
+            if n['playing'] and (n['position'] or 0) > 0 and not started:
+                started.append(round(time.time() - n['position'] - sent_at, 2))
+            return n['playing'] and n['itemId'] == SONG and n['problem'] is None and (n['position'] or 0) > 35
+        now, ok = wait_now(mcp, audible, 90 if not err else 5)
         routed = not guard.killed and guard.seen == {sink}
-        v['playing'] = {'now': now, 'guardSeen': sorted(str(t) for t in guard.seen), 'guardKilled': guard.killed}
-        checks['4 play'] = not err and ok and routed
+        v['playing'] = {'now': now, 'audioStartS': started[0] if started else None, 'guardSeen': sorted(str(t) for t in guard.seen), 'guardKilled': guard.killed}
+        checks['4 play'] = not err and ok and routed and bool(started) and started[0] <= 3
         if checks['4 play']:
             samples = []
             for _ in range(10):
@@ -153,13 +167,15 @@ def drive(a, out, sock, sink, iso, config):
                 time.sleep(1)
             v['pssMiB'] = round(statistics.median(samples) / 1024, 1)
             v['mcpPssMiB'] = round(cs.rollup(mcp.p.pid)['Pss'] / 1024, 1)
-        err, said = mcp.tool('queue_add', {'id': QUEUED})
-        v['queueAdd'] = {'error': err, 'said': said if err else None}
-        checks['5 queue'] = not err
         err, said = mcp.tool('pause')
         now, ok = wait_now(mcp, lambda n: n['state'] == 'Paused' and not n['pending'] and not n['playing'], 5)
         v['paused'] = now
         checks['6 pause'] = not err and ok
+        err, said = mcp.tool('queue_add', {'id': QUEUED})
+        time.sleep(2)
+        _, after = mcp.tool('now_playing')
+        v['queueAdd'] = {'error': err, 'said': said if err else None, 'after2s': after}
+        checks['5 queue'] = not err and isinstance(after, dict) and after['state'] == 'Paused' and not after['playing']
         err, said = mcp.tool('next')
         time.sleep(3)
         _, after = mcp.tool('now_playing')
@@ -194,8 +210,6 @@ def drive(a, out, sock, sink, iso, config):
         guard.stop = True
         guard.join(2)
         log.close()
-    v['checks'] = checks
-    v['amd'] = 'AMD' in (v.get('glRenderer') or '')
     return v
 
 
@@ -203,13 +217,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', required=True)
     ap.add_argument('--binary', default=os.path.join(ROOT, 'target', 'release', 'bramley'))
-    ap.add_argument('--mode', choices=('signed-in', 'signed-out'), default='signed-in')
+    ap.add_argument('--mode', choices=('signed-in', 'signed-out', 'bad-sink'), default='signed-in')
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=False)
     v = {}
     try:
         with cs.session(a.out, 'bramley-s12') as (sock, sink, summary):
-            with cs.isolated(f's12-mcp-{a.mode}', a.mode == 'signed-in') as (iso, config):
+            with cs.isolated(f's12-mcp-{a.mode}', a.mode != 'signed-out') as (iso, config):
                 v = drive(a, a.out, sock, sink, iso, config)
         v['session'] = summary
     except Exception as e:

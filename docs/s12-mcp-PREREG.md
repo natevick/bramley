@@ -27,3 +27,8 @@ The run finishes with `pause`, then the driver stops `bramley mcp`, the app, wes
 
 ## Sabotage (the harness must be able to say FAIL)
 - **Signed out:** the same driver with `isolated(..., signed_in=False)`. `play` must come back as a tool error ("sign in"), check 4 must FAIL, and the verdict must be FAIL.
+
+## Amendment (2026-10-11, after r1–r3 and before r4/r5)
+- **Order:** `queue_add` moves to after `pause`. Check 5 becomes: `queue_add` is not an error, and `now_playing` 2 s later still shows Paused with `playing` false. This tests the tool description "Does not start playback". `next` follows as before.
+- **Check 4, F4's latency bar** (F9 is "same bar as F4"): the time from sending `play` to the start of audio, taken as the reply time of the first `now_playing` with `playing` true and position > 0 minus that position, is at most 3 s.
+- **Bad sink (r5):** a third mode with `PULSE_SINK` naming a sink that does not exist and the guard armed. After `play`, within 25 s, `now_playing` shows `state` Error, `playing` false and a non-null `problem`, and the guard saw no target at all. That makes the mode PASS; anything else is FAIL. Checks 3 to 9 aren't scored in this mode.
