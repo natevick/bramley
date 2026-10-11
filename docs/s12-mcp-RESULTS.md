@@ -31,6 +31,26 @@ The run ended with `pause`. The default sink was unchanged and the null sink was
 
 `play` came back as a tool error, "sign in needed: nothing was played". `now_playing` reported `state` SignInNeeded, `playing` false, problem "sign in needed: run `bramley sign-in`". The guard saw no stream at all. Checks 3 to 8 failed, so the verdict was FAIL. Checks 1, 2 and 9 still passed, since they don't need a user token.
 
+## After the review (r6, r7): PASS
+
+Binary: release at c0e0160; the guard exits 0. Pre-registered as amendment 2.
+
+**r6** (signed in, r4 sequence): PASS, 10/10.
+- Audio started 1.79 s after `play` and reached 35.66 s. Only the null sink was linked.
+- queue_add while Paused stayed Paused. `next` from Paused started "Don't Stop Me Now". library_playlists returned total 34.
+- **Check 10:** `agentNotice` was true 2 s after the first MCP search and still true at the end. `mcp-disclosed` was never written, because nobody dismissed the notice.
+- **Check 9:** 0 sockets on the mcp process. All three `bramley mcp` runs printed the disclosure, as they should while the notice is undismissed.
+- PSS while playing: 145.4 MiB (report only).
+
+**r7** (dev build, `--screenshot`, private): one MCP `now_playing` after the first frame. The PNG shows the notice, reading "An agent is connected to Bramley", the three lines and a "Got it" button, above the library grid. The final status had `agentNotice` true. The PNG holds real album art, so it stays at `target/s12/live/r7-shot/notice.png` and is not committed.
+
+**Dismissal was not driven live.** Headless weston gives the driver no input device. A unit test (`an_agent_request_raises_the_app_notice_and_only_dismissal_records_it`) covers it instead:
+- it finds "Got it" by its accesskit label in the real `App::draw`;
+- clicks it with egui pointer events;
+- checks the marker appears only after the click.
+
+The mutation that unwires the click is killed by it.
+
 ## Harness defect (r1)
 
 r1 played and passed checks 1 to 8, but check 9 failed. The driver looked for the first-run disclosure on the second `bramley mcp` process. The no-app probe is the first run against a fresh config, so it had already shown and recorded the disclosure. The driver now reads the probe's stderr as the first run and requires the later runs to be silent. The product behaved as pre-registered in both runs.
@@ -38,7 +58,11 @@ r1 played and passed checks 1 to 8, but check 9 failed. The driver looked for th
 ## Unit and mutation proof
 
 - `cargo test --workspace` passes: the app has 73 unit tests, plus 1 integration test (`crates/app/tests/mcp_stdio.rs`). Clippy `-D warnings` and `cargo fmt --check` are clean.
-- 29 mutations, each run against the test that owns its behaviour after a green baseline for every filter: **29 killed, 0 survived**. They cover:
+- After the review: **40 mutations, 40 killed**, each after a green baseline. A filter matching zero tests now counts as red; that exposed two earlier "survivors" that had run against a renamed or wrong test. The new mutations are:
+  - B1: no raise on an agent request, no raise on a library request, the origin dropped in the handler, the origin dropped in mcp, the click unwired, the marker written on stderr print, the marker ignored by the app, the untrusted sentence dropped;
+  - L1: no mutex; L3: no term cap; L4: a logger on the mcp path with rmcp unfiltered;
+  - T1: `next` ignored by `Page`; T2: `artists` renamed.
+- Before the review: 29 mutations, 29 killed. They cover:
   - handshake: no tools capability, no instructions;
   - tools/list: empty, no `required`;
   - validation: `cli::parse` skipped, extra arguments allowed, `types` unchecked, a non-string id;
@@ -61,5 +85,9 @@ rmcp 3.5.1 (the official SDK) with default features off, `server` and `transport
 - The disclosure goes to stderr, which most MCP clients send to a log the user may never open. It is also the server's `instructions`, so the agent sees it, but whether a human ever reads it depends on the client.
 - `library_playlists` returns only the first page (100). `more` says when there are more.
 - Windows and macOS were not cross-checked: only the Linux target is installed on this box.
-- **By the plan's definition, S12 is not done until F9 is in the acceptance harness.** S13 says every story from S2c on adds its checks to `scripts/acceptance.sh` and is done when they pass. F9 is not yet wired into `scripts/acceptance/gate.py`. `scripts/app/mcp-session.py` (227 lines of Python) holds the checks and counts against S13's 600-line harness cap. `gate.py` was outside this story's file scope, so wiring it is the caller's call.
-- `bramley library playlists` is refused by the plain CLI (exit 2, "shared only with an agent you connect through `bramley mcp`"), so library data leaves only through the disclosed MCP path. The instance socket itself still accepts the request from any local client that speaks the wire format. That socket lives in the user's own 0700 runtime dir, so this shrinks the advertised surface rather than adding access control.
+- **By the plan's definition, S12 is not done until F9 is in the acceptance harness.** S13 says every story from S2c on adds its checks to `scripts/acceptance.sh` and is done when they pass. F9 is not yet wired into `scripts/acceptance/gate.py`. `scripts/app/mcp-session.py` (254 lines of Python) holds the checks and counts against S13's 600-line harness cap. The coordinator decided on 2026-10-11 that the wiring belongs to S13; the plan records it.
+- The plain CLI refuses `bramley library playlists`. This is not a protection. Any same-user process can ask the instance socket for it. See the 2026-10-11 trust-boundary entry in compliance.md, which also covers the macOS and Windows re-checks.
+- **L5 (open):** while the startup keyring check runs (up to 60 s with a locked keyring), `now_playing` shows no problem, but `play` is refused with "sign in needed".
+- **L7 (open):** seeking past the end while Paused hasn't been probed live.
+- **Minimized window (open; S13 measures it):** the inbox drains only inside `App::logic`. If a minimized or occluded window gets no frames, every CLI and MCP call would come back "not applied". Every run so far had a visible headless surface.
+- **F9 by proxy:** check 4 uses MusicKit's `position` > 35 plus the routing guard, not a native decrypt counter. No status field reports one.

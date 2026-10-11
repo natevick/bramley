@@ -32,3 +32,10 @@ The run finishes with `pause`, then the driver stops `bramley mcp`, the app, wes
 - **Order:** `queue_add` moves to after `pause`. Check 5 becomes: `queue_add` is not an error, and `now_playing` 2 s later still shows Paused with `playing` false. This tests the tool description "Does not start playback". `next` follows as before.
 - **Check 4, F4's latency bar** (F9 is "same bar as F4"): the time from sending `play` to the start of audio, taken as the reply time of the first `now_playing` with `playing` true and position > 0 minus that position, is at most 3 s.
 - **Bad sink (r5):** a third mode with `PULSE_SINK` naming a sink that does not exist and the guard armed. After `play`, within 25 s, `now_playing` shows `state` Error, `playing` false and a non-null `problem`, and the guard saw no target at all. That makes the mode PASS; anything else is FAIL. Checks 3 to 9 aren't scored in this mode.
+
+## Amendment 2 (2026-10-11, after review, before r6/r7)
+The marker is now written only when the user dismisses the in-app notice.
+- **Check 9** becomes: no network socket; the first run's stderr carries the disclosure; and so do both later runs, because nobody dismissed the notice.
+- **Check 10 (new):** 2 s after the first MCP search, the app's status shows `agentNotice` true. It is still true at the end of the run, and `mcp-disclosed` does not exist.
+- **Shot (r7, dev build, private):** `bramley --screenshot` after 15 s, with one MCP `now_playing` sent after the first frame. The PNG exists and the final status shows `agentNotice` true.
+- **Dismissal is not driven live.** Headless weston gives the driver no input device. Dismissal is proven by a unit test that clicks "Got it" through egui pointer events, found by its accesskit label in `App::draw`, and then checks for the marker.

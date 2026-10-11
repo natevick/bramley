@@ -188,6 +188,7 @@ Addition 2026-10-11 (Norm, from the S6 review): S8 makes Home's cover grid playa
 - **Acceptance:** an MCP client (e.g. `claude mcp add bramley -- bramley mcp`) lists the tools and runs `search` and `play` against the running app.
 - **Depends on:** S11 and S5.
 - **Budget:** ~300 source / ~200 tests.
+- **F9 harness wiring (2026-10-11, coordinator's call):** wiring F9 into `scripts/acceptance/gate.py` belongs to S13, not S12. S12's checks live in `scripts/app/mcp-session.py`, which counts against S13's harness cap.
 
 ## S13. Acceptance harness (added 2026-10-10)
 - **Goal:** `scripts/acceptance.sh` implements docs/acceptance.md exactly: every F, R and control check, evidence files, and private screenshots. It drives the shipped binary only through the S11 CLI and S12 MCP.

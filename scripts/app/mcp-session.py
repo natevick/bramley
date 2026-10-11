@@ -121,7 +121,9 @@ def drive(a, out, sock, sink, iso, config):
     first = probe.stderr()
     st = os.path.join(out, 'status.json')
     log = open(os.path.join(out, 'app.log'), 'w')
-    app = subprocess.Popen([a.binary, '--status', st], env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    shot = os.path.join(out, 'notice.png')
+    extra = ['--screenshot', shot, '--after', '15'] if a.mode == 'shot' else []
+    app = subprocess.Popen([a.binary, '--status', st] + extra, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     guard = cs.Guard(app.pid, sink)
     guard.start()
     mcp = None
@@ -133,9 +135,18 @@ def drive(a, out, sock, sink, iso, config):
         init = mcp.handshake()
         listed = mcp.send('tools/list')
         names = ' '.join(t['name'] for t in listed['result']['tools'])
+        if a.mode == 'shot':
+            mcp.tool('now_playing')
+            app.wait(60)
+            final = cs.status(st) or {}
+            v['shot'] = {'png': os.path.exists(shot), 'agentNotice': final.get('agentNotice')}
+            checks['notice shot'] = v['shot']['png'] and final.get('agentNotice') is True
+            return v
         checks['2 handshake'] = init['result']['protocolVersion'] == '2025-06-18' and names == TOOLS
         v['mcpSockets'] = network_sockets(mcp.p.pid)
         err, found = mcp.tool('search', {'term': 'bohemian rhapsody'})
+        time.sleep(2)
+        raised = (cs.status(st) or {}).get('agentNotice')
         songs = found.get('songs', []) if isinstance(found, dict) else []
         v['search'] = {'error': err, 'said': None if isinstance(found, dict) else found, 'counts': {k: len(x) for k, x in found.items()} if isinstance(found, dict) else None, 'songInResults': any(x['id'] == SONG for x in songs)}
         checks['3 search'] = not err and len(songs) > 0
@@ -196,7 +207,9 @@ def drive(a, out, sock, sink, iso, config):
         again.close()
         no_net = not v['mcpSockets']['network'] and not v['mcpSocketsEnd']['network']
         v['disclosure'] = {'firstRunShown': DISCLOSURE in first, 'recorded': os.path.exists(os.path.join(config, 'mcp-disclosed')), 'laterRunsStderr': later}
-        checks['9 mcp process'] = no_net and DISCLOSURE in first and v['disclosure']['recorded'] and later == ['', '']
+        v['appNotice'] = {'afterSearch': raised, 'atEnd': (cs.status(st) or {}).get('agentNotice')}
+        checks['9 mcp process'] = no_net and DISCLOSURE in first and all(DISCLOSURE in r for r in later)
+        checks['10 app notice'] = raised is True and v['appNotice']['atEnd'] is True and not v['disclosure']['recorded']
     finally:
         if mcp:
             mcp.close()
@@ -217,7 +230,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out', required=True)
     ap.add_argument('--binary', default=os.path.join(ROOT, 'target', 'release', 'bramley'))
-    ap.add_argument('--mode', choices=('signed-in', 'signed-out', 'bad-sink'), default='signed-in')
+    ap.add_argument('--mode', choices=('signed-in', 'signed-out', 'bad-sink', 'shot'), default='signed-in')
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=False)
     v = {}
