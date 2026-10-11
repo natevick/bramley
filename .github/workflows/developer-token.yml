@@ -1,0 +1,48 @@
+name: developer-token
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      sabotage:
+        description: Sign under a wrong key id; Apple's check must fail and nothing deploys
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Test the minter with a throwaway key
+        run: node --test scripts/mint-developer-token.test.mjs
+      - name: Mint, verify and check against Apple
+        env:
+          MUSICKIT_P8_B64: ${{ secrets.MUSICKIT_P8_B64 }}
+          MUSICKIT_KEY_ID: ${{ inputs.sabotage && 'SABOTAGE00' || secrets.MUSICKIT_KEY_ID }}
+          MUSICKIT_TEAM_ID: ${{ secrets.MUSICKIT_TEAM_ID }}
+        run: |
+          mkdir site
+          node scripts/mint-developer-token.mjs site/developer-token.json
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
