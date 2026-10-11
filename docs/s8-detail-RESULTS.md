@@ -4,7 +4,93 @@ Pre-registration: `docs/s8-detail-PREREG.md`, with amendments 1–3. Live harnes
 
 Commits were rebased onto main after S9 merged. The old hashes in amendment 1 map like this: 1ea15e9 → 6b7b59d (engine hang fix).
 
-## Live checks, final: live-5, dev build of 5d6ae45, PASS
+## Review round (2026-10-11): current results
+
+This section supersedes the round-1 results below wherever they differ. Inputs were the S8 review and Nate's F6 ruling, now recorded in acceptance.md: "no cut tail: drain acknowledged (end of stream) or continuous gapless output". PREREG amendments 4 and 5 hold the measurable form.
+
+**Withdrawn: the round-1 F6-gapless PASS** (live-3, live-5).
+- Its F6-S sent `next` at `duration − 4 s`, not the registered 3 s, and that deviation was not disclosed.
+- Its continuity rule compared only the two samples at the flip.
+
+### Live, final: live-7 (harness 4693324, dev build of cf7838e), PASS
+
+| Check | Result |
+|---|---|
+| L1 Home cover → track 1 | Track 1 plays, art shown, null sink only. **PASS** |
+| L2 plan AC: start at track 3 | Track 3 in 1.05 s. **PASS** |
+| L2 F6, 3 transitions | T1 mode B: drain acked 1, 0 timeouts. T2 and T3 mode A: skipped 0.0 s, sent ≥ 24.2 s (bar 17 s), stall ≤ 0.25 s. Seeks landed within 0.4 s. **PASS** |
+| F6-S, `next` 3 s before the end (registered) | T3: **skipped 18.7 s** (bar 0.1), tail 2.89 s short. F6 **FAILs**, as required |
+| L3 catalog playlist from search → track 5 | **PASS** |
+| L5 row 105 of a 111-track catalog playlist | Row 105 plays, through the window fallback. **PASS** |
+
+**Earlier runs in this round.**
+- **live-6:** F6-S **passed** amendment 4, so F6 counted for nothing in that run. Skipped media was read at the id flip, and the cut's discard is counted after the flip: 22.8 s total, against L2's 4.1 s. Amendment 5 moved the reading to the end of the 5 s post-flip window. No threshold changed.
+- **Not explained:** the 18.7 s magnitude. A discard alone should be about 1.5 s of queued audio. The rest is most likely the new item's first chunk landing as a sent-timeline gap before any re-anchor. The 0.1 s bar needs only a nonzero count, and natural transitions read exactly 0.0 in every run.
+
+### `startWith` (review #4, #5)
+
+- MusicKit drops songs without `playParams` before it applies `startWith`. Queue positions now count only what it keeps: playable songs, plus music videos. Unplayable rows are greyed out and can't be clicked.
+- I could not cite a documented string-id `startWith`, so it is not used.
+- **Container queues hold only page 1.** At round 1's mapping, clicking row 105 of a 111-track playlist played row 1. Rows past MusicKit's first page now queue the clicked song plus up to 99 playable songs after it (S9's window).
+- Row 150 was asked for, but the longest of the 12 catalog playlists searched had 111 tracks.
+
+### Shuffle (review #6)
+
+Shuffle(false) is now sent before SetQueue. Live, clicks 12 s apart:
+- **Shuffle, then track 3:** played rows 1, then **3**. The unshuffled queue starts where it was clicked.
+- **Track 5, then Shuffle:** played rows 5, then **1**. Shuffle always starts at container place 0, and MusicKit keeps that item first.
+
+### Engine
+
+**Branch `natevick/engine-short-frame`** (aafea34, db10d22) lands ahead of S8:
+- the hang fix;
+- review #8: exactly one write at the last pts, with round(272 µs × rate) frames;
+- review #9: a two-append gapless boundary starting 1 µs inside the short frame, with every pts written once;
+- review #10: both tests run under `in_child` with `timeout 20`.
+
+Mutants E1–E4 are each killed, and a no-change control passes. My first mutant run used `cargo test -q`, whose output hides the per-test lines, so every mutant read SURVIVED. That was a false clean. The runner now also checks the return code and the test count.
+
+**On S8** (05dbac7): `sentMs` and `skippedMs` reach the status. `skippedMs` counts sent-timeline gaps over 2 µs, plus queued audio discarded by a seek, flush or detach. Four counter mutants are killed.
+
+**Found, not fixed:** with a frame missing mid-stream, position (driven by samples) never reaches the sent end, so `ended` never fires. A decrypt failure drops a frame the same way. This needs its own story.
+
+### Tests this round
+
+- Mutants killed:
+  - **A1–A3:** an accesskit click test on the real row, Play and Shuffle widgets. Its disabled-state assertion also kills N5.
+  - **N1–N7:** unplayable counted, no window fallback, the cap reading as complete, `l.` routed, an unplayable row clickable, unshuffle after SetQueue, `playParams` ignored.
+- The no-change control passes.
+
+### Gate s8-3 (e956bff, clean): PASS in zone 3
+
+- R1: **173.1** PSS / 146.2 USS / 205.7 RSS.
+- R2: **75.5** / 48.6 / 108.0.
+- Reference: 90.2 / 90.1.
+- Ballast control holds: 69 MiB, rise 70.3.
+- The shipped guard exits 0, and the ballast build's exits 1.
+- On the lead over the reference, against s9-4: R1 **−1.3**, R2 **−0.4** MiB. That is noise.
+
+### Names (review #2)
+
+- The names file is opened with `os.open(..., 0o600)`, grepped inside the session, and removed in a `finally`.
+- live-7: 63 names, 2 hits, "Queen" and "Queen Essentials". Both are public catalog text that come from the harness's own search term.
+- A planted name raises the count.
+
+### Budget this round (about 150 / 150)
+
+- **S8 source:** +105 / −43.
+- **S8 tests:** +136 / −31.
+- **Harness:** +80 / −33.
+- **Engine branch tests:** +61.
+
+### Not established (this round)
+
+- **#11:** music videos are queued (MusicKit keeps them) but not listed. Auto-advance can reach a video the list doesn't show, and v1 fails it loudly.
+- Shuffle order beyond the 2 rows observed per sequence.
+- The 18.7 s skipped magnitude (above).
+- Rows past 111 in a real playlist. The window path past page 1 was proven live only at row 105.
+
+## Round 1 live checks: live-5, dev build of 5d6ae45 (F6-gapless PASS withdrawn, see above)
 
 | Check | Result |
 |---|---|
@@ -19,7 +105,7 @@ Commits were rebased onto main after S9 merged. The old hashes in amendment 1 ma
 
 **Shuffle** uses MusicKit's public `shuffleMode` (`songs`), set after `setQueue` and before `play`. Live probe: in two runs, the first song was track 1 both times, then 14, 8, 9 and 15, 2, 12. MusicKit shuffles the rest of the queue but keeps the start item first. A later Play or row click turns shuffle off again (unit-tested).
 
-## F6: what was found (Nate's call needed)
+## F6: what round 1 found (Nate has since ruled; see the review round)
 
 1. **Engine hang, fixed (6b7b59d).** A track whose last AAC frame is shorter than 2 ms (this album's track ended in a 272 µs frame) made `decode_ahead` decode that frame forever. The player thread froze about 1.5 s before the end, on every run. The regression test fails by timeout without the fix. Any track ending like this hit it, so S13's R3 soak would have too.
 2. **MusicKit has two boundary modes.**
