@@ -2,9 +2,9 @@
 
 Pre-registration: `docs/s9-library-PREREG.md`, including amendment 1. Live harness: `scripts/app/s9-session.py`, run under `sg render`.
 
-**Environment.** Every run used weston headless `--renderer=gl` on the AMD Radeon RX 5700 XT (radeonsi). Every run had the PipeWire null sink and the sink guard. Every run used an isolated copy of the config and keyring. The default sink was unchanged after every session, and the null sink was removed.
+**Environment.** Every run used weston headless `--renderer=gl` on the AMD Radeon RX 5700 XT (radeonsi). Every session had the PipeWire null sink. Every run that could play had the sink guard; the screenshot runs, which never play, did not. Every run used an isolated copy of the config and keyring. The default sink was unchanged after every session, and the null sink was removed.
 
-**Evidence.** It stays on the dev box under the S9 worktree, in `target/s9/` and `target/acceptance/s9-*`. It holds counts, PSS and booleans only. Library names exist only in the gitignored `target/tmp/s9/names.txt` (5,455 strings), which every commit's diff and message was grepped against. The grep was proven able to fail first: a scratch diff with one name appended scored 19 hits against 18. All the remaining hits are code words (`Route::Home`, `TimeoutExpired`, `cs.Guard`).
+**Evidence.** It stays on the dev box under the S9 worktree, in `target/s9/` and `target/acceptance/s9-*`. It holds counts, PSS, booleans and the app logs. The raw per-run status files carry a playing track's title, so they were deleted after the runs. Library names are kept only in the gitignored `target/tmp/s9/names.txt` (5,455 strings) and, by design, in the private screenshots. The names list was grepped against the whole branch diff, every commit message and the 33 app logs. The grep was proven able to fail first: a scratch diff with one name appended scored 19 hits against 18. Every remaining hit is a common word that some song shares, appearing as code or prose: `Route::Home`, `TimeoutExpired`, `cs.Guard`, `ViewportCommand::Close`, "Started".
 
 ## Live checks, final: live-5 at 85bcfb3, PASS
 
@@ -16,7 +16,7 @@ Pre-registration: `docs/s9-library-PREREG.md`, including amendment 1. Live harne
 | S1 sabotage (Songs, no scroll) | loaded 100, 1 page, `shownTo` 15: L3 **FAIL**, as required |
 | Did it run | radeonsi in every status; frames painted; L1 and L3 fetched more than one page |
 
-The L3 delta across live-2 to live-5 was +2.4, +2.9 (live-4) and +2.6 MiB.
+The L3 delta was +2.4 (live-2), +2.6 (live-3), +2.9 (live-4) and +2.6 MiB (live-5).
 
 **Click paths (post-registration check, at fa91ced): PASS.**
 - **Songs:** clicking song 4,481 played that song.
@@ -74,8 +74,25 @@ Different sessions, so a 2–3 MiB gap is noise, not a saving. S9 costs nothing 
 - **Public:** `docs/screens/s9/songs-synthetic.png`. Synthetic fixture at 1100×720, with fake names and flat-colour art.
 - **Private (real art and names, never published):** `target/screens/PRIVATE-real-art/s9/{songs,albums,playlist}.png` in the S9 worktree.
 
+## Budget (plan cap 300 source / 150 tests / 40 fixtures)
+
+**Over on source and tests.**
+- **Source:** +529 / −40 lines. `ui/library.rs` is 430 of them; the rest are edits to shared files that mirror S7's hunks.
+- **Tests:** +277 / −2. 259 are in `ui/library/tests.rs`; 7 tests cover the library and 1 covers `PlayIn`.
+- **Fixtures:** 0. The test pages and the screenshot fixture are generated in code.
+
+**Why over.**
+- Four paged lists share one pager.
+- The art cache adds a lazy fetch thread and an LRU.
+- rustfmt's line splitting.
+- The fixes that the live runs forced.
+
+**Harness.** `scripts/app/s9-session.py` (228 lines) counts against S13's 600-line harness cap.
+
 ## Not established
 
+- Since fa91ced, a click on the last row queues just that one song. L2 and both click checks at HEAD prove that the clicked song plays; they do not prove the songs queued after it. The evidence that a 100-id `i.` queue starts at its first entry is the pre-fix diagnostic, in which song 4,431, the window's first, played.
+- be0b972 (sidebar names truncate) landed after live-5. Only gate s9-3 covers it.
 - The R1/R2-library readings come from the dev build in a single session, without the reference binary; they are not R1/R2 readings.
 - Library `l.` album ids in `setQueue` were proven for one album only.
 - Catalog `pl.` playlists from search still show the placeholder; that is S8's.
