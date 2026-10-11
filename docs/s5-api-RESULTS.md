@@ -55,3 +55,26 @@ Pre-registration: `docs/s5-api-PREREG.md`. Driver and evidence: `scratch/s5/` (g
 - 429 handling was tested on fixtures only; no real rate limit was hit.
 - The 429 budget (1 s, at most 2 retries) is per request. A search makes 2 requests, so its worst case is about 2 s of waiting. That still fits inside the CLI's 3 s deadline.
 - `docs/s5-api-PREREG.md` was written before the first live run, but it was committed afterwards, together with this file.
+
+## Review round 1 (2026-10-10)
+
+The branch was rebased onto main, which now carries the wire-dump hotfix. Evidence is in `scratch/s5/`: `runs-r2-tip.txt`, `runs-r2-trace.txt` and `mutation-log.txt` (33 mutations, all killed).
+
+**Live search:**
+
+| Times (s) | Median | Includes 6781024437 |
+|---|---|---|
+| 0.592, 0.232, 0.295, 0.247, 0.211 | **0.247 s** | all 5 |
+
+The storefront is now cached, so only the first search pays for it.
+
+**Library smoke test:** same counts as before. 34 playlists; playlist A has 250 of 250 tracks; albums 376; songs 4481.
+
+**Trace run (`RUST_LOG=trace`):**
+- No token appears in the log.
+- All 26,501 `ureq`/`ureq_proto` TRACE lines are withheld.
+- **Open: ureq's DEBUG still logs the full URL**, including `term=bohemian%20rhapsody`, and would include library ids in paths.
+  - DEBUG was kept as instructed.
+  - At the default log level the log has no ureq lines at all.
+
+**Gzip cap, fail-before:** the pre-fix body read returns `Ok("us")` for a 3 MiB storefront sent gzip-compressed. The fix returns `TooLarge`.
