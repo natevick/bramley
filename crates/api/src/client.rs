@@ -90,7 +90,7 @@ impl Client {
         Self::at(API_BASE, tokens)
     }
 
-    pub(crate) fn at(
+    pub fn at(
         base: &str,
         tokens: impl Fn() -> std::result::Result<Tokens, String> + Send + Sync + 'static,
     ) -> Self {

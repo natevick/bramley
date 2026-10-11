@@ -69,7 +69,7 @@ pub fn parse(args: &[String]) -> Result<Request> {
     })
 }
 
-fn catalog_id(id: &str) -> Result<String> {
+pub(crate) fn catalog_id(id: &str) -> Result<String> {
     if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '.') {
         bail!("{id:?} is not a catalog id");
     }

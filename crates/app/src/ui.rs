@@ -2,6 +2,7 @@ pub mod content;
 pub mod nav;
 pub mod player_bar;
 pub mod queue_panel;
+pub mod search;
 pub mod sidebar;
 #[cfg(test)]
 mod tests;

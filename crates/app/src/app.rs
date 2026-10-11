@@ -17,6 +17,7 @@ use crate::covers::{self, Grid, Source};
 use crate::credentials::Credentials;
 use crate::playback::{Action, Banner, Playback, Spawn, play_or_pause};
 use crate::ui::nav::{Nav, Shell};
+use crate::ui::search::Search;
 use crate::{signin, ui};
 
 const REPAINT_EVERY: Duration = Duration::from_secs(1);
@@ -83,6 +84,8 @@ struct Shot {
 
 pub struct App {
     pub(crate) api: Option<Sender<bramley_api::Job>>,
+    api_base: String,
+    search: Search,
     playback: Playback,
     user: Credentials,
     sign_in: Option<(signin::Server, bool)>,
@@ -132,12 +135,25 @@ impl App {
         let actions = Vec::new();
         #[allow(unused_mut)]
         let mut shell = Shell::default();
+        let api_base = source
+            .as_ref()
+            .map_or(bramley_api::API_BASE, |s| &s.api)
+            .to_owned();
+        #[allow(unused_mut)]
+        let mut search = Search::new(source.as_ref().and_then(|s| s.art_prefix.clone()));
         #[cfg(feature = "dev")]
         {
             (shell.route, shell.queue_open) = (args.route.unwrap_or_default(), args.queue_open);
+            if let Some(term) = &args.search {
+                shell.query.clone_from(term);
+                search.enter(term, Instant::now());
+            }
+            search.click_first_song = args.click_first_song;
         }
         App {
             api: None,
+            api_base,
+            search,
             playback: Playback::new(spawn, signed_out),
             user,
             sign_in: None,
@@ -197,6 +213,7 @@ impl App {
             "coversError": self.covers.failed(),
             "route": self.shell.route.title(),
             "queueOpen": self.shell.queue_open,
+            "search": self.search.status(),
         });
         if let (Some(status), Value::Object(token)) =
             (status.as_object_mut(), self.user.developer().status())
@@ -217,6 +234,7 @@ impl App {
     pub fn pump(&mut self, ctx: &egui::Context) -> bool {
         self.playback.receive()
             | self.covers.receive(ctx)
+            | self.search.receive(ctx)
             | self.answer_requests(ctx)
             | self.follow_sign_in()
             | self.follow_account()
@@ -280,26 +298,7 @@ impl App {
                 let job = bramley_api::Job::new(call, deadline, move |found| {
                     let _ = reply.send(cli::api_reply(found));
                 });
-                let worker = match self.api.take() {
-                    Some(api) => Ok(api),
-                    None => {
-                        let (user, developer) = (self.user.clone(), self.user.developer().clone());
-                        let client = bramley_api::Client::new(move || crate::api_tokens(&user));
-                        bramley_api::worker(client.renewing(move |old| developer.refetch(old)))
-                    }
-                };
-                let unsent = match worker {
-                    Ok(api) => api
-                        .send(job)
-                        .map(|()| self.api = Some(api))
-                        .err()
-                        .map(|e| e.0),
-                    Err(_) => Some(job),
-                };
-                if let Some(job) = unsent {
-                    let stopped = "the API worker could not run".into();
-                    (job.done)(Err(bramley_api::Error::Network(stopped)));
-                }
+                self.send_api(job);
                 continue;
             }
             let show = request == Request::Show;
@@ -332,6 +331,30 @@ impl App {
         match crate::mcp::record_disclosed(self.user.dir()) {
             Ok(()) => self.agent_notice = false,
             Err(e) => eprintln!("bramley: the agent notice could not be recorded: {e}"),
+        }
+    }
+
+    fn send_api(&mut self, job: bramley_api::Job) {
+        let worker = match self.api.take() {
+            Some(api) => Ok(api),
+            None => {
+                let (user, developer) = (self.user.clone(), self.user.developer().clone());
+                let client =
+                    bramley_api::Client::at(&self.api_base, move || crate::api_tokens(&user));
+                bramley_api::worker(client.renewing(move |old| developer.refetch(old)))
+            }
+        };
+        let unsent = match worker {
+            Ok(api) => api
+                .send(job)
+                .map(|()| self.api = Some(api))
+                .err()
+                .map(|e| e.0),
+            Err(_) => Some(job),
+        };
+        if let Some(job) = unsent {
+            let stopped = "the API worker could not run".into();
+            (job.done)(Err(bramley_api::Error::Network(stopped)));
         }
     }
 
@@ -419,6 +442,14 @@ impl App {
             self.playback.mark_signed_out();
         }
         self.covers.follow(ctx, covers_allowed(&self.playback));
+        let (now, waker) = (Instant::now(), ctx.clone());
+        let wake = move || waker.request_repaint();
+        if let Some(job) = self.search.tick(now, covers_allowed(&self.playback), wake) {
+            self.send_api(job);
+        }
+        if let Some(wait) = self.search.wait(now) {
+            ctx.request_repaint_after(wait);
+        }
         if changed
             || self
                 .status_at
@@ -447,7 +478,7 @@ impl App {
         egui::Panel::left("library")
             .default_size(200.0)
             .show(ui, |ui| {
-                ui::sidebar::show(ui, self.shell.route, &mut self.navs);
+                ui::sidebar::show(ui, &self.shell.route, &mut self.navs);
                 sign_out = ui::sidebar::account(ui, signed_in, self.user.storage());
             });
         if self.shell.queue_open {
@@ -466,7 +497,9 @@ impl App {
                 ui::notice(ui, &warning);
             }
             dismissed = self.agent_notice && crate::mcp::notice(ui).clicked();
-            ui::content::show(ui, &mut self.shell, &self.covers, &mut self.navs);
+            let view = (&mut self.shell, &mut self.search);
+            let emit = (&mut self.actions, &mut self.navs);
+            ui::content::show(ui, view, &self.covers, emit);
         });
         if sign_out {
             self.sign_out();

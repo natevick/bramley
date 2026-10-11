@@ -70,6 +70,10 @@ pub struct Args {
     theme: Option<egui::Theme>,
     #[cfg(feature = "dev")]
     size: Option<[f32; 2]>,
+    #[cfg(feature = "dev")]
+    search: Option<String>,
+    #[cfg(feature = "dev")]
+    click_first_song: bool,
 }
 
 fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
@@ -98,6 +102,10 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
             "--theme" => a.theme = Some(theme(&value()?).context("--theme takes dark or light")?),
             #[cfg(feature = "dev")]
             "--size" => a.size = Some(size(&value()?).context("--size takes WxH")?),
+            #[cfg(feature = "dev")]
+            "--search" => a.search = Some(value()?),
+            #[cfg(feature = "dev")]
+            "--click-first-song" => a.click_first_song = true,
             other => bail!("unknown argument {other}"),
         }
     }

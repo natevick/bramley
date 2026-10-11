@@ -2,15 +2,15 @@ use egui::RichText;
 
 use super::nav::{Nav, Route};
 
-fn entry(ui: &mut egui::Ui, current: Route, route: Route, navs: &mut Vec<Nav>) {
+fn entry(ui: &mut egui::Ui, current: &Route, route: Route, navs: &mut Vec<Nav>) {
     let size = [ui.available_width(), 28.0];
-    let item = egui::Button::selectable(current == route, route.title());
+    let item = egui::Button::selectable(*current == route, route.title());
     if ui.add_sized(size, item).clicked() {
         navs.push(Nav::Go(route));
     }
 }
 
-pub fn show(ui: &mut egui::Ui, current: Route, navs: &mut Vec<Nav>) {
+pub fn show(ui: &mut egui::Ui, current: &Route, navs: &mut Vec<Nav>) {
     ui.add_space(10.0);
     ui.heading("Bramley");
     ui.add_space(10.0);

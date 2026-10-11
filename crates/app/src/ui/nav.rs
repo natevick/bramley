@@ -1,4 +1,4 @@
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Route {
     #[default]
     Home,
@@ -6,16 +6,20 @@ pub enum Route {
     Playlists,
     Albums,
     Songs,
+    Album(String),
+    Playlist(String),
 }
 
 impl Route {
-    pub fn title(self) -> &'static str {
+    pub fn title(&self) -> &'static str {
         match self {
             Route::Home => "Home",
             Route::Search => "Search",
             Route::Playlists => "Playlists",
             Route::Albums => "Albums",
             Route::Songs => "Songs",
+            Route::Album(_) => "Album",
+            Route::Playlist(_) => "Playlist",
         }
     }
 
@@ -33,7 +37,7 @@ impl Route {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Nav {
     Go(Route),
     Back,

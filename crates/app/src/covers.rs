@@ -84,7 +84,7 @@ pub fn allowed_art(url: &str, prefix: Option<&str>) -> bool {
         && uri.host().is_some_and(|h| h.ends_with(ART_HOST))
 }
 
-fn agent() -> ureq::Agent {
+pub(crate) fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .user_agent(user_agent())
         .timeout_global(Some(Duration::from_secs(30)))
@@ -182,7 +182,7 @@ fn chart(
     Ok((urls.clone(), albums.len() - urls.len()))
 }
 
-fn cover(agent: &ureq::Agent, url: &str, px: u32, tally: &Tally) -> Result<ColorImage> {
+pub(crate) fn cover(agent: &ureq::Agent, url: &str, px: u32, tally: &Tally) -> Result<ColorImage> {
     let (status, bytes) = get(agent, url, &[], tally)?;
     match status {
         200 => {}
