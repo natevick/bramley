@@ -1,10 +1,14 @@
-use std::time::Instant;
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
-use bramley_api::{Call, Item, Kind, Page, Reply, Shelf};
+use bramley_api::{Call, Error, Item, Kind, Page, Reply, Shelf};
 use bramley_engine::Queue;
 use egui::{Event, PointerButton, Pos2, RawInput, Rect, vec2};
 
-use super::{ART_CAP, DEADLINE, Library, List, show};
+use super::{ART_CAP, DEADLINE, Library, List, RETRY, ROW_PT, show};
 use crate::playback::Action;
 use crate::ui::nav::{Nav, Route};
 
@@ -138,16 +142,11 @@ fn the_art_cache_evicts_the_least_recently_used_texture_and_frees_it() {
     let allocated = || ctx.tex_manager().read().num_allocated();
     let before = allocated();
     for i in 0..ART_CAP + 10 {
-        lib.art.frame = i as u64;
-        let texture = ctx.load_texture(
-            format!("t{i}"),
-            egui::ColorImage::filled([2, 2], egui::Color32::RED),
-            Default::default(),
-        );
-        lib.art.insert(format!("i.{i}"), texture);
+        lib.art.insert(format!("i.{i}"), texture(&ctx, i));
         if i == ART_CAP - 1 {
-            lib.art.textures.get_mut("i.0").unwrap().1 = i as u64;
+            assert!(lib.art.get(&ctx, &item(0), ROW_PT).is_some());
         }
+        lib.art.flush(&ctx);
     }
     assert_eq!(lib.art.textures.len(), ART_CAP);
     assert_eq!(allocated() - before, ART_CAP);
@@ -158,6 +157,192 @@ fn the_art_cache_evicts_the_least_recently_used_texture_and_frees_it() {
     assert!(
         !lib.art.textures.contains_key("i.1"),
         "the least recently used goes first"
+    );
+}
+
+fn texture(ctx: &egui::Context, i: usize) -> egui::TextureHandle {
+    let image = egui::ColorImage::filled([2, 2], egui::Color32::RED);
+    ctx.load_texture(format!("t{i}"), image, Default::default())
+}
+
+fn art_item(i: usize, base: &str) -> Item {
+    Item {
+        artwork: Some(format!("{base}/art/{i}/{{w}}x{{h}}bb.jpg")),
+        ..item(i)
+    }
+}
+
+#[test]
+fn covers_on_screen_are_never_evicted_so_135_visible_settle_without_refetching() {
+    let (ctx, base) = (egui::Context::default(), "http://127.0.0.1:9");
+    let mut lib = Library::new(Some(base.into()));
+    let items: Vec<_> = (0..135).map(|i| art_item(i, base)).collect();
+    let mut wanted = Vec::new();
+    for _ in 0..4 {
+        for item in &items {
+            lib.art.get(&ctx, item, ROW_PT);
+        }
+        wanted.push(lib.art.wanted.len());
+        for (key, ..) in std::mem::take(&mut lib.art.wanted) {
+            lib.art.insert(key, texture(&ctx, 0));
+        }
+        lib.art.flush(&ctx);
+    }
+    assert_eq!(
+        wanted,
+        [135, 0, 0, 0],
+        "a visible cover was evicted and fetched again"
+    );
+    assert_eq!(lib.art.textures.len(), 135);
+}
+
+fn serve(ok: bool, delay: Duration) -> (String, Arc<AtomicUsize>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let hits = Arc::new(AtomicUsize::new(0));
+    let counted = hits.clone();
+    let mut jpeg = Vec::new();
+    let image = image::RgbImage::from_pixel(40, 40, image::Rgb([200, 50, 50]));
+    image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+        .encode_image(&image)
+        .unwrap();
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let _ = stream.read(&mut [0u8; 4096]);
+            counted.fetch_add(1, Ordering::SeqCst);
+            std::thread::sleep(delay);
+            let (status, body): (&str, &[u8]) = if ok {
+                ("200 OK", &jpeg)
+            } else {
+                ("404 Not Found", b"")
+            };
+            let head = format!(
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream
+                .write_all(head.as_bytes())
+                .and_then(|()| stream.write_all(body));
+        }
+    });
+    (base, hits)
+}
+
+fn songs_with_art(base: &str, n: usize) -> Library {
+    let mut lib = Library::new(Some(base.into()));
+    lib.lists[List::Songs as usize].items = (0..n).map(|i| art_item(i, base)).collect();
+    lib
+}
+
+#[test]
+fn a_failing_cover_is_not_fetched_again_until_its_retry_time() {
+    let (base, hits) = serve(false, Duration::ZERO);
+    let (ctx, mut lib) = (egui::Context::default(), songs_with_art(&base, 25));
+    for _ in 0..100 {
+        frame(&ctx, &mut lib, &Route::Songs, 2000.0, vec![]);
+        lib.receive(&ctx);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let asked = hits.load(Ordering::SeqCst);
+    assert!(
+        (25..=30).contains(&asked),
+        "{asked} requests for 25 failing covers"
+    );
+    assert_eq!(lib.art.failed.len(), 25);
+    for until in lib.art.failed.values_mut() {
+        *until = Instant::now();
+    }
+    frame(&ctx, &mut lib, &Route::Songs, 2000.0, vec![]);
+    assert_eq!(
+        lib.art.recent.len(),
+        25,
+        "after its retry time a failed cover is asked for again"
+    );
+}
+
+#[test]
+fn signing_out_drops_the_art_and_a_cover_landing_afterwards_is_never_uploaded() {
+    let (base, _) = serve(true, Duration::from_millis(150));
+    let (ctx, mut lib) = (egui::Context::default(), songs_with_art(&base, 25));
+    let allocated = || ctx.tex_manager().read().num_allocated();
+    let before = allocated();
+    let until = Instant::now() + Duration::from_secs(10);
+    while lib.art.textures.is_empty() && Instant::now() < until {
+        frame(&ctx, &mut lib, &Route::Songs, 2000.0, vec![]);
+        lib.receive(&ctx);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        !lib.art.textures.is_empty(),
+        "a cover arrived before sign-out"
+    );
+    frame(&ctx, &mut lib, &Route::Songs, 2000.0, vec![]);
+    lib.lists[List::Songs as usize].pages = 1;
+    assert!(lib.tick(Instant::now(), false, || {}).is_empty());
+    assert_eq!((lib.art.textures.len(), allocated()), (0, before));
+    std::thread::sleep(Duration::from_millis(400));
+    lib.receive(&ctx);
+    assert!(lib.art.decoded > 0, "a cover landed after sign-out");
+    assert_eq!((lib.art.textures.len(), allocated()), (0, before));
+}
+
+#[test]
+fn an_error_waits_the_retry_and_a_403_stops_paging_until_signed_out() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+    let job = lib.tick(now, true, || {}).remove(0);
+    (job.done)(Err(Error::Network("down".into())));
+    lib.receive(&ctx);
+    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+    assert!(
+        lib.tick(Instant::now(), true, || {}).is_empty(),
+        "no retry inside 5 s"
+    );
+    assert_eq!(lib.status()["songs"]["failed"], true);
+    let job = lib.tick(Instant::now() + RETRY, true, || {}).remove(0);
+    (job.done)(Err(Error::SignInNeeded));
+    lib.receive(&ctx);
+    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+    assert!(lib.denied);
+    assert!(
+        lib.tick(Instant::now() + RETRY * 2, true, || {}).is_empty(),
+        "a 403 is not retried"
+    );
+    lib.tick(Instant::now(), false, || {});
+    assert!(!lib.denied, "signing out clears it");
+}
+
+#[test]
+fn opening_another_playlist_starts_its_tracks_afresh() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    frame(
+        &ctx,
+        &mut lib,
+        &Route::Playlist("p.A".into()),
+        600.0,
+        vec![],
+    );
+    answer(
+        &mut lib,
+        &ctx,
+        now,
+        page(
+            0..100,
+            Some("/v1/me/library/playlists/p.A/tracks?offset=100"),
+        ),
+    );
+    frame(
+        &ctx,
+        &mut lib,
+        &Route::Playlist("p.B".into()),
+        600.0,
+        vec![],
+    );
+    assert_eq!(lib.list(List::Tracks).items.len(), 0);
+    let sent = lib.tick(now, true, || {});
+    assert_eq!(
+        sent.iter().map(|j| &j.call).collect::<Vec<_>>(),
+        [&Call::PlaylistTracks("p.B".into())]
     );
 }
 
@@ -243,7 +428,7 @@ fn signed_out_sends_nothing_clears_the_library_and_drops_late_replies() {
 }
 
 #[test]
-fn library_names_never_reach_the_status_or_a_log_line() {
+fn library_status_and_source_carry_no_names_or_log_calls() {
     let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
     frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
     answer(&mut lib, &ctx, now, page(0..100, None));

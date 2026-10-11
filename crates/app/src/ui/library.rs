@@ -3,7 +3,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use bramley_api::{Call, Item, Job, Reply, Shelf};
+use bramley_api::{Call, Error, Item, Job, Reply, Shelf};
 use bramley_engine::Queue;
 use egui::{ColorImage, TextureHandle, WidgetType};
 use serde_json::{Value, json};
@@ -22,7 +22,8 @@ pub const MARGIN: usize = 20;
 pub const ART_CAP: usize = 96;
 pub const QUEUE_AHEAD: usize = 100;
 pub const DEADLINE: Duration = Duration::from_secs(15);
-const RETRY: Duration = Duration::from_secs(5);
+pub const RETRY: Duration = Duration::from_secs(5);
+pub const ART_RETRY: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum List {
@@ -77,6 +78,7 @@ pub struct Library {
     mail: Mailbox,
     pub art: Art,
     built: (usize, usize, usize),
+    pub denied: bool,
     #[cfg(feature = "dev")]
     pub scroll_end: Option<Instant>,
     #[cfg(feature = "dev")]
@@ -101,6 +103,7 @@ impl Library {
 
     pub fn reset(&mut self) {
         self.lists = Default::default();
+        self.denied = false;
         self.art.clear();
     }
 
@@ -111,13 +114,16 @@ impl Library {
         wake: impl Fn() + Clone + Send + 'static,
     ) -> Vec<Job> {
         if !signed_in {
-            if self
+            let used = self
                 .lists
                 .iter()
-                .any(|p| p.pages > 0 || p.busy_until.is_some())
-            {
+                .any(|p| p.pages > 0 || p.busy_until.is_some());
+            if used || self.denied {
                 self.reset();
             }
+            return Vec::new();
+        }
+        if self.denied {
             return Vec::new();
         }
         let mut jobs = Vec::new();
@@ -156,6 +162,9 @@ impl Library {
                     paged.total = page.total.or(paged.total);
                     paged.pages += 1;
                 }
+                Err(Error::SignInNeeded) => {
+                    (paged.busy_until, paged.failed, self.denied) = (None, true, true);
+                }
                 _ => {
                     (paged.busy_until, paged.failed) = (Some(Instant::now() + RETRY), true);
                     ctx.request_repaint_after(RETRY);
@@ -192,7 +201,8 @@ pub fn play(list: List, items: &[Item], index: usize) -> Option<Action> {
 }
 
 type Want = (String, String, u32);
-type Queued = Arc<(Mutex<Vec<Want>>, Condvar)>;
+type Queued = Arc<(Mutex<(Vec<Want>, HashSet<String>)>, Condvar)>;
+type Decoded = (String, Option<ColorImage>);
 
 #[derive(Default)]
 pub struct Art {
@@ -201,22 +211,33 @@ pub struct Art {
     frame: u64,
     wanted: Vec<Want>,
     recent: HashSet<String>,
-    queue: Option<(Queued, Receiver<(String, ColorImage)>)>,
+    failed: HashMap<String, Instant>,
+    drawn: usize,
+    shown: usize,
+    queue: Option<(Queued, Receiver<Decoded>)>,
     decoded: usize,
 }
 
 impl Art {
     fn clear(&mut self) {
-        (self.textures, self.wanted, self.recent) = Default::default();
+        (self.textures, self.wanted, self.recent, self.failed) = Default::default();
         if let Some((queued, _)) = &self.queue {
-            queued.0.lock().unwrap().clear();
+            queued.0.lock().unwrap().0.clear();
         }
     }
 
     fn get(&mut self, ctx: &egui::Context, item: &Item, pt: f32) -> Option<TextureHandle> {
+        self.drawn += 1;
         if let Some((texture, used)) = self.textures.get_mut(&item.id) {
             *used = self.frame;
             return Some(texture.clone());
+        }
+        if self
+            .failed
+            .get(&item.id)
+            .is_some_and(|until| Instant::now() < *until)
+        {
+            return None;
         }
         let px = covers::px(pt, ctx.pixels_per_point());
         let url = art_url(item.artwork.as_deref()?, px)?;
@@ -228,24 +249,35 @@ impl Art {
 
     pub fn flush(&mut self, ctx: &egui::Context) {
         self.frame += 1;
+        self.shown = std::mem::take(&mut self.drawn);
         self.recent = self.wanted.iter().map(|(key, ..)| key.clone()).collect();
         if self.wanted.is_empty() && self.queue.is_none() {
             return;
         }
         let (queued, _) = self.queue.get_or_insert_with(|| fetcher(ctx.clone()));
         let mut jobs = queued.0.lock().unwrap();
-        *jobs = std::mem::take(&mut self.wanted);
+        let (queue, busy) = &mut *jobs;
+        *queue = std::mem::take(&mut self.wanted);
+        queue.retain(|(key, ..)| !busy.contains(key));
         queued.1.notify_one();
     }
 
     fn receive(&mut self, ctx: &egui::Context) -> bool {
-        let Some((_, rx)) = &self.queue else {
+        let Some((queued, rx)) = &self.queue else {
             return false;
         };
         let decoded: Vec<_> = rx.try_iter().collect();
+        let mut jobs = queued.0.lock().unwrap();
+        jobs.1
+            .retain(|key| !decoded.iter().any(|(done, _)| done == key));
+        drop(jobs);
         let any = !decoded.is_empty();
         self.decoded += decoded.len();
         for (key, image) in decoded {
+            let Some(image) = image else {
+                self.failed.insert(key, Instant::now() + ART_RETRY);
+                continue;
+            };
             if self.recent.contains(&key) {
                 let texture = ctx.load_texture(format!("library-{key}"), image, Default::default());
                 self.insert(key, texture);
@@ -256,27 +288,34 @@ impl Art {
 
     pub fn insert(&mut self, key: String, texture: TextureHandle) {
         self.textures.insert(key, (texture, self.frame));
-        while self.textures.len() > ART_CAP {
+        let cap = ART_CAP.max(self.shown * 3 / 2);
+        while self.textures.len() > cap {
             let oldest = self.textures.iter().min_by_key(|(_, (_, used))| *used);
-            let oldest = oldest
-                .map(|(key, _)| key.clone())
-                .expect("a texture to evict");
+            let (oldest, used) = oldest
+                .map(|(key, (_, used))| (key.clone(), *used))
+                .expect("a texture");
+            if used + 1 >= self.frame {
+                break;
+            }
             self.textures.remove(&oldest);
         }
     }
 }
 
-fn fetcher(waker: egui::Context) -> (Queued, Receiver<(String, ColorImage)>) {
+fn fetcher(waker: egui::Context) -> (Queued, Receiver<Decoded>) {
     let (queued, (tx, rx)) = (Queued::default(), channel());
     let jobs = queued.clone();
     let fetch = move || {
         let (agent, tally) = (covers::agent(), Tally::default());
         loop {
-            let waiting = jobs.1.wait_while(jobs.0.lock().unwrap(), |q| q.is_empty());
-            let (key, url, px) = waiting.unwrap().pop().expect("a queued cover");
-            let Ok(image) = covers::cover(&agent, &url, px, &tally) else {
-                continue;
-            };
+            let mut waiting = jobs
+                .1
+                .wait_while(jobs.0.lock().unwrap(), |q| q.0.is_empty())
+                .unwrap();
+            let (key, url, px) = waiting.0.pop().expect("a queued cover");
+            waiting.1.insert(key.clone());
+            drop(waiting);
+            let image = covers::cover(&agent, &url, px, &tally).ok();
             if tx.send((key, image)).is_err() {
                 return;
             }

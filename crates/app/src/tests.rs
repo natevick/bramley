@@ -731,11 +731,12 @@ fn the_api_base_override_and_screenshots_are_refused_outside_dev() {
         "--theme",
         "--size",
         "--search",
+        "--scroll-end",
     ] {
         let args = [flag, "1"].map(String::from);
         assert!(crate::parse_args(args.into_iter()).is_err(), "{flag}");
     }
-    for flag in ["--queue-open", "--click-first-song"] {
+    for flag in ["--queue-open", "--click-first-song", "--click-last"] {
         assert!(
             crate::parse_args([flag.to_owned()].into_iter()).is_err(),
             "{flag}"
@@ -1934,6 +1935,87 @@ fn the_status_file_is_owner_only() {
     let mode = 0o600;
     std::fs::remove_dir_all(&dir).unwrap();
     assert_eq!(mode, 0o600);
+}
+
+fn signed_in_app(
+    dir: &std::path::Path,
+    ends: &Ends,
+) -> (
+    crate::app::App,
+    Sender<crate::cli::Envelope>,
+    Receiver<bramley_api::Job>,
+) {
+    let (inbox_tx, inbox) = channel();
+    let flags = [
+        "--status".to_owned(),
+        dir.join("status.json").display().to_string(),
+    ];
+    let args = crate::parse_args(flags.into_iter()).unwrap();
+    let spawned = ends.clone();
+    let spawn = spawning(move || live(&spawned));
+    let mut app = crate::app::App::new(
+        &egui::Context::default(),
+        args,
+        spawn,
+        (mock_user(dir), false),
+        (inbox, true),
+        None,
+    );
+    let (jobs, queued) = channel();
+    app.api = Some(jobs);
+    (app, inbox_tx, queued)
+}
+
+#[test]
+fn the_status_file_never_holds_the_title_or_artist_but_now_still_answers_with_them() {
+    let dir = token_dir("status-names");
+    let (ctx, ends) = (egui::Context::default(), Ends::default());
+    let (mut app, inbox, _jobs) = signed_in_app(&dir, &ends);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let play = crate::cli::Request::Do(Action::PlaySong("1".into()));
+    inbox.send((play, deadline, channel().0)).unwrap();
+    cover_meshes(&ctx, &mut app);
+    cover_meshes(&ctx, &mut app);
+    let mut playing = snap(PlayState::Playing, 3.0, 2, None);
+    (playing.title, playing.artist) = (Some("Secret Title".into()), Some("Secret Artist".into()));
+    ends.borrow()[0].1.send(playing).unwrap();
+    let (reply, answered) = channel();
+    inbox
+        .send((crate::cli::Request::Now, deadline, reply))
+        .unwrap();
+    cover_meshes(&ctx, &mut app);
+    let now: serde_json::Value = serde_json::from_str(&answered.try_recv().unwrap()).unwrap();
+    drop(app);
+    let written = std::fs::read_to_string(dir.join("status.json")).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        (now["title"].as_str(), now["artist"].as_str()),
+        (Some("Secret Title"), Some("Secret Artist"))
+    );
+    assert!(
+        written.contains("\"Playing\"") && !written.contains("Secret"),
+        "{written}"
+    );
+}
+
+#[test]
+fn a_library_403_shows_sign_in_needed_like_the_covers_do() {
+    let dir = token_dir("library-403");
+    let (ctx, ends) = (egui::Context::default(), Ends::default());
+    let (mut app, _inbox, jobs) = signed_in_app(&dir, &ends);
+    cover_meshes(&ctx, &mut app);
+    cover_meshes(&ctx, &mut app);
+    let job = jobs.try_recv().expect("the sidebar asks for playlists");
+    assert_eq!(
+        job.call,
+        bramley_api::Call::Library(bramley_api::Shelf::Playlists)
+    );
+    (job.done)(Err(bramley_api::Error::SignInNeeded));
+    cover_meshes(&ctx, &mut app);
+    cover_meshes(&ctx, &mut app);
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(app.status_json()["banner"], "SignInNeeded");
+    assert!(jobs.try_recv().is_err(), "a 403 is not retried");
 }
 
 fn searched(answer: bramley_api::Result<bramley_api::Reply>) -> String {

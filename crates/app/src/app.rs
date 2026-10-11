@@ -22,6 +22,7 @@ use crate::ui::search::Search;
 use crate::{signin, ui};
 
 const REPAINT_EVERY: Duration = Duration::from_secs(1);
+const MEMORY_ONLY: [&str; 2] = ["title", "artist"];
 const STILL_CLEARING: &str =
     "signed out here, but the stored sign-in is still being removed; run sign-out again to check";
 
@@ -233,7 +234,11 @@ impl App {
         let Some(tx) = self.status.as_ref().and_then(|w| w.tx.as_ref()) else {
             return;
         };
-        let _ = tx.send(self.status_json().to_string());
+        let mut status = self.status_json();
+        if let Some(fields) = status.as_object_mut() {
+            fields.retain(|key, _| !MEMORY_ONLY.contains(&key.as_str()));
+        }
+        let _ = tx.send(status.to_string());
         self.status_at = Some(Instant::now());
     }
 
@@ -452,7 +457,7 @@ impl App {
 
     pub fn tick(&mut self, ctx: &egui::Context) {
         let changed = self.pump(ctx);
-        if self.covers.rejected() {
+        if self.covers.rejected() || self.library.denied {
             self.playback.mark_signed_out();
         }
         self.covers.follow(ctx, covers_allowed(&self.playback));
