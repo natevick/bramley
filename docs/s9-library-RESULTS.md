@@ -89,6 +89,32 @@ Different sessions, so a 2–3 MiB gap is noise, not a saving. S9 costs nothing 
 
 **Harness.** `scripts/app/s9-session.py` (220 lines) counts against S13's 600-line harness cap.
 
+## After review (rebased onto S7 at d1ecdc0)
+
+The review asked for these fixes: names out of the status file (B1, Norm's call in compliance.md), art tests with real covers (B2), no eviction of on-screen covers (M3), a 60 s negative cache for failed covers (M4), tests for four surviving mutants (M5), a library 403 that shows sign-in needed, and the release-flag test. A loopback-art test showed every cover was being fetched twice, so in-flight dedup was added as well.
+
+**Mutation score: 30 of 30 killed.** That is 16 earlier mutants plus 14 new ones, and it was re-run on the rebased tree.
+
+**Live run live-7 (fd854b8): PASS on L1–L3. S1 FAILs, as required.**
+
+| Check | Result |
+|---|---|
+| L1 | 250 of 250 loaded; at most 15 rows built; 60 textures from 60 decodes (earlier runs decoded 97–101 for about 60 textures) |
+| L2 | The clicked track plays. `now` carries its title; the status file does not |
+| L3 | 4,481 of 4,481 loaded; at most 15 rows built; 96 textures; 687 decodes (1,128–1,211 before the fix) |
+| L3 PSS | 75.9 → 78.8, +2.9 MiB |
+| Readings | Home control 75.6; R1-library 173.2; R2-library 75.9 |
+| Leak grep (in session) | 38 hits, all common words; the planted-name check proved it can fail. The names list was deleted at the session's end, and a failed run (Apple HTTP 500, live-7 attempt 1) deleted it too |
+
+**Gate `s9-4` (fd854b8, clean): PASS in zone 3.**
+- R1: 174.0 PSS / 147.1 USS / 206.6 RSS.
+- R2: 75.5 / 48.6 / 108.1.
+- Reference: 89.7 / 89.8. Ballast control holds: 68 MiB, rise 69.0.
+- Against main's S7 gate `s7-4` (172.4 / 74.7, another session), the gap is +1.6 and +0.8 MiB, inside session noise.
+- The shipped guard exits 0.
+
+**Lines this round:** source +67/−23, tests +286/−14 (budget about 150), harness +82/−54.
+
 ## Not established
 
 - **Memory beyond about 45k songs (estimate only).** Scrolling 4,481 songs added at most +2.6 MiB, about 0.6 KiB a song; that is an upper bound, since glyph-atlas growth is in it too. At that rate, about 45–50k songs scrolled to the end would use up R2's ~26 MiB of headroom. Apple allows 100k. Not measured beyond 4.5k. Follow-up: a slimmer row model or windowed pages.
