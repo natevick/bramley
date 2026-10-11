@@ -70,6 +70,19 @@ Nate delegated the definition of "done" to Norm on 2026-10-10. Bramley v1 on Lin
 - **No null sink or no PipeWire stream:** F4 is VOID, not PASS, but only once playback has started (position advancing). If playback never started, F4 is FAIL. Clarified 2026-10-10: S2a found the two rules collided, so a signed-out run came out VOID.
 - **A missing artifact counts as a FAIL:** any check with no evidence file counts as FAIL, so a harness that ran nothing cannot pass.
 
+## Amendments to the functional checks
+
+- **F6 (2026-10-11, approved by Nate).**
+  - **Why:** MusicKit moves to the next album track either through an end of stream with a drain, or gaplessly, by appending to the same SourceBuffer, where no drain ever happens (`docs/s8-detail-RESULTS.md`).
+  - **Wording:** "no cut tail: drain acknowledged (end of stream) or continuous gapless output".
+  - **Measured per transition, from the applied seek to the id flip:**
+    - **(a)** `drainsAcked` up by at least 1 and `drainTimeouts` unchanged; **or**
+    - **(b)** all three of:
+      - media time sent to the output ≥ `(duration − seek target) − 3 s`;
+      - media time skipped (sent-timeline gaps plus queued audio discarded) ≤ 0.1 s;
+      - no position stall longer than 1 s within 5 s of the flip.
+  - A sabotage that sends `next` 3 s before the end must FAIL it.
+
 ## Out of scope for v1
 
 Windows, macOS, music videos, lyrics, the EQ (pending Nate's compliance call), offline mode, and a disk artwork cache (Nate: memory only).

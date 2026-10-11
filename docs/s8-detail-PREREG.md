@@ -104,3 +104,25 @@ F6-literal is unchanged and still reported. F6-S must still FAIL. In live-2, F6-
 ## Amendment 3 (2026-10-11, after live-3, procedure only)
 
 In live-3, F6-S's first seek went out about 1 s after playback started. It was acknowledged, but the position never moved, so that run failed for a reason unrelated to the sabotage. From now on the harness seeks only once the item's position is more than 2 s past its timeline start. No bar changes.
+
+## Amendment 4 (2026-10-11, after the S8 review and Nate's F6 ruling, before live-6)
+
+**Withdrawn.** The F6-gapless PASS from live-3 and live-5 is withdrawn.
+- Its sabotage sent `next` at `duration − 4 s`, not the registered 3 s.
+- At 3 s the cut would have fallen inside the 3 s tail bar.
+- The continuity rule compared only the pair of samples at the flip. That pair can straddle a reset, so it missed the cut.
+
+**F6 (acceptance.md as amended 2026-10-11, approved by Nate).** A transition PASSes when the seek landed within 1 s of `start + duration − 20`, and **either**:
+- **(a)** the drain was acknowledged: `drainsAcked` up by at least 1 and `drainTimeouts` unchanged, measured from the seek being applied to the id flip; **or**
+- **(b)** continuous gapless output, all three of:
+  - media time sent to the output from the applied seek to the flip ≥ `(duration − target) − 3 s` (engine `sentMs`);
+  - media time skipped ≤ 0.1 s (engine `skippedMs`: gaps in the sent timeline plus queued audio discarded by a flush or detach);
+  - no position stall longer than 1 s in the 5 s window either side of the flip.
+
+**F6-S** sends `next` at the registered 3 s before the end, on transition 3, and must FAIL.
+
+**L5 (review #5).** A catalog playlist longer than 100 tracks, row 105 clicked: `pl.f68f…`, 111 tracks, the longest of 12 searched. Row 150 was asked for, but no catalog playlist found had that many. Live probe at 1921d0e's mapping (`startWith` 104): **row 1 played**. The mapping now queues a window: the clicked song plus up to 99 playable songs after it. L5 PASSes when row 105 plays with the position advancing and the null sink only.
+
+**Report only (review #6).** Two click sequences, 12 s apart: "Shuffle, then track 3", and "track 5, then Shuffle". The rows played are recorded.
+
+**Names (review #2).** The names file is created 0600 and removed in a `finally`. The leak grep runs inside the session and records only counts, plus whether a planted name raises the count.
