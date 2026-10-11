@@ -173,6 +173,10 @@ pub fn clicked(item: &Item, actions: &mut Vec<Action>, navs: &mut Vec<Nav>) {
     }
 }
 
+pub(super) fn art_key(item: &Item) -> String {
+    format!("{:?}/{}", item.kind, item.id)
+}
+
 pub struct Art {
     prefix: Option<String>,
     current: Arc<AtomicU64>,
@@ -221,11 +225,12 @@ impl Art {
             .artwork
             .as_deref()
             .filter(|_| item.kind != Kind::Artists);
-        let fresh = !self.textures.contains_key(&item.id);
+        let key = art_key(item);
+        let fresh = !self.textures.contains_key(&key);
         let Some(template) = template.filter(|_| fresh) else {
             return;
         };
-        self.textures.insert(item.id.clone(), None);
+        self.textures.insert(key.clone(), None);
         let px = covers::px(ART_PT, ctx.pixels_per_point());
         let url = art_url(template, px).filter(|url| allowed_art(url, self.prefix.as_deref()));
         if self.jobs.is_none() {
@@ -233,7 +238,7 @@ impl Art {
             self.jobs = fetcher(current, done, ctx.clone());
         }
         if let (Some(jobs), Some(url)) = (&self.jobs, url) {
-            let _ = jobs.send((self.set(), item.id.clone(), url, px));
+            let _ = jobs.send((self.set(), key, url, px));
         }
     }
 }
@@ -323,7 +328,7 @@ fn row(ui: &mut egui::Ui, item: &Item, art: &mut Art, emit: (&mut Vec<Action>, &
         _ => text.clone(),
     };
     let size = egui::vec2(ART_PT, ART_PT);
-    let image = match art.textures.get(&item.id) {
+    let image = match art.textures.get(&art_key(item)) {
         Some(Some(texture)) => egui::Image::new(texture),
         _ => egui::Image::new((egui::TextureId::default(), size)).tint(Color32::TRANSPARENT),
     };

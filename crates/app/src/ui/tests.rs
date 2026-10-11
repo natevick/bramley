@@ -235,7 +235,7 @@ mod search {
     use serde_json::json;
 
     use super::super::nav::{Nav, Route, Shell};
-    use super::super::search::{Search, State, cause, clicked, sections, show};
+    use super::super::search::{Search, State, art_key, cause, clicked, sections, show};
     use crate::playback::Action;
 
     const LOCAL: &str = "http://127.0.0.1:9";
@@ -365,12 +365,16 @@ mod search {
         draw(&ctx, &mut search);
         let (art, set) = (search.art.tx.clone(), search.art.set());
         let image = || ColorImage::filled([2, 2], Color32::RED);
-        art.send((set, "1".into(), image())).unwrap();
+        art.send((set, "Songs/1".into(), image())).unwrap();
         search.receive(&ctx);
         draw(&ctx, &mut search);
         assert_eq!(search.status()["art"], 1);
+        assert_ne!(
+            art_key(&item("1", "albums")),
+            art_key(&item("1", "artists"))
+        );
         let next = ask(&mut search, "b", Instant::now());
-        art.send((set, "1".into(), image())).unwrap();
+        art.send((set, "Songs/1".into(), image())).unwrap();
         (next.done)(Ok(Reply::Search(found(&["1"]))));
         search.receive(&ctx);
         assert_eq!(search.status()["art"], 0);
