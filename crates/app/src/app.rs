@@ -143,7 +143,7 @@ impl App {
             (shell.route, shell.queue_open) = (args.route.unwrap_or_default(), args.queue_open);
             if let Some(term) = &args.search {
                 shell.query.clone_from(term);
-                search.enter(term, Instant::now());
+                search.typed_once_signed_in = Some(term.clone());
             }
             search.click_first_song = args.click_first_song;
         }

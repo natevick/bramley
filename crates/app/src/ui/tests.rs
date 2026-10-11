@@ -493,6 +493,18 @@ mod search {
         assert_eq!(fetched.len(), 2, "{fetched:?}");
     }
 
+    #[cfg(feature = "dev")]
+    #[test]
+    fn the_dev_search_hook_waits_for_sign_in() {
+        let (mut search, t0) = (Search::new(None), Instant::now());
+        search.typed_once_signed_in = Some("queen".into());
+        assert!(search.tick(t0, false, || {}).is_none());
+        let job = search
+            .tick(ms(t0, 1), true, || {})
+            .expect("a search once signed in");
+        assert_eq!(job.call, Call::Search("queen".into()));
+    }
+
     #[test]
     fn signed_out_never_searches_and_clears_what_was_shown() {
         let ctx = egui::Context::default();

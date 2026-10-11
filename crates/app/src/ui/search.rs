@@ -42,6 +42,8 @@ pub struct Search {
     pub(super) art: Art,
     #[cfg(feature = "dev")]
     pub click_first_song: bool,
+    #[cfg(feature = "dev")]
+    pub typed_once_signed_in: Option<String>,
 }
 
 impl Search {
@@ -58,6 +60,8 @@ impl Search {
             art: Art::new(art_prefix),
             #[cfg(feature = "dev")]
             click_first_song: false,
+            #[cfg(feature = "dev")]
+            typed_once_signed_in: None,
         }
     }
 
@@ -86,6 +90,10 @@ impl Search {
                 self.replace(State::Idle);
             }
             return None;
+        }
+        #[cfg(feature = "dev")]
+        if let Some(term) = self.typed_once_signed_in.take() {
+            self.enter(&term, now);
         }
         if matches!(self.state, State::Loading(deadline) if now > deadline) {
             self.replace(State::Failed(
