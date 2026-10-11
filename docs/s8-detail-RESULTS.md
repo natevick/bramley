@@ -45,7 +45,7 @@ Drain counts now reach the status file from the shipped engine (`drainsAcked`, `
 
 ## Tests
 
-8 new app tests and 2 new engine tests, plus extensions to 2 engine tests. Each was killed by a recorded mutation; fail-before/pass-after:
+8 new app tests and 2 new engine tests, plus extensions to 2 engine tests. Each was killed by a recorded mutation, fail-before/pass-after. M3–M12 were re-run at HEAD after the rebase (a5966c8), and all 11 were killed:
 
 | Mutation | Test that failed |
 |---|---|
@@ -70,7 +70,8 @@ Drain counts now reach the status file from the shipped engine (`drainsAcked`, `
   - Reference: 88.4 / 88.7.
   - Ballast control holds: 71 MiB, rise 73.2.
   - The shipped guard exits 0, and the ballast build's exits 1.
-- **Delta vs main** (S9's s9-4, fd854b8: R1 174.0, R2 75.5, reference 89.7 / 89.8), taken on the lead over the reference: R1 **−1.2**, R2 **0.0** MiB. That is session noise. The gate's Home scenario adds only 50 album-id strings.
+- `s8-2` is the single counted run with a working reference. The stopping rule had not anticipated a missing reference.
+- **Delta vs main** (S9's s9-4, fd854b8, whose `crates` and `scripts` are identical to main: R1 174.0, R2 75.5, reference 89.7 / 89.8), taken on the lead over the reference: R1 **−1.2**, R2 **0.0** MiB. That is session noise. The gate's Home scenario adds only 50 album-id strings.
 
 ## Screenshots
 
@@ -80,7 +81,7 @@ Drain counts now reach the status file from the shipped engine (`drainsAcked`, `
 ## Names and leaks
 
 - Status files never hold title or artist. Verdict files hold ids, indices and counts.
-- The 263 names seen through the shipped CLI went to the gitignored `target/tmp/s8/names.txt`. They were grepped against the branch diff, the commit messages, the docs and every live app log. The only hits are the two search terms the harness uses: "bohemian rhapsody", a public search term already used by S7, and "queen essentials", which is also the name of Apple's editorial playlist.
+- The 263 names seen through the shipped CLI (search results and played tracks) went to the gitignored `target/tmp/s8/names.txt`, which was deleted after the grep. Library playlist names (in the sidebar since the rebase) and chart album titles were not in the list, so the grep could not have caught them. They were grepped against the branch diff, the commit messages, the docs and every live app log. The only hits are the two search terms the harness uses: "bohemian rhapsody", a public search term already used by S7, and "queen essentials", which is also the name of Apple's editorial playlist.
 - Planting one listed name raised the count from 12 to 13, so the grep can fail.
 - The token grep found nothing.
 
@@ -95,6 +96,7 @@ Drain counts now reach the status file from the shipped engine (`drainsAcked`, `
 
 ## Not established
 
+- 1921d0e (rows aligned left) landed after live-5. Only the screenshots and gate s8-2 cover it.
 - F6 as written in acceptance.md (Nate's call, above).
 - Shuffle's queue order beyond the 4 songs observed per run. No sabotage control for it.
 - Catalog playlists over 100 tracks: the paging path is unit-tested only. The L3 playlist had 25.
