@@ -89,13 +89,16 @@ fn songs_page_in_as_the_list_nears_its_end_and_250_items_give_250_rows() {
         lib.tick(now, true, || {}).is_empty(),
         "a page in flight is not asked for twice"
     );
-    drop(sent);
     lib.lists[List::Songs as usize].wanted = true;
-    answer(
-        &mut lib,
-        &ctx,
-        now + DEADLINE,
-        page(100..200, Some("/v1/me/library/songs?offset=200")),
+    let second = || page(100..200, Some("/v1/me/library/songs?offset=200"));
+    answer(&mut lib, &ctx, now + DEADLINE, second());
+    let timed_out = sent.into_iter().next().unwrap();
+    (timed_out.done)(Ok(second()));
+    lib.receive(&ctx);
+    assert_eq!(
+        lib.list(List::Songs).items.len(),
+        200,
+        "a timed-out reply that arrives late is dropped"
     );
     frame(&ctx, &mut lib, &Route::Songs, 12000.0, vec![]);
     answer(&mut lib, &ctx, now, page(200..250, None));

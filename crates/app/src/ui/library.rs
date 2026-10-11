@@ -39,6 +39,7 @@ pub struct Paged {
     total: Option<u32>,
     pages: usize,
     busy_until: Option<Instant>,
+    asked: u64,
     wanted: bool,
     failed: bool,
 }
@@ -57,7 +58,7 @@ impl Paged {
     }
 }
 
-type Found = (u64, List, String, bramley_api::Result<Reply>);
+type Found = (u64, List, bramley_api::Result<Reply>);
 
 struct Mailbox(Sender<Found>, Receiver<Found>);
 
@@ -72,7 +73,7 @@ impl Default for Mailbox {
 pub struct Library {
     lists: [Paged; 4],
     playlist: String,
-    generation: u64,
+    sent: u64,
     mail: Mailbox,
     pub art: Art,
     built: (usize, usize, usize),
@@ -99,7 +100,6 @@ impl Library {
     }
 
     pub fn reset(&mut self) {
-        self.generation += 1;
         self.lists = Default::default();
         self.art.clear();
     }
@@ -127,11 +127,12 @@ impl Library {
             let Some(call) = paged.call(list, &self.playlist).filter(|_| idle) else {
                 continue;
             };
-            (paged.wanted, paged.busy_until) = (false, Some(now + DEADLINE));
-            let (tx, wake) = (self.mail.0.clone(), wake.clone());
-            let (generation, playlist) = (self.generation, self.playlist.clone());
+            self.sent += 1;
+            (paged.wanted, paged.busy_until, paged.asked) =
+                (false, Some(now + DEADLINE), self.sent);
+            let (tx, wake, asked) = (self.mail.0.clone(), wake.clone(), self.sent);
             jobs.push(Job::new(call, now + DEADLINE, move |found| {
-                let _ = tx.send((generation, list, playlist, found));
+                let _ = tx.send((asked, list, found));
                 wake();
             }));
         }
@@ -140,13 +141,13 @@ impl Library {
 
     pub fn receive(&mut self, ctx: &egui::Context) -> bool {
         let mut any = false;
-        while let Ok((generation, list, playlist, found)) = self.mail.1.try_recv() {
+        while let Ok((asked, list, found)) = self.mail.1.try_recv() {
             any = true;
-            let stale = list == List::Tracks && playlist != self.playlist;
-            if generation != self.generation || stale {
+            let paged = &mut self.lists[list as usize];
+            if paged.asked != asked {
                 continue;
             }
-            let paged = &mut self.lists[list as usize];
+            paged.asked = 0;
             match found {
                 Ok(Reply::Page(mut page)) => {
                     paged.items.append(&mut page.items);
