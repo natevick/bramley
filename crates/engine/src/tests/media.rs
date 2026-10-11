@@ -505,6 +505,10 @@ fn media_time_that_never_reaches_the_output_is_counted_as_skipped() {
     r.m.seek(0);
     let flushed = r.m.counters.skipped_us;
     assert!(flushed > 0 && flushed <= 1_600_000, "{flushed}");
+    r.play_for(3.0);
+    r.m.detach();
+    let detached = r.m.counters.skipped_us - flushed;
+    assert!(detached > 0 && detached <= 1_600_000, "{detached}");
 }
 
 type Sinks = Rc<std::cell::RefCell<Vec<FakeSink>>>;

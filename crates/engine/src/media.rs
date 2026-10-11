@@ -201,6 +201,7 @@ impl MediaEngine {
     }
 
     pub fn detach(&mut self) {
+        self.discard_output();
         self.events.clear();
         self.ms_id = None;
         self.ready_state = HAVE_NOTHING;
@@ -210,7 +211,6 @@ impl MediaEngine {
         }
         self.ended = false;
         self.seeking = false;
-        self.discard_output();
         self.anchor(0, false);
         self.decoder = None;
     }
