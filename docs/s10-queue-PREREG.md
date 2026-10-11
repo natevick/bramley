@@ -77,3 +77,7 @@ live-1 FAILed F8 and could not score T. A timeline of each (`now` polled every s
   - F8, J, T and T-S are run twice: on this branch's dev build, and on the same build with `6b7b59d` cherry-picked (throwaway worktree, never committed here).
   - Both results are reported, and the cherry-picked one is labelled.
   - The bars are unchanged.
+
+## Amendment 2 (after live-2; no bar changed)
+
+At position 90, a 98-item window has 7 items ahead, so the top-up fires at once and lands before the harness's next poll. live-2 therefore read W as 197. W is now the smallest `queueLength` seen between the click and position 90. In T-S it stays the length at position 90 minus one; T-S never tops up, and its live-2 length held at 99. live-2's other readings stand: F8 PASS and J PASS on the `6b7b59d` build. The top-up landed: the queue grew 98 → 197, songs pages 1 → 2.

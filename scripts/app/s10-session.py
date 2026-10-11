@@ -117,8 +117,9 @@ def live_runs(a, out, sink, env, found, names):
         n = until(lambda n: n.get('itemId') in found['song0'] or (n.get('queuePosition') or 0) > 0, 60, 'the clicked song')
         res['clickedPlays'] = n.get('itemId') in found['song0']
         res['pssWindow'] = round(statistics.median(s9.pss(p, 10)), 1)
-        n = until(lambda n: n.get('queuePosition') == JUMP, 90, f'position {JUMP}')
-        window = res['window'] = n.get('queueLength') - (1 if sabotage else 0)
+        lengths = []
+        n = until(lambda n: lengths.append(n.get('queueLength') or 0) or n.get('queuePosition') == JUMP, 90, f'position {JUMP}')
+        window = res['window'] = n.get('queueLength') - 1 if sabotage else min(lengths)
         try:
             until(lambda n: (n.get('queueLength') or 0) >= window + 90, 60, 'the top-up')
             res['pssTopped'] = round(statistics.median(s9.pss(p, 10)), 1)
@@ -137,6 +138,7 @@ def live_runs(a, out, sink, env, found, names):
         res['atWindowEnd'] = n.get('queuePosition') == window
         res['nextIsSong100'] = playing(n, found['song100'])
         res['nextIsX'] = n.get('itemId') == x
+        res['finalPosition'] = n.get('queuePosition')
         res['pages'] = snap().get('library', {}).get('songs', {}).get('pages')
         res['T'] = found['songs'] > 100 and res['clickedPlays'] and window > JUMP and (res['toppedTo'] or 0) >= window + 90 and res['atWindowEnd'] and res['nextIsSong100'] and (res['pages'] or 0) >= 2
         clean('topup-sabotage' if sabotage else 'topup', res)
