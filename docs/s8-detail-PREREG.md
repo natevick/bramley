@@ -59,3 +59,28 @@ The status file never holds titles or artist names (the `title`/`artist` keys ar
 - An `itemId` equal to the clicked id can also mean a one-song queue. L2's auto-advance is what proves the rest of the container was queued.
 - A drain acknowledgement can come from a sample-rate change mid-stream, not only from the end of a track. The bar therefore also requires the old track's last position to reach duration − 3 s.
 - `drainsAcked` only grows. If it is read from one media element and MusicKit swaps elements, acknowledgements are lost. The engine sums all live elements plus those already destroyed, and a unit test covers the destroyed case.
+
+## Amendment 1 (2026-10-11, after live-1 and before any further counted run)
+
+**What live-1 found.**
+- L1 passed. L2's AC passed: track 3 played 1.05 s after the detail loaded. L3 never clicked, because "bohemian rhapsody" returns no catalog playlists.
+- Every F6 transition froze about 1.5 s before the track's end. Diagnosis traced it to an engine bug: a last AAC frame shorter than 2 ms was decoded forever. That is fixed in 1ea15e9, with a regression test.
+- With the fix in, the album played through the boundary into the next track. It did so **gaplessly**:
+  - MusicKit appends the next track to the same SourceBuffer and never calls `endOfStream`;
+  - the native position runs on past the old track's end;
+  - no drain happens at the boundary (`drainsAcked` stayed 0).
+- acceptance.md's F6 ("each track's drain is acknowledged before the next starts") therefore cannot pass as written. It assumed an end of stream per track. Changing F6 is Nate's call, so it is not changed here.
+
+**F6-literal (unchanged, reported).** Per transition: `drainsAcked` up by at least one and `drainTimeouts` unchanged, at the first status showing the next id. Expected to FAIL under gapless playback. It is reported with the evidence.
+
+**F6-gapless (post-registration, labelled as such).** It checks the intent behind F6, no cut tail, under gapless playback. Positions: `position` is native timeline time, while `duration` and `bramley seek` are item-relative. Each item's timeline start is the native position first seen on that item; the first track, started by `setQueue`, starts at 0. A transition PASSes when:
+- the seek landed within 1 s of `start + duration − 20`, so the last 20 s were actually played;
+- the old item's last position, item-relative, reached `duration − 3`;
+- across the id flip, the native position never moved backwards, and never jumped forward by more than the wall time between the two samples + 0.3 s;
+- the guard saw the null sink only.
+
+F6-S must FAIL F6-gapless.
+
+**Blind spot.** A flush that drops only the sink's ~200 ms server buffer at the boundary sits near the 0.3 s allowance and the 250 ms sampling. F6-gapless cannot see it.
+
+**L3 term.** `"queen essentials"` replaces "bohemian rhapsody". The shipped `bramley search` returned 10 catalog playlists for it before this amendment. If the results hold no playlist, the harness reports that separately from a failed click.
