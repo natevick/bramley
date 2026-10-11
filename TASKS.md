@@ -31,7 +31,7 @@
   - S6 DONE and merged (b16bd6a). Norm's gate run: PASS (R1 171.3, R2 74.0, zone 3). 3 synthetic PNGs (155 KB) are committed.
   - S12 DONE and merged. Norm re-ran it after the rebase: 200 tests, gate PASS (R1 171.8, R2 74.2), live MCP PASS. The in-app agent notice is in (dismissal writes the marker). F9 gate wiring goes to S13.
   - S7 DONE and merged (11f6300). Norm verified: 215 tests, gate PASS (R1 172.1, R2 74.6), live F3 PASS (median 444 ms, click plays; sabotage gives a Network error). Open: F3 via the CLI doesn't fill the Search view (S13).
-  - S9 library: review fixes in progress (status-file names, art thrash, failed-cover loop, 403 loop). Then rebase onto S7, gate, merge.
+  - S9 DONE and merged. Norm's gate run: PASS (R1 173.1 PSS / 146.1 USS, R2 75.2), 230 tests. The status file now never carries titles. Headroom on R1 PSS is ~27 MiB.
   - [ ] Next: S8 album/playlist detail (playable Home covers), S10 queue, S13 full harness (F1–F10, R3–R6, plus 6 surviving gate mutants and ballast tolerance noise).
   - [ ] Then: S7 search UI, S8 album/playlist detail, S9 library, S10 queue, S13 full harness (F1–F10, R3–R6), then two consecutive full acceptance PASSes = v1 done.
   - Merge gate for each: Norm re-runs the measurements (S1: measure-musickit.sh ≤ 112 plus sabotages; S0: the positive control), then reviewer, then fast-forward.
