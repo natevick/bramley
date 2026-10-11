@@ -32,8 +32,8 @@
   - S12 DONE and merged. Norm re-ran it after the rebase: 200 tests, gate PASS (R1 171.8, R2 74.2), live MCP PASS. The in-app agent notice is in (dismissal writes the marker). F9 gate wiring goes to S13.
   - S7 DONE and merged (11f6300). Norm verified: 215 tests, gate PASS (R1 172.1, R2 74.6), live F3 PASS (median 444 ms, click plays; sabotage gives a Network error). Open: F3 via the CLI doesn't fill the Search view (S13).
   - S9 DONE and merged. Norm's gate run: PASS (R1 173.1 PSS / 146.1 USS, R2 75.2), 230 tests. The status file now never carries titles. Headroom on R1 PSS is ~27 MiB.
-  - S8: review fixes in flight. Nate APPROVED the F6 rewording 2026-10-11 (drain OR gapless), conditional on making the gapless half measurable (engine skipped-time counter plus per-transition samples). Engine short-frame hang fix 6b7b59d is being split onto natevick/engine-short-frame to merge FIRST.
-  - S10 queue RUNNING (natevick/s10-queue).
+  - S8: review fixes in flight. Nate APPROVED the F6 rewording 2026-10-11 (drain OR gapless), conditional on making the gapless half measurable (engine skipped-time counter plus per-transition samples). Engine short-frame fix MERGED (750bfc2); Norm proved reverting it turns 2 tests red. S8 is now rebasing for step 2.
+  - S10 queue BUILT: F8 PASS, gate PASS (R1 173.2). Reviewer running; rebasing onto the engine fix to re-run the top-up without the cherry-pick.
   - [ ] Next: S13 full harness (F1–F10, R3–R6, the 6 surviving gate mutants, ballast tolerance noise, F3 via the CLI into the UI, F9 wiring), then two consecutive full PASSes = v1 done.
   - [ ] Then: S7 search UI, S8 album/playlist detail, S9 library, S10 queue, S13 full harness (F1–F10, R3–R6), then two consecutive full acceptance PASSes = v1 done.
   - Merge gate for each: Norm re-runs the measurements (S1: measure-musickit.sh ≤ 112 plus sabotages; S0: the positive control), then reviewer, then fast-forward.
