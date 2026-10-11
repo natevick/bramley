@@ -1,0 +1,3 @@
+{"meta": {"total": 3},
+ "data": [{"id": "p.CCCCCCCCCCCCCCC", "type": "library-playlists", "attributes": {"name": "Playlist C"}},
+  {"id": "i.DDDDDDDDDDDDDDD", "type": "library-music-videos", "attributes": {"name": "Video D"}}]}

@@ -1,0 +1,15 @@
+[package]
+name = "bramley-api"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+bramley-engine = { path = "../engine" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "3"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(bramley_tokens)"] }

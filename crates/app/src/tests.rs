@@ -436,15 +436,13 @@ fn cli_arguments_parse_into_requests_and_bad_ones_are_usage_errors() {
 
 #[test]
 fn cli_exit_codes_without_a_running_app() {
-    use crate::cli::{NOT_RUNNING, UNAVAILABLE, USAGE};
+    use crate::cli::{NOT_RUNNING, USAGE};
     let slot = slot("none");
     let (code, _, err) = run(&slot, "now");
     assert_eq!(code, NOT_RUNNING);
     assert!(err.contains("not running"), "{err}");
     assert_eq!(run(&slot, "volume 500").0, USAGE);
-    let (code, _, err) = run(&slot, "search bohemian rhapsody");
-    assert_eq!(code, UNAVAILABLE);
-    assert!(err.contains("not yet available"), "{err}");
+    assert_eq!(run(&slot, "search bohemian rhapsody").0, NOT_RUNNING);
 }
 
 #[test]
@@ -1200,4 +1198,45 @@ fn main_installs_a_logger_that_withholds_ureq_wire_dumps() {
         .collect();
     assert!(text.contains("<HTTP bytes withheld"), "{text}");
     assert!(!text.contains(secret) && !String::from_utf8_lossy(&bytes).contains(secret));
+}
+
+fn searched(answer: bramley_api::Result<bramley_api::Reply>) -> String {
+    let (inbox_tx, inbox) = channel();
+    let ctx = egui::Context::default();
+    let spawn = spawning(|| Err(anyhow!("no player in this test")));
+    let args = crate::Args::default();
+    let mut app = crate::app::App::new(&ctx, args, spawn, false, (inbox, true), None);
+    let (jobs, queued) = channel();
+    app.api = Some(jobs);
+    let (reply, answered) = channel();
+    let search = crate::cli::Request::Search("bohemian rhapsody".into());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    inbox_tx.send((search, deadline, reply)).unwrap();
+    app.pump(&ctx);
+    let job: bramley_api::Job = queued.try_recv().unwrap();
+    let asked = bramley_api::Call::Search("bohemian rhapsody".into());
+    assert_eq!(job.call, asked);
+    assert!(
+        answered.try_recv().is_err(),
+        "the UI answered before the worker"
+    );
+    (job.done)(answer);
+    answered.recv_timeout(Duration::from_secs(1)).unwrap()
+}
+
+#[test]
+fn cli_search_is_handed_to_the_api_worker_and_its_results_relayed() {
+    let songs = json!({"songs": {"data": [{"id": "6781024437", "type": "songs"}]}});
+    let results = serde_json::from_value(songs).unwrap();
+    let reply = searched(Ok(bramley_api::Reply::Search(results)));
+    let parsed: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    assert_eq!(parsed["results"]["songs"]["items"][0]["id"], "6781024437");
+    assert_eq!(crate::cli::outcome(&reply), Ok(()));
+}
+
+#[test]
+fn a_rejected_developer_token_fails_cli_search() {
+    let reply = searched(Err(bramley_api::Error::DeveloperToken));
+    let why = covers::DEVELOPER_REJECTED.to_owned();
+    assert_eq!(crate::cli::outcome(&reply), Err((1, why)));
 }

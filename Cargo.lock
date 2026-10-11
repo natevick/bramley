@@ -520,6 +520,7 @@ name = "bramley"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bramley-api",
  "bramley-engine",
  "eframe",
  "egui",
@@ -530,6 +531,16 @@ dependencies = [
  "image",
  "log",
  "png",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
+name = "bramley-api"
+version = "0.1.0"
+dependencies = [
+ "bramley-engine",
+ "serde",
  "serde_json",
  "ureq",
 ]

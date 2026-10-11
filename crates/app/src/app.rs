@@ -59,6 +59,7 @@ struct Shot {
 }
 
 pub struct App {
+    pub(crate) api: Option<Sender<bramley_api::Job>>,
     playback: Playback,
     covers: Grid,
     actions: Vec<Action>,
@@ -94,6 +95,7 @@ impl App {
         #[cfg(not(feature = "dev"))]
         let actions = Vec::new();
         App {
+            api: None,
             playback: Playback::new(spawn, signed_out),
             covers: Grid::new(source),
             actions,
@@ -157,6 +159,24 @@ impl App {
         let mut any = false;
         while let Ok((request, deadline, reply)) = self.inbox.try_recv() {
             any = true;
+            if let Request::Search(term) = &request
+                && Instant::now() <= deadline
+            {
+                let api = self
+                    .api
+                    .get_or_insert_with(|| bramley_api::worker(crate::api_client()));
+                let job =
+                    bramley_api::Job::new(bramley_api::Call::Search(term.clone()), move |found| {
+                        let _ = reply.send(cli::search_reply(found));
+                    });
+                if let Err(unsent) = api.send(job) {
+                    self.api = None;
+                    (unsent.0.done)(Err(bramley_api::Error::Network(
+                        "the API worker stopped".into(),
+                    )));
+                }
+                continue;
+            }
             let show = request == Request::Show;
             let outcome = cli::command(&mut self.playback, request, deadline);
             if show && outcome.is_none() {

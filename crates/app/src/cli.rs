@@ -12,7 +12,6 @@ use crate::playback::{Action, Banner, Playback, play_or_pause};
 pub const APP_ID: &str = "bramley";
 pub const USAGE: i32 = 2;
 pub const NOT_RUNNING: i32 = 3;
-pub const UNAVAILABLE: i32 = 4;
 pub const REFUSED: i32 = 5;
 const APPLY_TIME: Duration = Duration::from_secs(3);
 const REPLY_MARGIN: Duration = Duration::from_secs(1);
@@ -99,6 +98,7 @@ pub fn outcome(reply: &str) -> Result<(), (i32, String)> {
     match (text("error"), text("refused"), reply["seq"].as_u64()) {
         (Some(why), _, _) => Err((1, why)),
         (None, Some(why), _) => Err((REFUSED, why)),
+        (None, None, _) if reply["results"].is_object() => Ok(()),
         (None, None, None) => Err((1, "the running Bramley sent an unreadable reply".into())),
         (None, None, Some(_)) => Ok(()),
     }
@@ -109,12 +109,8 @@ pub fn client(slot: &Slot, args: &[String], out: &mut impl Write, err: &mut impl
         let _ = writeln!(err, "bramley: {message}");
         code
     };
-    match parse(args) {
-        Err(e) => return fail(USAGE, &format!("{e}")),
-        Ok(Request::Search(_)) => {
-            return fail(UNAVAILABLE, "search is not yet available in this build");
-        }
-        Ok(_) => {}
+    if let Err(e) = parse(args) {
+        return fail(USAGE, &format!("{e}"));
     }
     match slot.send(&wire(args)) {
         Ok(reply) => {
@@ -136,6 +132,16 @@ pub fn client(slot: &Slot, args: &[String], out: &mut impl Write, err: &mut impl
             &format!("the running Bramley did not take the command: {e}"),
         ),
     }
+}
+
+pub fn search_reply(found: bramley_api::Result<bramley_api::Reply>) -> String {
+    match found {
+        Ok(bramley_api::Reply::Search(results)) => json!({ "results": results }),
+        Ok(_) => json!({ "error": "the API worker answered a different call" }),
+        Err(bramley_api::Error::SignInNeeded) => json!({ "refused": "sign in needed" }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+    .to_string()
 }
 
 pub fn handler(
@@ -171,7 +177,7 @@ pub fn command(
     let action = match request {
         _ if Instant::now() > deadline => return Some(("error", LATE)),
         Request::Show | Request::Now => return None,
-        Request::Search(_) => return refused("search is not yet available in this build"),
+        Request::Search(_) => return Some(("error", "search runs on the API worker")),
         Request::Toggle => play_or_pause(playback.shown().state),
         Request::Do(action) => action,
     };

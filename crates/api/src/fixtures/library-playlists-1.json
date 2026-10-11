@@ -1,0 +1,6 @@
+{"next": "/v1/me/library/playlists?offset=2", "meta": {"total": 3},
+ "data": [
+  {"id": "p.AAAAAAAAAAAAAAA", "type": "library-playlists", "href": "/v1/me/library/playlists/p.AAAAAAAAAAAAAAA",
+    "attributes": {"name": "Playlist A", "canEdit": true, "isPublic": false, "dateAdded": "2020-01-01T00:00:00Z",
+      "playParams": {"id": "p.AAAAAAAAAAAAAAA", "kind": "playlist", "isLibrary": true}}},
+  {"id": "p.BBBBBBBBBBBBBBB", "type": "library-playlists", "attributes": {"name": "Playlist B"}}]}

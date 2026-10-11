@@ -1,0 +1,9 @@
+{"data": [{"id": "2000001", "type": "albums", "href": "/v1/catalog/us/albums/2000001",
+  "attributes": {"name": "Album A", "artistName": "Band A", "trackCount": 3, "upc": "000000000001",
+    "artwork": {"url": "https://is1.mzstatic.com/a/{w}x{h}bb.jpg"}},
+  "relationships": {
+    "artists": {"href": "/v1/catalog/us/albums/2000001/artists", "data": [{"id": "3000001", "type": "artists"}]},
+    "tracks": {"href": "/v1/catalog/us/albums/2000001/tracks", "next": "/v1/catalog/us/albums/2000001/tracks?offset=2",
+      "data": [
+        {"id": "1000001", "type": "songs", "attributes": {"name": "Song A", "durationInMillis": 354320}},
+        {"id": "1000003", "type": "songs", "attributes": {"name": "Song C", "durationInMillis": 120000}}]}}}]}

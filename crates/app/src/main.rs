@@ -97,6 +97,15 @@ fn read_token(dir: &Path, name: &str) -> Result<String> {
     }
 }
 
+fn api_client() -> bramley_api::Client {
+    bramley_api::Client::new(|| {
+        let dir = config_dir().map_err(|e| format!("{e:#}"))?;
+        let developer = read_token(&dir, "developer-token").map_err(|e| format!("{e:#}"))?;
+        let user = read_token(&dir, "music-user-token").ok();
+        Ok(bramley_api::Tokens { developer, user })
+    })
+}
+
 fn signed_out(dir: &Path) -> bool {
     read_token(dir, "music-user-token").is_err()
 }

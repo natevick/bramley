@@ -1,0 +1,18 @@
+{"results": {
+  "songs": {"href": "/v1/catalog/us/search?term=song&types=songs&limit=10",
+    "next": "/v1/catalog/us/search?offset=10&term=song&types=songs",
+    "data": [
+      {"id": "1000001", "type": "songs", "href": "/v1/catalog/us/songs/1000001",
+        "attributes": {"name": "Song A", "artistName": "Band A", "albumName": "Album A",
+          "durationInMillis": 354320, "trackNumber": 1, "isrc": "XX0000000001",
+          "artwork": {"width": 3000, "height": 3000, "url": "https://is1.mzstatic.com/x/{w}x{h}bb.jpg", "bgColor": "000000"},
+          "playParams": {"id": "1000001", "kind": "song"}, "previews": [{"url": "https://example.invalid/p.m4a"}]}},
+      {"id": "1000002", "type": "songs", "attributes": {"name": "Song B", "artistName": "Band B"}}]},
+  "albums": {"data": [
+    {"id": "2000001", "type": "albums", "attributes": {"name": "Album A", "artistName": "Band A",
+      "trackCount": 12, "isSingle": false, "artwork": {"url": "https://is1.mzstatic.com/a/{w}x{h}bb.jpg"}}}]},
+  "artists": {"data": [{"id": "3000001", "type": "artists", "attributes": {"name": "Band A", "genreNames": ["Rock"]}}]},
+  "playlists": {"data": [{"id": "pl.0123456789abcdef", "type": "playlists",
+    "attributes": {"name": "Playlist A", "curatorName": "Curator A"}}]},
+  "music-videos": {"data": [{"id": "4000001", "type": "music-videos", "attributes": {"name": "Video A"}}]}},
+ "meta": {"results": {"order": ["songs", "albums"], "rawOrder": ["songs", "albums"]}}}

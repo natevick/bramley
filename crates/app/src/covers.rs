@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
+pub use bramley_api::art_url;
 use bramley_engine::{redact, user_agent};
 use egui::{ColorImage, TextureHandle, TextureOptions};
 use serde_json::Value;
@@ -57,12 +58,6 @@ pub struct Source {
 
 pub fn px(points: f32, pixels_per_point: f32) -> u32 {
     (points * pixels_per_point).round() as u32
-}
-
-pub fn art_url(template: &str, px: u32) -> Option<String> {
-    let px = px.to_string();
-    let url = template.replace("{w}", &px).replace("{h}", &px);
-    (!url.contains(['{', '}'])).then_some(url)
 }
 
 pub fn allowed_art(url: &str, prefix: Option<&str>) -> bool {
