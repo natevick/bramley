@@ -3,6 +3,7 @@ mod cli;
 mod covers;
 mod credentials;
 mod devtoken;
+mod mcp;
 mod playback;
 mod signin;
 #[cfg(test)]
@@ -208,6 +209,18 @@ const CHANNEL_FILE: &str = "instance.key";
 fn main() -> Result<()> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let slot = cli::slot();
+    if argv.first().is_some_and(|first| first == "mcp") {
+        let served = match (slot, argv.len()) {
+            (Ok(slot), 1) => config_dir().and_then(|config| mcp::run(slot, &config)),
+            (Ok(_), _) => Err(anyhow!("usage: bramley mcp")),
+            (Err(e), _) => Err(e),
+        };
+        if let Err(e) = served {
+            eprintln!("bramley mcp: {e:#}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     if cli::is_command(&argv) {
         let (mut out, mut err) = (std::io::stdout(), std::io::stderr());
         std::process::exit(match slot {

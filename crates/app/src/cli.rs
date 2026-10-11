@@ -16,7 +16,7 @@ pub const REFUSED: i32 = 5;
 const APPLY_TIME: Duration = Duration::from_secs(3);
 const REPLY_MARGIN: Duration = Duration::from_secs(1);
 const LATE: &str = "the app did not answer in time; the command was not applied";
-const COMMANDS: &str = "usage: bramley [play [id] | pause | toggle | next | prev | seek <seconds> | volume <0-100> | now | queue add <id> | search <term> | sign-in | sign-out]";
+const COMMANDS: &str = "usage: bramley [play [id] | pause | toggle | next | prev | seek <seconds> | volume <0-100> | now | queue add <id> | search <term> | library playlists | sign-in | sign-out | mcp]";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Request {
@@ -24,6 +24,7 @@ pub enum Request {
     Now,
     Toggle,
     Search(String),
+    Library(bramley_api::Shelf),
     SignIn,
     SignOut,
     Do(Action),
@@ -57,6 +58,7 @@ pub fn parse(args: &[String]) -> Result<Request> {
         },
         ["queue", "add", id] => Request::Do(Action::QueueAdd(catalog_id(id)?)),
         ["search", term @ ..] if !term.is_empty() => Request::Search(term.join(" ")),
+        ["library", "playlists"] => Request::Library(bramley_api::Shelf::Playlists),
         ["sign-in"] => Request::SignIn,
         ["sign-out"] => Request::SignOut,
         _ => bail!("{COMMANDS}"),
@@ -108,6 +110,20 @@ pub fn outcome(reply: &str) -> Result<(), (i32, String)> {
     }
 }
 
+pub fn send(slot: &Slot, args: &[String]) -> Result<String, (i32, String)> {
+    slot.send(&wire(args)).map_err(|e| match e.kind() {
+        ErrorKind::NotFound | ErrorKind::ConnectionRefused => {
+            let dir = slot.dir().display();
+            let why = format!("Bramley is not running (nothing at {dir}); start it first");
+            (NOT_RUNNING, why)
+        }
+        _ => (
+            1,
+            format!("the running Bramley did not take the command: {e}"),
+        ),
+    })
+}
+
 pub fn client(slot: &Slot, args: &[String], out: &mut impl Write, err: &mut impl Write) -> i32 {
     let mut fail = |code, message: &str| {
         let _ = writeln!(err, "bramley: {message}");
@@ -117,7 +133,7 @@ pub fn client(slot: &Slot, args: &[String], out: &mut impl Write, err: &mut impl
         Err(e) => return fail(USAGE, &format!("{e}")),
         Ok(request) => request,
     };
-    match slot.send(&wire(args)) {
+    match send(slot, args) {
         Ok(reply) => {
             let _ = writeln!(out, "{reply}");
             let url = serde_json::from_str::<Value>(&reply).unwrap_or_default()["signInUrl"].take();
@@ -129,23 +145,22 @@ pub fn client(slot: &Slot, args: &[String], out: &mut impl Write, err: &mut impl
                 Err((code, why)) => fail(code, &why),
             }
         }
-        Err(e) if matches!(e.kind(), ErrorKind::NotFound | ErrorKind::ConnectionRefused) => {
-            let dir = slot.dir().display();
-            fail(
-                NOT_RUNNING,
-                &format!("Bramley is not running (nothing at {dir}); start it first"),
-            )
-        }
-        Err(e) => fail(
-            1,
-            &format!("the running Bramley did not take the command: {e}"),
-        ),
+        Err((code, why)) => fail(code, &why),
     }
 }
 
-pub fn search_reply(found: bramley_api::Result<bramley_api::Reply>) -> String {
+pub fn api_call(request: &Request) -> Option<bramley_api::Call> {
+    match request {
+        Request::Search(term) => Some(bramley_api::Call::Search(term.clone())),
+        Request::Library(shelf) => Some(bramley_api::Call::Library(*shelf)),
+        _ => None,
+    }
+}
+
+pub fn api_reply(found: bramley_api::Result<bramley_api::Reply>) -> String {
     match found {
         Ok(bramley_api::Reply::Search(results)) => json!({ "results": results }),
+        Ok(bramley_api::Reply::Page(page)) => json!({ "results": page }),
         Ok(_) => json!({ "error": "the API worker answered a different call" }),
         Err(bramley_api::Error::SignInNeeded) => json!({ "refused": "sign in needed" }),
         Err(e) => json!({ "error": e.to_string() }),
@@ -186,7 +201,9 @@ pub fn command(
     let action = match request {
         _ if Instant::now() > deadline => return Some(("error", LATE)),
         Request::Show | Request::Now | Request::SignIn | Request::SignOut => return None,
-        Request::Search(_) => return Some(("error", "search runs on the API worker")),
+        Request::Search(_) | Request::Library(_) => {
+            return Some(("error", "API requests run on the API worker"));
+        }
         Request::Toggle => play_or_pause(playback.shown().state),
         Request::Do(action) => action,
     };

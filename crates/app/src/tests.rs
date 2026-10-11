@@ -423,6 +423,10 @@ fn cli_arguments_parse_into_requests_and_bad_ones_are_usage_errors() {
             "search bohemian rhapsody",
             Request::Search("bohemian rhapsody".into()),
         ),
+        (
+            "library playlists",
+            Request::Library(bramley_api::Shelf::Playlists),
+        ),
         ("sign-in", Request::SignIn),
         ("sign-out", Request::SignOut),
     ];
@@ -441,6 +445,8 @@ fn cli_arguments_parse_into_requests_and_bad_ones_are_usage_errors() {
         "search",
         "pause now",
         "sign-in now",
+        "library",
+        "library albums",
         "stop",
     ] {
         assert!(parse(&words(line)).is_err(), "{line:?} parsed");
@@ -1938,6 +1944,25 @@ fn cli_search_is_handed_to_the_api_worker_and_its_results_relayed() {
 }
 
 #[test]
+fn cli_library_playlists_runs_on_the_api_worker_and_relays_the_page() {
+    let request = crate::cli::Request::Library(bramley_api::Shelf::Playlists);
+    let call = bramley_api::Call::Library(bramley_api::Shelf::Playlists);
+    assert_eq!(crate::cli::api_call(&request), Some(call));
+    let page = json!({"data": [{"id": "p.1", "type": "library-playlists"}], "meta": {"total": 1}});
+    let page = bramley_api::Reply::Page(serde_json::from_value(page).unwrap());
+    let reply = crate::cli::api_reply(Ok(page));
+    let parsed: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    assert_eq!(
+        (
+            parsed["results"]["total"].as_u64(),
+            parsed["results"]["items"][0]["id"].as_str()
+        ),
+        (Some(1), Some("p.1"))
+    );
+    assert_eq!(crate::cli::outcome(&reply), Ok(()));
+}
+
+#[test]
 fn a_rejected_developer_token_fails_cli_search() {
     let reply = searched(Err(bramley_api::Error::DeveloperToken));
     let why = covers::DEVELOPER_REJECTED.to_owned();
@@ -1959,7 +1984,7 @@ fn cli_search_takes_the_user_token_from_the_keyring_and_refuses_without_one() {
     assert_eq!(user.clear(), Ok(()));
     let signed_out = user.clone();
     let client = bramley_api::Client::new(move || crate::api_tokens(&signed_out));
-    let reply = crate::cli::search_reply(client.run(bramley_api::Call::Search("queen".into())));
+    let reply = crate::cli::api_reply(client.run(bramley_api::Call::Search("queen".into())));
     std::fs::remove_dir_all(&dir).unwrap();
     assert_eq!(
         crate::cli::outcome(&reply),

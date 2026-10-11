@@ -265,12 +265,11 @@ impl App {
         let mut any = false;
         while let Ok((request, deadline, reply)) = self.inbox.try_recv() {
             any = true;
-            if let Request::Search(term) = &request
+            if let Some(call) = cli::api_call(&request)
                 && Instant::now() <= deadline
             {
-                let call = bramley_api::Call::Search(term.clone());
                 let job = bramley_api::Job::new(call, deadline, move |found| {
-                    let _ = reply.send(cli::search_reply(found));
+                    let _ = reply.send(cli::api_reply(found));
                 });
                 let worker = match self.api.take() {
                     Some(api) => Ok(api),
