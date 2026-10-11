@@ -516,8 +516,8 @@ impl MediaEngine {
             let Some(frame) = sb
                 .frames
                 .range(self.cursor_us - 2_000..)
-                .next()
                 .map(|(_, f)| f)
+                .find(|f| f.end_us() > self.cursor_us)
             else {
                 break;
             };

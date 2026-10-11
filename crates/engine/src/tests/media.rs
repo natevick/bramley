@@ -417,6 +417,21 @@ fn ended_waits_until_the_output_has_drained_the_last_frame() {
     );
 }
 
+#[test]
+fn a_last_frame_shorter_than_the_lookup_slack_is_decoded_once_and_the_track_ends() {
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut r = Rig::new(5, true);
+        let sb = r.sbs.get_mut(&SB).unwrap();
+        let (_, last) = sb.frames.iter_mut().next_back().unwrap();
+        last.dur_us = 272;
+        r.m.play();
+        let _ = done.send(r.play_for(6.0).contains(&"ended"));
+    });
+    let ended = finished.recv_timeout(Duration::from_secs(20));
+    assert_eq!(ended, Ok(true), "the decoder kept re-reading the last frame");
+}
+
 type Sinks = Rc<std::cell::RefCell<Vec<FakeSink>>>;
 
 fn engine_with_fresh_sinks() -> (MediaEngine, Sinks) {
