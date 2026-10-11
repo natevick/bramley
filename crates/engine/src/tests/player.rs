@@ -141,6 +141,8 @@ fn ids_are_passed_as_json_so_they_cannot_run_script() {
         .unwrap();
     let later = Command::PlayLater(Queue::Songs(vec![evil.into()]));
     e.eval_script("command", &command_js(&later)).unwrap();
+    e.eval_script("command", &command_js(&Command::Shuffle(true)))
+        .unwrap();
     assert_eq!(e.eval_json("typeof globalThis.pwned").unwrap(), "undefined");
     assert_eq!(
         e.eval_json("calls").unwrap(),
@@ -150,6 +152,7 @@ fn ids_are_passed_as_json_so_they_cannot_run_script() {
             ["setQueue", [{"playlist": evil, "startWith": 2}]],
             ["seek", [30.5]],
             ["playLater", [{"songs": [evil]}]],
+            ["shuffle", [true]],
         ])
     );
 }

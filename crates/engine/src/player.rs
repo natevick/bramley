@@ -66,6 +66,7 @@ pub enum Command {
     Previous,
     Volume(f32),
     PlayLater(Queue),
+    Shuffle(bool),
     Shutdown,
 }
 
@@ -306,6 +307,7 @@ pub(crate) fn command_js(command: &Command) -> String {
         Command::Previous => ("previous", J::Null),
         Command::Volume(v) => ("volume", json!(v)),
         Command::PlayLater(queue) => ("playLater", queue_options(queue)),
+        Command::Shuffle(on) => ("shuffle", json!(on)),
         Command::Shutdown => return String::new(),
     };
     format!("__player.{method}({arg});")

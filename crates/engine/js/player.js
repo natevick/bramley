@@ -113,6 +113,7 @@
       previous: () => enqueue("previous", () => m.skipToPreviousItem(), true),
       volume: v => enqueue("volume", () => { m.volume = v; }, false),
       playLater: options => enqueue("playLater", () => m.playLater(options), true),
+      shuffle: on => enqueue("shuffle", () => { m.shuffleMode = on ? 1 : 0; }, true),
     },
   });
 })();
