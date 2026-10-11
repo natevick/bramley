@@ -75,12 +75,14 @@ Nate delegated the definition of "done" to Norm on 2026-10-10. Bramley v1 on Lin
 - **F6 (2026-10-11, approved by Nate).**
   - **Why:** MusicKit moves to the next album track either through an end of stream with a drain, or gaplessly, by appending to the same SourceBuffer, where no drain ever happens (`docs/s8-detail-RESULTS.md`).
   - **Wording:** "no cut tail: drain acknowledged (end of stream) or continuous gapless output".
-  - **Measured per transition, from the applied seek to the id flip:**
+  - **Measured per transition, from the applied seek to the end of a 5 s window after the id flip:**
     - **(a)** `drainsAcked` up by at least 1 and `drainTimeouts` unchanged; **or**
     - **(b)** all three of:
       - media time sent to the output ≥ `(duration − seek target) − 3 s`;
       - media time skipped (sent-timeline gaps plus queued audio discarded) ≤ 0.1 s;
       - no position stall longer than 1 s within 5 s of the flip.
+  - **Read the window to the end.** A cut's discard is counted just after the id flip. A window that ended at the flip let a 3 s cut pass (S8 live-6).
+  - **Only the skipped count catches a cut.** The sent sub-check does not: a 3 s cut still read 17.8 s sent at the flip, against a 17 s bar. Read through flip + 5 s, it also includes the incoming track.
   - A sabotage that sends `next` 3 s before the end must FAIL it.
 
 ## Out of scope for v1
