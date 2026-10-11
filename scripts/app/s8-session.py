@@ -23,7 +23,7 @@ class Fixture(s7.Fixture):
         if not self.path.startswith('/v1/catalog/us/albums/'):
             return super().do_GET()
         base = f'http://127.0.0.1:{self.server.server_address[1]}'
-        song = lambda i: {'id': f'9{i:03d}', 'type': 'songs', 'attributes': {'name': f'Fixture Song {i}', 'artistName': 'Fixture Artist', 'durationInMillis': 180000 + i * 7000}}
+        song = lambda i: {'id': f'9{i:03d}', 'type': 'songs', 'attributes': {'name': f'Fixture Song {i}', 'artistName': 'Fixture Artist', 'durationInMillis': 180000 + i * 7000, **({'playParams': {'id': f'9{i:03d}', 'kind': 'song'}} if i != 4 else {})}}
         album = {'id': '1000', 'type': 'albums', 'attributes': {'name': 'Fixture Album', 'artistName': 'Fixture Artist', 'trackCount': 12, 'artwork': {'url': f'{base}/art/0/{{w}}x{{h}}bb.jpg'}},
                  'relationships': {'tracks': {'data': [song(i) for i in range(1, 13)]}}}
         self.reply(json.dumps({'data': [album]}).encode())
