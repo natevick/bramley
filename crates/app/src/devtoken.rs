@@ -135,7 +135,7 @@ impl DeveloperToken {
                     Err(why) => why,
                 }
             }
-            _ => "not fetched".into(),
+            _ => "already tried this run".into(),
         };
         if let Some(stale) = cached {
             return Ok(self.note("cache", &stale, Some(&failed)));

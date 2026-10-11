@@ -8,9 +8,9 @@ Pre-registration: `docs/s4-developer-token-PREREG.md`. Evidence lives in `target
 |---|---|---|
 | 1 | Throwaway-key mint verifies | PASS: 2/2 `node:test`. Three mutations each turn it red: a 179-day lifetime, `verify` always true, and an `origin` claim. |
 | 2 | actionlint 1.7.12 | PASS, exit 0. A typo'd `inputs.sabotag` gives exit 1, so the linter can fail. |
-| 3 | Static review | Triggers are `schedule` (Mondays 06:17 UTC) and `workflow_dispatch` only. Permissions are `contents: read`, `pages: write` and `id-token: write`. The job is guarded to the default branch. Secrets reach only the mint step's `env:`. Nothing prints the token or the key. |
+| 3 | Static review | Triggers are `schedule` (Mondays 06:17 UTC) and `workflow_dispatch` only. Permissions are `contents: read`, `pages: write` and `id-token: write`. The job is guarded with `github.ref == 'refs/heads/main'`, a literal, because a schedule event's payload may not carry `repository.default_branch`. Secrets reach only the mint step's `env:`. Nothing prints the token or the key. |
 | 3b | Live check can fail | PASS. A throwaway key minted against Apple's catalog gave `HTTP 401`, exit 1, and no file was written. |
-| 4 | Green dispatch with `exp` ≥150 days, and a red sabotage dispatch | **Pending: after merge, Nate dispatches** |
+| 4 | Green dispatch with `exp` ≥150 days, and a red sabotage dispatch | **Pending: after merge, Nate dispatches.** Also confirm that the first scheduled run (Monday 06:17 UTC) executes the publish job instead of skipping it. |
 
 **Pinned actions** (lightweight tags, resolved with `git ls-remote`):
 
