@@ -27,7 +27,7 @@
   - ⚠ Memory headroom: R1 RSS crossed 200 (zone 3). The UI stories S6–S10 need a lean-memory brief and a gate run each.
   - S4 MERGED (2026-10-10), on USS evidence: R1 USS 143.2–144.3 against S3's 142.6–143.0; the lead over the reference is steady at ~82–83. The gate came back VOID ×3 on reference drift (+5.2/+5.3), recorded as VOID, not PASS. 178 tests, guard CLEAN.
   - [ ] WORKFLOW: do NOT dispatch until Nate says "moved" (secrets into the github-pages environment, repo copies deleted). Then dispatch, check the published token, run the sabotage dispatch, and curl the URL. Follow-up: an iat-age alert cron.
-  - DRIFT RULE (Nate 2026-10-10: "Both"): RUNNING on natevick/drift-rule. One-direction rule plus a re-recorded reference (median of 3 quiet sessions). Gate: Norm re-runs the gate after merge.
+  - DRIFT RULE MERGED. One-direction rule plus reference re-recorded at 88.6 (3 sessions: 88.7/88.6/88.6). Gate PASS ×2 in a row (drift-1 by the developer, norm-drift by Norm): R1 ~170.4–171.0 PSS (zone 3), R2 ~73.4–73.7 (zone 3). Both-ways drift voids either verdict (Norm's stricter call). 6 pre-existing gate mutants survive (llvmpipe alongside radeonsi, no weston renderer line, a stream with an extra target, an unbounded guard window, ballast reason order, R1 VOID with R2 FAIL); handle them in S13.
   - [ ] Then: S12 MCP, S13 full harness, S6–S10 UI (lean memory: R1 is in zone 3).
   - Merge gate for each: Norm re-runs the measurements (S1: measure-musickit.sh ≤ 112 plus sabotages; S0: the positive control), then reviewer, then fast-forward.
   - Norm's calls (Nate may override): `--play` is a dev-only flag, kept out of release builds; artwork is memory-only (no disk cache), which is the conservative reading of section D's "download".
