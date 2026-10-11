@@ -87,7 +87,7 @@ Different sessions, so a 2–3 MiB gap is noise, not a saving. S9 costs nothing 
 - rustfmt's line splitting.
 - The fixes that the live runs forced.
 
-**Harness.** `scripts/app/s9-session.py` (228 lines) counts against S13's 600-line harness cap.
+**Harness.** `scripts/app/s9-session.py` (220 lines) counts against S13's 600-line harness cap.
 
 ## Not established
 
