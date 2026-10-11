@@ -80,7 +80,7 @@ def ran(s, guard, sink):
 
 
 def transition(binary, env, st, at, cut, start):
-    s, _ = s7.poll(st, lambda s: playing(s, at) and (s.get('duration') or 0) > 30, 30)
+    s, _ = s7.poll(st, lambda s: playing(s, at) and (s.get('duration') or 0) > 30 and (s.get('position') or 0) > start + 2, 30)
     if not s or not playing(s, at):
         return {'reached': False}
     ids, duration, before = detail(s)['trackIds'], s['duration'], (s['drainsAcked'], s['drainTimeouts'])

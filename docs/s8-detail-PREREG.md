@@ -100,3 +100,7 @@ F6-S must FAIL F6-gapless.
 - **either** mode A's continuity holds (no backward move, and no forward jump bigger than the wall time + 0.3 s), **or** mode B's F6-literal condition holds (`acked` ≥ 1 and `timeouts` = 0).
 
 F6-literal is unchanged and still reported. F6-S must still FAIL. In live-2, F6-S's third transition was 3.96 s short of its end.
+
+## Amendment 3 (2026-10-11, after live-3, procedure only)
+
+In live-3, F6-S's first seek went out about 1 s after playback started. It was acknowledged, but the position never moved, so that run failed for a reason unrelated to the sabotage. From now on the harness seeks only once the item's position is more than 2 s past its timeline start. No bar changes.
