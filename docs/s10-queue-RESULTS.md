@@ -19,31 +19,37 @@ Pre-registration: `docs/s10-queue-PREREG.md`, with amendments 1–4. All four am
 
 | Run | Build | F8 | J (item 3) | T (top-up) | T-S (must FAIL) |
 |---|---|---|---|---|---|
-| live-1 | branch | FAIL (dropped seek) | PASS | not scored (98-item window) | — |
+| live-1 | branch | FAIL: seek landed, then a freeze with 4 AAC decode errors (unexplained, seen once) | PASS | not scored (98-item window) | — |
 | live-2, live-3 | branch + `6b7b59d` | PASS | PASS | not scored (W measured after the top-up) | stalled at 96, not claimed |
 | live-4 | branch + `6b7b59d` | FAIL (dropped seek) | PASS | VOID (MusicKit `setQueue` TypeError) | **FAIL as designed** |
 | **live-5** | branch + `6b7b59d` | FAIL (dropped seek) | PASS | **PASS** | **FAIL as designed** |
 | live-6 | branch | FAIL (dropped seek) | PASS | FAIL: 3 stalls at index 95 | stalled at 95 |
 | **live-7** | branch, and branch + `6b7b59d` | **PASS on both** | **PASS on both** | — | — |
+| **live-8** (post-registration) | branch + `6b7b59d`, largest playlist | — | — | **PASS** | **FAIL as designed** |
 
 - **F8 (live-7):** `play A` then `queue add B, C, D`. `now.queue` listed `[A, B, C, D]` (position 0, length 4). The items seen were exactly A→B→C→D, each Playing. F8-S (the reordered comparator) is False, as required.
 - **T (live-5):**
   - The 100-id window held 98 items; MusicKit drops unplayable ids.
   - At position 95 the top-up grew the queue to 197, and the songs pager went from 1 to 2 pages with no scroll.
   - Index 98, the first item after the window, was song 100, Playing.
-- **T-S (live-4, live-5):** `queue add X` right after the window. The queue stayed at 99 (no top-up), and index 98 was X.
+- **T on a playlist (live-8):** the 100-id window held 100 items. The top-up grew the queue to 200, and the tracks pager went from 1 to 2 pages with no scroll. Index 100 was track 100, Playing.
+- **T-S (live-4, live-5, live-8):** `queue add X` right after the window. The queue stayed one longer than the window (no top-up), and the item at the window's end was X.
 - **No names in files.** Every run's status file had no `queue`, `queuePosition` or `queueLength` key and no library name. No `now.queue` entry carried a title. The leak grep covered the diff, the commit messages and the app logs, and its planted-name control proved it can fail. The only hits were "Back" (`Nav::Back`) and "Amen" (inside "Amendment"). The harness's stderr hit lists were deleted after reading.
 - **Memory (dev build, report only):** PSS 179.5 MiB with the 98-item window, and 179.5 after the top-up to 197.
 
-**Why the earlier runs failed (amendments 1–4).** None of these was a fault in queue logic:
-- A 100-id window is 98 items.
-- The top-up lands before the harness's next poll.
-- **Dropped seek.** The F8 harness seeked C the instant MusicKit reported it, while C was still loading. Every failing run ended at C's start + 19 s on the native clock: the seek never took, and C outlasted the 30 s window.
-- **Controls.** 12 runs (6 on main, 6 on this branch, at two pacings) and a replay of the harness loop all played A→B→C→D.
+**Why the earlier runs failed (amendments 1–5; amendment 5 is an erratum).**
+- **Harness faults:**
+  - A 100-id window of songs held 98 items.
+  - The top-up lands before the harness's next poll.
+  - **Dropped seek:** in live-4, 5 and 6, F8 seeked C the instant MusicKit reported it, while C was still loading. Each run ended at C's start + 19 s on the native clock, with 0 decode errors. The seek never took, and C outlasted the 30 s window.
+- **Controls:** 12 runs (6 on main, 6 on this branch, at two pacings) and a replay of the harness loop all played A→B→C→D.
+- **Unexplained, on the branch build:**
+  - **live-1:** the seek landed (62.7 s, item time), then playback froze with 4 AAC decode errors. Not seen again.
+  - Amendment 1 had wrongly blamed every F8 failure on S8's hang.
 
-**Open, not S10's:**
+**Open:**
 - **Index-95 stall.** On the branch-only build, T stalled at index 95 in both T and T-S. The `6b7b59d` build plays through it. That fits S8's short-last-frame hang. It is an inference, not a proof.
-- **`setQueue` TypeError.** live-4's T was VOID: MusicKit's `setQueue` threw "cannot read property 'id' of undefined" on the 100-id window. This is the same click path S9 ships. It was seen once in 5 T attempts.
+- **`setQueue` TypeError (unattributed, 1 of 6 T attempts).** live-4's T was VOID: `setQueue` threw "cannot read property 'id' of undefined" on the 100-id window. There is no control, because main can't drive a click from row 0, so S10 is not ruled out.
 
 ## Gate
 
@@ -81,9 +87,11 @@ Pre-registration: `docs/s10-queue-PREREG.md`, with amendments 1–4. All four am
 - **Source:** +279 / −17. About 45 of those lines are the dev-only hooks the live proof needs (`--click-row`, `--jump-to`, `--queue-fixture`).
 - **Tests:** +246 / −6, about 2× the cap. rustfmt line splitting is part of it, and the top-up rules each need a mutation-killing case.
 - **Fixtures:** 0.
-- **Harness:** `scripts/app/s10-session.py`, 232 lines, counts against S13's cap.
+- **Harness:** `scripts/app/s10-session.py`, 242 lines, counts against S13's cap.
 
 ## Not established
+
+- **T has passed only with `6b7b59d` cherry-picked** (live-5 on Songs, live-8 on a playlist). On the branch-only build it stalls at index 95. Re-run T once S8 merges.
 
 - **A `queue add` after a `PlayIn` window lands after the window,** not after the current track; that is `playLater`'s semantics. It also ends the top-up, because the tail is no longer from the window. F8 holds because `play <id>` makes a one-song queue.
 - **The 1,000-item cap is unmeasured at size.** One top-up of 99 items added no measurable PSS.

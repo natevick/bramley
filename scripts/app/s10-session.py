@@ -20,6 +20,7 @@ PUBLIC = os.path.join(ROOT, 'docs', 'screens', 's10')
 QUEUE_KEYS = ('"queue"', '"queuePosition"', '"queueLength"')
 COMMON = ['--size', '1100x720']
 JUMP = 95
+LIST = 'songs'
 
 
 def discover(config):
@@ -29,14 +30,19 @@ def discover(config):
     album = song['relationships']['albums']['data'][0]['id']
     tracks = s9.api(f'/v1/catalog/{sf}/albums/{album}/tracks', tokens)['data']
     others = [t['id'] for t in tracks if t['id'] != A and t.get('type') == 'songs']
-    songs = [r for at in (0, 100) for r in s9.api(f'/v1/me/library/songs?limit=100&offset={at}', tokens)['data']]
+    shelf, playlist = '/v1/me/library/songs', None
+    if LIST == 'playlist':
+        sizes = {p['id']: s9.api(f"/v1/me/library/playlists/{p['id']}/tracks?limit=1", tokens).get('meta', {}).get('total', 0) for p in s9.every('/v1/me/library/playlists', tokens)[0]}
+        playlist = max(sizes, key=sizes.get)
+        shelf = f'/v1/me/library/playlists/{playlist}/tracks'
+    songs = [r for at in (0, 100) for r in s9.api(f'{shelf}?limit=100&offset={at}', tokens)['data']]
     names = {r.get('attributes', {}).get(k) for r in songs + tracks + [song] for k in ('name', 'artistName', 'albumName')}
     names = sorted(n for n in names if n and len(n) >= 4)
     os.makedirs(SCRATCH, exist_ok=True)
     with os.fdopen(os.open(NAMES, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w') as f:
         f.write('\n'.join(names) + '\n')
     ids = lambda r: {r['id'], r.get('attributes', {}).get('playParams', {}).get('catalogId')} - {None}
-    return {'queue': [A] + others[:3], 'x': others[3], 'song0': ids(songs[0]), 'song100': ids(songs[100]) if len(songs) > 100 else set(), 'songs': len(songs)}, names
+    return {'queue': [A] + others[:3], 'x': others[3], 'song0': ids(songs[0]), 'song100': ids(songs[100]) if len(songs) > 100 else set(), 'songs': len(songs), 'playlist': playlist}, names
 
 
 def live(a, out, sock, sink):
@@ -149,7 +155,7 @@ def live_runs(a, out, sink, env, found, names):
         res['nextIsSong100'] = playing(n, found['song100'])
         res['nextIsX'] = n.get('itemId') == x
         res['finalPosition'] = n.get('queuePosition')
-        res['pages'] = snap().get('library', {}).get('songs', {}).get('pages')
+        res['pages'] = snap().get('library', {}).get(shelf, {}).get('pages')
         res['T'] = found['songs'] > 100 and res['clickedPlays'] and window > JUMP and (res['toppedTo'] or 0) >= window + 90 and res['atWindowEnd'] and res['nextIsSong100'] and (res['pages'] or 0) >= 2
         clean('topup-sabotage' if sabotage else 'topup', res)
 
@@ -164,7 +170,8 @@ def live_runs(a, out, sink, env, found, names):
         res = run('shot-' + name, COMMON + ['--queue-open', '--screenshot', png, '--after', '30'] + args, lambda p, s, r: (steps(r), p.wait(60)))
         return os.path.exists(png) and not res.get('error')
 
-    songs_click = ['--route', 'songs', '--click-row', '0']
+    songs_click = ['--route', f"playlist:{found['playlist']}" if found['playlist'] else 'songs', '--click-row', '0']
+    shelf = 'tracks' if found['playlist'] else 'songs'
     runs = [('f8', COMMON, f8),
             ('jump', COMMON + ['--jump-to', '3'], jump),
             ('topup', COMMON + songs_click + ['--jump-to', str(JUMP)], topup),
@@ -172,7 +179,7 @@ def live_runs(a, out, sink, env, found, names):
     results = [run(*r) for r in runs if not a.only or r[0] in a.only]
     os.makedirs(PRIVATE, exist_ok=True)
     shots = {} if a.only else {'f8': shot('f8', [], four), 'songs': shot('songs', songs_click, lambda r: safe())}
-    return {'found': {'songs': found['songs'], 'queue': q, 'x': x}, 'results': results, 'privateShots': shots}
+    return {'found': {'songs': found['songs'], 'list': shelf, 'queue': q, 'x': x}, 'results': results, 'privateShots': shots}
 
 
 def panel_rows(png, left=845):
@@ -219,8 +226,11 @@ def main():
     ap.add_argument('binary')
     ap.add_argument('--out', required=True)
     ap.add_argument('--only', nargs='*', default=[])
+    ap.add_argument('--list', choices=('songs', 'playlist'), default='songs')
     a = ap.parse_args()
     a.binary = os.path.abspath(a.binary)
+    global LIST
+    LIST = a.list
     os.makedirs(a.out, exist_ok=True)
     with cs.session(a.out, f'bramley-s10-{a.mode}') as (sock, sink, _):
         report = live(a, a.out, sock, sink) if a.mode == 'live' else synthetic(a, a.out, sock, sink)
