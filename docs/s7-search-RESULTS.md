@@ -1,42 +1,52 @@
 # S7 search: results (2026-10-11)
 
-Pre-registration: `s7-search-PREREG.md`. Code under test: 5f32d38 (`dev` build). c5110c4 adds only the screenshot.
+Pre-registration: `s7-search-PREREG.md`. The code under test is e167745 (`dev` build). 04febc3, the gated commit, differs only in the harness.
 
-## F3: PASS
+## F3 via the dev hook: PASS
 
-| Run (live-080603) | wall ms | in-app ms | results |
+The dev build's `--search` hook, not acceptance F3 as written. The CLI/MCP `bramley search` path still answers on stdout and does not fill the Search view, so acceptance F3's "the UI shows them" is not wired. That is left for S13 (or a follow-up).
+
+| Run (live-084636) | wall ms | in-app ms | results |
 |---|---|---|---|
-| f3-0..4 | 685, 706, 484, 424, 888 | 681, 707, 479, 429, 884 | 17 each |
+| f3-0..4 | 504, 443, 423, 463, 506 | 504, 454, 429, 454, 504 | 17 each |
 
-- **Median wall time: 685 ms** (bar 2000).
+- **Median wall time: 463 ms** (bar 2000).
 - Every run: `engineStarted` false, no stream seen, radeonsi.
-- An earlier run at e13ecdf read a median of 322 ms. The difference is network variance.
-- **Sabotage** (`--api-base` at a closed loopback port): `search.state == "error"` after 25 ms. The F3 check can fail.
+- Two earlier sessions, on code before the `Client::at` restriction, read medians of 322 and 685 ms.
+- **Sabotage** (`--api-base http://127.0.0.1:9`, not listening): `search.state == "error"` after 25 ms.
+- **Deviation:** the pre-registration asks for at least 1 song and at least 1 album. Status has no per-section counts, so the harness checked `results >= 2` in total. The private real screenshot shows both sections. That corroborates the result; it is not the registered check.
 
 ## Click plays: PASS
 
-`--click-first-song` went through the same mapping as a row click.
+`--click-first-song` uses the same mapping as a row click.
 
-- Status: `Playing`, `itemId` 6781024437, "Bohemian Rhapsody". Position advanced 2.82 s over 3 s.
-- The guard saw only the null sink and never fired.
-- **Deviation from the pre-registration:** status does not expose result ids, so the check that `itemId` equals the first result was not run as written. The id was confirmed against the known catalog id for Queen's recording, the same `SONG` covers-session uses.
+- Status: `Playing`, itemId 6781024437, "Bohemian Rhapsody". Position advanced 2.82 s over 3 s.
+- The guard saw only the null sink.
+- **Deviation:** status has no result ids, so the run did not check that the playing id was the first result's id. It checked the id against the known catalog id instead.
+
+## Privacy checks
+
+- `bohemian` appears in none of the app logs from the 15 F3 runs, the sabotage runs, the play runs or the real-shot runs.
+- No token appears in `git log -p main..HEAD`.
 
 ## Screenshots
 
-- **real:** `target/screens/PRIVATE-real-art/s7/`, private. 13 art textures, search ms 1512.
+- **real:** `target/screens/PRIVATE-real-art/s7/` (private). 13 art textures.
 - **synthetic:** `docs/screens/s7/search-results-dark-1100x720.png`.
-- **Intermittent failure:** one synthetic run at 5f32d38 ended in "the search could not run" after 25 ms. 11 runs since, some with a build that prints the raw error, have not reproduced it. The prime suspect is a transient secret-service error on the fresh isolated keyring, which `credentials.rs` maps to Config. That code is not S7's. Unproven.
+- **Unexplained failure:** one synthetic run at 5f32d38 ended in "the search could not run" after 25 ms. That message covers Config, Decode, Refused and a worker panic alike. It has not reproduced in 12 runs since.
 
-## Gate: PASS (`s7-2`, c5110c4)
+## Gate: PASS (`s7-3`, 04febc3)
 
-Same session, clean `main` f35def2 first:
+Same session. Clean `main` (f35def2) ran first, as `main-s7delta-3`:
 
-| | main (main-s7delta-2) | S7 (s7-2) | delta |
+| | main | S7 | delta |
 |---|---|---|---|
-| R1 PSS / USS / RSS | 172.8 / 145.9 / 205.3 | 170.2 / 143.3 / 202.9 | -2.6 PSS |
-| R2 PSS / USS / RSS | 74.7 / 47.9 / 107.2 | 72.1 / 45.3 / 104.8 | -2.6 PSS |
-| reference before / after | 88.7 / 88.7 | 89.7 / 89.8 | +1.0 |
+| R1 PSS / USS / RSS | 172.0 / 145.2 / 204.6 | 171.0 / 144.1 / 203.7 | -1.0 PSS |
+| R2 PSS / USS / RSS | 74.6 / 47.8 / 107.1 | 74.5 / 47.6 / 107.1 | -0.1 PSS |
+| reference before / after | 88.6 / 88.4 | 89.1 / 89.2 | +0.5 / +0.8 |
 
-- **Zone:** both runs are zone 3 and PASS. The ballast fails in zone 1, as it must. `check-shipped-features` exits 0.
-- **What the deltas mean:** they are noise. The gate stays on Home and never opens Search, so search art and the `search-art` thread are not measured.
-- **Search art size:** 40 pt textures, about 6 KiB each at 1x. A full result set holds at most 30.
+- **Verdict:** both runs PASS in zone 3. The ballast FAILS in zone 1 and holds. `check-shipped-features` exits 0 on the release binary.
+- **Earlier runs, not counted:**
+  - `s7-1` failed on a dirty tree (an untracked screenshot).
+  - `s7-2` (c5110c4) passed, but it predates the `Client::at` fix.
+- **What the gate leaves out:** it never opens Search, so search art and the `search-art` thread are unmeasured. Art is 40 pt, at most 30 textures, about 6 KiB each at 1x.
