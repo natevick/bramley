@@ -21,14 +21,14 @@ ROWS_BAR, ART_CAP, DELTA_BAR = 30, 96, 10.0
 
 
 def api(path, tokens):
-    for _ in range(4):
+    for _ in range(6):
         req = urllib.request.Request(API + path, headers={'Authorization': 'Bearer ' + tokens[0], 'Music-User-Token': tokens[1], 'User-Agent': UA})
         try:
             return json.load(urllib.request.urlopen(req, timeout=20))
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return {'data': [], 'meta': {'total': 0}}
-            if e.code != 429:
+            if e.code != 429 and e.code < 500:
                 raise RuntimeError(f'HTTP {e.code} on a library call') from None
             time.sleep(2)
     raise RuntimeError('rate limited')
