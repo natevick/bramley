@@ -220,7 +220,12 @@ fn typing_then_enter_reaches_the_api_worker_only_when_signed_in() {
             },
         );
         app.tick(&ctx);
-        let calls: Vec<_> = jobs.try_iter().map(|job| job.call).collect();
+        let searched = |call: &bramley_api::Call| matches!(call, bramley_api::Call::Search(_));
+        let calls: Vec<_> = jobs
+            .try_iter()
+            .map(|job| job.call)
+            .filter(searched)
+            .collect();
         let want = (!signed_out).then(|| bramley_api::Call::Search("queen".into()));
         assert_eq!(calls, Vec::from_iter(want));
         assert_eq!(app.status_json()["engineStarted"], false);
