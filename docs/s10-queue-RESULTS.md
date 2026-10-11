@@ -97,3 +97,48 @@ Pre-registration: `docs/s10-queue-PREREG.md`, with amendments 1–4. All four am
 - **The 1,000-item cap is unmeasured at size.** One top-up of 99 items added no measurable PSS.
 - **"Play next" and the context menus were not driven live.** They are covered by the unit and fake-queue tests only.
 - **The jump on a stale row** (a position that shifted between render and click) is proven only against the fake queue.
+
+## After review (rebased onto main 750bfc2, which carries the short-frame fix)
+
+**Before the fixes, on the branch alone (live-9, f000025):**
+- T PASS on Songs: 98 → 197, song 100 at W.
+- T PASS on the largest playlist: 100 → 200.
+- T-S FAILs as designed on both.
+
+**The review's fixes (52fbf9b):**
+- **B1:** `queue.items`, not the undocumented `queue.item`, with placeholder slots.
+- **B2:** a queue generation; `reset()` and an album click clear the follow.
+- **M1/H1:** 16-id batches, retried at 5, 30 and 60 s, then a visible notice.
+- **M2:** `setQueue` waits, bounded, for an add in flight.
+- **Lows:**
+  - a hard cap;
+  - top-ups as background commands (not pending, not delaying a pause);
+  - position −1 handling;
+  - a borrowed snapshot, and one `redact` per snapshot.
+
+**Proof that the new tests can fail:**
+- **Probes:** the review's P1a/b/c and P3 are now tests. They fail on the pre-fix code, by the review's own probe runs, and pass now.
+- **Mutation:** 16 of 16 mutants of the new logic killed.
+
+**Live-10 on the branch alone (52fbf9b):**
+
+| Check | Build | Result |
+|---|---|---|
+| F8 | dev | **PASS**: A→B→C→D |
+| J | dev | **PASS** |
+| T, Songs | dev + engine diagnostics | **PASS**: W 98; song 100 at W; two top-ups landed (114, then 130); pages 2 |
+| T, largest playlist | dev + engine diagnostics | **PASS**: W 100; track 100 at W; 116, then 132; pages 2 |
+| T-S, both | dev + engine diagnostics | **FAIL as designed** (see below) |
+| H1 counts | dev + engine diagnostics | `/v1/me/library/songs`: 200 × 8 in each T run. No `setQueue` TypeError occurred, so H1 stays open |
+
+- **T-S detail:** the item at W was X, and the queue never grew. The harness then raised on its deliberate seek past the queue's end, so the run's T flag was not written.
+- **Names stay out of files:** every status file was clean. Leak-grep hits: "Amen" (inside "Amendment"), "Back" (`Nav::Back`), "Close" (`ViewportCommand::Close`) and "windows". The planted-name control proved the grep can fail.
+
+**Gate `s10-3` (1f7d886, clean): PASS in zone 3.**
+- R1: 172.9 PSS / 145.9 USS / 205.5 RSS.
+- R2: 75.5 / 48.5 / 108.0.
+- Reference: 90.2 / 90.5. Ballast: 70 MiB, rise 71.5, holds.
+- Shipped guard: 0 on the release binary, 1 on the ballast binary.
+- **Against main** (`main-s10delta-2`, an earlier session), on the lead over the reference: R1 −1.5 MiB, R2 −1.1 MiB. That is noise.
+
+**Lines this round:** source +173 / −59, tests +164 / −51; the asked budget was about 150 each. Total against main: source +401 / −25, tests +359 / −6. Harness: 250 lines.
