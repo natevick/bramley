@@ -126,3 +126,12 @@ In live-3, F6-S's first seek went out about 1 s after playback started. It was a
 **Report only (review #6).** Two click sequences, 12 s apart: "Shuffle, then track 3", and "track 5, then Shuffle". The rows played are recorded.
 
 **Names (review #2).** The names file is created 0600 and removed in a `finally`. The leak grep runs inside the session and records only counts, plus whether a planted name raises the count.
+
+## Amendment 5 (2026-10-11, after live-6, before live-7)
+
+**What live-6 showed.**
+- F6-S **PASSed** amendment 4's F6, so F6 counts for nothing in live-6.
+- The `next` cut on transition 3 (2.89 s short) registered as `skippedS` 0.0, because amendment 4 measured sent and skipped only up to the id flip.
+- The cut's discard is counted, but after the flip: F6-S's run total was 22.8 s skipped, against L2's 4.1 s from its three seek discards alone.
+
+**Change.** Sent and skipped are now measured from the applied seek to the end of the 5 s window after the flip. That is the same window as the stall check. The value at the flip is kept as `skippedAtFlipS` for evidence. No threshold changes. F6-S must FAIL in live-7.

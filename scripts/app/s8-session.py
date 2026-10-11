@@ -99,6 +99,8 @@ def transition(binary, env, st, at, cut, start):
             land = pos
         if flip is None and s.get('itemId') == ids[at + 1] and base:
             flip = (now, {k: s[k] - base[k] for k in base}, pos)
+        if flip and base:
+            after = {k: s[k] - base[k] for k in base}
         if flip is None and s.get('itemId') == ids[at] and base:
             last = max(last, pos)
             if cut and not sent_next and last - start >= duration - CUT_BEFORE_END:
@@ -113,7 +115,7 @@ def transition(binary, env, st, at, cut, start):
         moved = t1 if p1 > p0 else moved
         stall = max(stall, t1 - moved)
     d = flip[1]
-    res = {'acked': d['drainsAcked'], 'timeouts': d['drainTimeouts'], 'sentS': d['sentMs'] / 1000, 'skippedS': d['skippedMs'] / 1000,
+    res = {'acked': d['drainsAcked'], 'timeouts': d['drainTimeouts'], 'sentS': after['sentMs'] / 1000, 'skippedS': after['skippedMs'] / 1000, 'skippedAtFlipS': d['skippedMs'] / 1000,
            'stallS': round(stall, 2), 'landedOff': round(land - start - target, 2), 'tailShortBy': round(duration - (last - start), 2), 'nextStart': flip[2]}
     res['literal'] = res['acked'] >= 1 and res['timeouts'] == 0
     res['measured'] = res['sentS'] >= (duration - target) - 3 and res['skippedS'] <= 0.1 and stall <= 1
