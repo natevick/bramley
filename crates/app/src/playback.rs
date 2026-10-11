@@ -123,10 +123,14 @@ impl Playback {
             (self.seq, self.snap, self.shuffled) = (0, Snapshot::default(), false);
             self.engine += 1;
         }
+        if self.shuffled && !shuffle {
+            self.shuffled = false;
+            self.send(Command::Shuffle(false), None, None);
+        }
         self.send(Command::SetQueue { queue, start }, None, Some(0.0));
-        if shuffle != self.shuffled {
-            self.shuffled = shuffle;
-            self.send(Command::Shuffle(shuffle), None, None);
+        if shuffle && !self.shuffled {
+            self.shuffled = true;
+            self.send(Command::Shuffle(true), None, None);
         }
         self.send(Command::Play, Some(PlayState::Playing), None);
         true

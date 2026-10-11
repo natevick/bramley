@@ -9,8 +9,11 @@ use crate::playback::Action;
 use crate::ui::nav::Route;
 
 fn item(id: &str, kind: &str, ms: u64) -> Item {
-    let attributes = json!({ "name": format!("{kind} {id}"), "durationInMillis": ms,
+    let mut attributes = json!({ "name": format!("{kind} {id}"), "durationInMillis": ms,
         "artwork": { "url": "http://127.0.0.1:9/a/{w}x{h}bb.jpg" } });
+    if !id.starts_with('u') {
+        attributes["playParams"] = json!({ "id": id, "kind": "song" });
+    }
     serde_json::from_value(json!({ "id": id, "type": kind, "attributes": attributes })).unwrap()
 }
 
@@ -33,32 +36,102 @@ fn found(tracks: Page) -> Found {
 }
 
 #[test]
-fn the_model_keeps_songs_with_their_container_place_and_sums_only_when_complete() {
-    let songs = [("a", "songs"), ("v", "music-videos"), ("b", "songs")];
-    let mut model = Model::new(found(page(&songs, Some("/next"))));
-    assert_eq!((model.tracks.len(), &model.at), (2, &vec![0, 2]));
-    assert_eq!(model.summary(), "2+ songs");
+fn queue_places_count_only_what_musickit_keeps_and_totals_wait_for_every_page() {
+    let first = [
+        ("a", "songs"),
+        ("u", "songs"),
+        ("v", "music-videos"),
+        ("b", "songs"),
+    ];
+    let mut model = Model::new(found(page(&first, Some("/next"))));
+    assert_eq!(model.at, [Some(0), None, Some(2)]);
+    assert_eq!((model.summary(), model.first_page), ("3+ songs".into(), 3));
     model.add(page(&[("c", "songs")], None));
-    assert_eq!(model.at, [0, 2, 3]);
-    assert_eq!(model.summary(), "3 songs, 3 min");
-    model.broken = true;
-    assert_eq!(model.summary(), "3+ songs");
+    assert_eq!(model.at, [Some(0), None, Some(2), Some(3)]);
+    assert_eq!(model.summary(), "4 songs, 4 min");
+    let ids: Vec<String> = (0..super::MAX_TRACKS + 1)
+        .map(|n| format!("s{n}"))
+        .collect();
+    let many: Vec<_> = ids.iter().map(|id| (id.as_str(), "songs")).collect();
+    let capped = Model::new(found(page(&many, None)));
+    assert_eq!(capped.summary(), "1000+ songs");
 }
 
 #[test]
-fn a_click_plays_the_container_from_that_songs_place_in_it() {
-    let model = Model::new(found(page(&[("v", "music-videos"), ("a", "songs")], None)));
-    let album = container(&Route::Album("1".into())).unwrap();
-    assert_eq!(album, Queue::Album("1".into()));
+fn a_click_plays_its_queue_place_and_past_musickits_first_page_a_window_of_songs() {
+    let first = [("v", "music-videos"), ("u", "songs"), ("a", "songs")];
+    let mut model = Model::new(found(page(&first, Some("/next"))));
+    model.add(page(
+        &[("b", "songs"), ("u2", "songs"), ("c", "songs")],
+        None,
+    ));
+    let album = Queue::Album("1".into());
     assert_eq!(
-        play_from(&album, &model, 0),
+        play_from(&album, &model, 1),
         Some(Action::PlayIn(album.clone(), 1))
     );
-    assert_eq!(play_from(&album, &model, 1), None);
+    assert_eq!(play_from(&album, &model, 0), None);
+    let window = Queue::Songs(vec!["b".into(), "c".into()]);
+    assert_eq!(
+        play_from(&album, &model, 2),
+        Some(Action::PlayIn(window, 0))
+    );
+    assert_eq!(container(&Route::Album("1".into())), Some(album));
+    assert_eq!(container(&Route::Album("l.mine".into())), None);
     let catalog = Route::Playlist("pl.x".into());
     assert_eq!(container(&catalog), Some(Queue::Playlist("pl.x".into())));
     assert_eq!(container(&Route::Playlist("p.mine".into())), None);
-    assert_eq!(container(&Route::Home), None);
+}
+
+#[test]
+fn clicking_a_row_play_or_shuffle_sends_that_action() {
+    let (ctx, mut d, t0) = (egui::Context::default(), Detail::new(None), Instant::now());
+    ctx.enable_accesskit();
+    tick(&mut d, t0, true, &Route::Album("1".into()));
+    let songs = [
+        ("u", "songs"),
+        ("v", "music-videos"),
+        ("a", "songs"),
+        ("b", "songs"),
+    ];
+    answer(&mut d, &ctx, Ok(Reply::Detail(found(page(&songs, None)))));
+    let album = Queue::Album("1".into());
+    let wanted = [
+        ("Play songs b", Some(Action::PlayIn(album.clone(), 2))),
+        ("Play all", Some(Action::PlayIn(album.clone(), 1))),
+        ("Shuffle", Some(Action::Shuffle(album))),
+        ("Play songs u", None),
+    ];
+    for (label, want) in wanted {
+        let mut actions = Vec::new();
+        let mut frame = |events| {
+            let input = egui::RawInput {
+                events,
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| super::show(ui, &mut d, &mut actions));
+            out.textures_delta.clear();
+            out.platform_output.accesskit_update
+        };
+        let nodes = frame(Vec::new()).expect("an accesskit tree").nodes;
+        let node = nodes.iter().find(|(_, n)| n.label() == Some(label));
+        let disabled = node.is_some_and(|(_, n)| n.is_disabled());
+        assert_eq!(disabled, want.is_none(), "{label} greyed out");
+        let at = node.and_then(|(_, n)| n.bounds()).expect(label);
+        let at = egui::pos2(
+            ((at.x0 + at.x1) / 2.0) as f32,
+            ((at.y0 + at.y1) / 2.0) as f32,
+        );
+        let button = |pressed| egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Default::default(),
+        };
+        frame(vec![egui::Event::PointerMoved(at), button(true)]);
+        frame(vec![button(false)]);
+        assert_eq!(actions, Vec::from_iter(want), "{label}");
+    }
 }
 
 fn tick(d: &mut Detail, now: Instant, signed_in: bool, route: &Route) -> Option<Call> {

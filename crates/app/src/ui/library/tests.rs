@@ -22,6 +22,7 @@ fn item(i: usize) -> Item {
         duration_ms: None,
         artwork: None,
         track_count: None,
+        playable: true,
     }
 }
 

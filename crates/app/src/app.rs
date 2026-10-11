@@ -156,7 +156,7 @@ impl App {
         let mut detail = Detail::new(source.as_ref().and_then(|s| s.art_prefix.clone()));
         #[cfg(feature = "dev")]
         {
-            detail.click_track = args.click_track;
+            detail.clicks = args.click_track;
             search.click_first_playlist = args.click_first_playlist;
             (shell.route, shell.queue_open) = (args.route.unwrap_or_default(), args.queue_open);
             if let Some(term) = &args.search {
@@ -222,6 +222,8 @@ impl App {
             "applied": shown.applied,
             "drainsAcked": shown.drains_acked,
             "drainTimeouts": shown.drain_timeouts,
+            "sentMs": shown.sent_us / 1000,
+            "skippedMs": shown.skipped_us / 1000,
             "seq": self.playback.seq(),
             "engine": self.playback.engine(),
             "instanceGuarded": self.guarded,

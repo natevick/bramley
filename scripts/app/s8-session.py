@@ -11,6 +11,8 @@ def load(name, file):
 
 
 cs, s6, s7 = load('covers_session', 'covers-session.py'), load('s6_shots', 's6-shots.py'), load('s7_session', 's7-session.py')
+WINDOW, CUT_BEFORE_END = 5, 3
+LONG_PLAYLIST = 'pl.f68f14135e0b4b3eb42eb5776100f064'
 PLAYLIST_TERM, OUT, NAMES = 'queen essentials', os.path.join(ROOT, 'target', 's8'), os.path.join(ROOT, 'target', 'tmp', 's8', 'names.txt')
 SHOTS = {'real': os.path.join(ROOT, 'target', 'screens', 'PRIVATE-real-art', 's8'), 'synthetic': os.path.join(ROOT, 'target', 'screens', 'synthetic', 's8')}
 PUBLISH, SHOT = os.path.join(ROOT, 'docs', 'screens', 's8'), 'album-detail-dark-1100x720'
@@ -59,7 +61,7 @@ def note_names(binary, env, *args):
     found = reply.get('results', {})
     rows = [reply] + [i for page in found.values() if isinstance(page, dict) for i in page.get('items', [])] if isinstance(found, dict) else [reply]
     names = {n for r in rows for n in (r.get('title'), r.get('name'), r.get('artist'), r.get('album')) if isinstance(n, str) and len(n) > 3}
-    with open(NAMES, 'a') as f:
+    with os.fdopen(os.open(NAMES, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600), 'a') as f:
         f.writelines(n + '\n' for n in sorted(names))
 
 
@@ -83,32 +85,40 @@ def transition(binary, env, st, at, cut, start):
     s, _ = s7.poll(st, lambda s: playing(s, at) and (s.get('duration') or 0) > 30 and (s.get('position') or 0) > start + 2, 30)
     if not s or not playing(s, at):
         return {'reached': False}
-    ids, duration, before, sent = detail(s)['trackIds'], s['duration'], (s['drainsAcked'], s['drainTimeouts']), s.get('seq', 0)
+    ids, duration, sent_seq = detail(s)['trackIds'], s['duration'], s.get('seq', 0)
     target = round(duration - 20, 1)
     cli(binary, env, 'seek', str(target))
-    land, last, prev, end, sent_next = None, start, None, time.time() + 40, False
-    while time.time() < end:
+    base, land, last, flip, samples, sent_next = None, None, start, None, [], False
+    end = time.time() + 40
+    while time.time() < end and (flip is None or time.time() < flip[0] + WINDOW):
         s, now = cs.status(st) or {}, time.time()
         pos = s.get('position') or 0
-        if s.get('itemId') == ids[at + 1] and prev:
-            jump, wall = pos - prev[1], now - prev[0]
-            res = {'acked': s['drainsAcked'] - before[0], 'timeouts': s['drainTimeouts'] - before[1], 'landedOff': None if land is None else round(land - start - target, 2),
-                   'tailShortBy': round(duration - (last - start), 2), 'jump': round(jump, 3), 'wall': round(wall, 3), 'nextStart': pos}
-            res['literal'] = res['acked'] >= 1 and res['timeouts'] == 0
-            res['continuous'] = 0 <= jump <= wall + 0.3
-            res['gapless'] = land is not None and abs(land - start - target) <= 1 and res['tailShortBy'] <= 3 and (res['continuous'] or res['literal'])
-            return res
-        if s.get('itemId') == ids[at]:
-            if land is None and s.get('seq', 0) > sent and s.get('applied', 0) >= s['seq']:
-                land = pos
-            if land is not None:
-                last = max(last, pos)
-            if cut and not sent_next and land is not None and last - start >= duration - 4:
+        samples.append((now, pos))
+        if base is None and s.get('seq', 0) > sent_seq and s.get('applied', 0) >= s['seq']:
+            base = {k: s[k] for k in ('drainsAcked', 'drainTimeouts', 'sentMs', 'skippedMs')}
+            land = pos
+        if flip is None and s.get('itemId') == ids[at + 1] and base:
+            flip = (now, {k: s[k] - base[k] for k in base}, pos)
+        if flip is None and s.get('itemId') == ids[at] and base:
+            last = max(last, pos)
+            if cut and not sent_next and last - start >= duration - CUT_BEFORE_END:
                 cli(binary, env, 'next')
                 sent_next = True
-        prev = (now, pos)
         time.sleep(0.02)
-    return {'advanced': False, 'literal': False, 'gapless': False}
+    if flip is None:
+        return {'advanced': False, 'pass': False}
+    window = [(t, p) for t, p in samples if abs(t - flip[0]) <= WINDOW]
+    stall, moved = 0.0, window[0][0]
+    for (t0, p0), (t1, p1) in zip(window, window[1:]):
+        moved = t1 if p1 > p0 else moved
+        stall = max(stall, t1 - moved)
+    d = flip[1]
+    res = {'acked': d['drainsAcked'], 'timeouts': d['drainTimeouts'], 'sentS': d['sentMs'] / 1000, 'skippedS': d['skippedMs'] / 1000,
+           'stallS': round(stall, 2), 'landedOff': round(land - start - target, 2), 'tailShortBy': round(duration - (last - start), 2), 'nextStart': flip[2]}
+    res['literal'] = res['acked'] >= 1 and res['timeouts'] == 0
+    res['measured'] = res['sentS'] >= (duration - target) - 3 and res['skippedS'] <= 0.1 and stall <= 1
+    res['pass'] = abs(res['landedOff']) <= 1 and (res['literal'] or res['measured'])
+    return res
 
 
 def album_run(binary, env, sock, sink, out, name, sabotage):
@@ -130,12 +140,11 @@ def album_run(binary, env, sock, sink, out, name, sabotage):
             note_names(binary, renv, 'now')
             res.update(ran(cs.status(st), guard, sink))
             clean = res['nullSinkOnly'] and not res['guardKilled']
-            res['f6Literal'] = 'PASS' if all(t.get('literal') for t in res['transitions']) and clean else 'FAIL'
-            res['f6Gapless'] = 'PASS' if all(t.get('gapless') for t in res['transitions']) and clean else 'FAIL'
+            res['f6'] = 'PASS' if all(t.get('pass') for t in res['transitions']) and clean else 'FAIL'
             return res
         finally:
             s7.finish(p, guard)
-    return {'f6Literal': 'FAIL', 'f6Gapless': 'FAIL', 'why': 'no album with 6 tracks in the first 10 covers'}
+    return {'f6': 'FAIL', 'why': 'no album with 6 tracks in the first 10 covers'}
 
 
 def click_run(binary, env, sock, sink, out, name, extra, index, route):
@@ -155,20 +164,56 @@ def click_run(binary, env, sock, sink, out, name, extra, index, route):
         s7.finish(p, guard)
 
 
+def sequence(binary, env, sock, sink, out, name, extra, clicks):
+    p, guard, st, renv = launch(binary, env, sock, sink, name, extra + ['--click-track', ','.join(map(str, clicks))], out)
+    try:
+        rows, end = [], time.time() + 12 * len(clicks) + 20
+        while time.time() < end:
+            s = cs.status(st) or {}
+            ids, item = detail(s).get('trackIds', []), s.get('itemId')
+            if s.get('state') == 'Playing' and item in ids and (not rows or rows[-1] != ids.index(item) + 1):
+                rows.append(ids.index(item) + 1)
+            time.sleep(0.1)
+        note_names(binary, renv, 'now')
+        return {'clicks': clicks, 'rowsPlayed': rows, **ran(cs.status(st), guard, sink)}
+    finally:
+        s7.finish(p, guard)
+
+
+def leak_grep():
+    names = [n for n in open(NAMES).read().splitlines() if n]
+    corpus = subprocess.run(['git', 'diff', 'main'], cwd=ROOT, capture_output=True, text=True).stdout
+    corpus += subprocess.run(['git', 'log', 'main..HEAD', '--format=%B'], cwd=ROOT, capture_output=True, text=True).stdout
+    for d, _, files in os.walk(OUT):
+        corpus += ''.join(open(os.path.join(d, f), errors='replace').read() for f in files if f.endswith('.log'))
+    count = lambda text: sum(text.lower().count(n.lower()) for n in names)
+    hits = sorted({n for n in names if n.lower() in corpus.lower()})
+    print('leak-grep hits (stdout only):', hits, flush=True)
+    return {'names': len(names), 'hits': len(hits), 'plantRaises': bool(names) and count(corpus + names[-1]) > count(corpus)}
+
+
 def live(binary, out):
     os.makedirs(os.path.dirname(NAMES), exist_ok=True)
-    with cs.session(out, 'bramley-s8-live') as (sock, sink, _), cs.isolated('s8-live', True) as (env, _):
-        runs = {'l1': click_run(binary, env, sock, sink, out, 'l1', ['--click-cover', '0', '--click-track', '1'], 0, 'Album')}
-        runs['l1']['pass'] = runs['l1']['pass'] and runs['l1']['art'] is True
-        runs['l3'] = click_run(binary, env, sock, sink, out, 'l3', ['--route', 'search', '--search', PLAYLIST_TERM, '--click-first-playlist', '--click-track', '5'], 4, 'Playlist')
-        runs['l2'] = album_run(binary, env, sock, sink, out, 'l2', False)
-        runs['l2']['pass'] = runs['l2']['f6Gapless'] == 'PASS' and runs['l2'].get('ac') and runs['l2'].get('acSeconds', 99) <= 10
-        runs['f6s'] = album_run(binary, env, sock, sink, out, 'f6s', True)
+    try:
+        with cs.session(out, 'bramley-s8-live') as (sock, sink, _), cs.isolated('s8-live', True) as (env, _):
+            runs = {'l1': click_run(binary, env, sock, sink, out, 'l1', ['--click-cover', '0', '--click-track', '1'], 0, 'Album')}
+            runs['l1']['pass'] = runs['l1']['pass'] and runs['l1']['art'] is True
+            runs['l3'] = click_run(binary, env, sock, sink, out, 'l3', ['--route', 'search', '--search', PLAYLIST_TERM, '--click-first-playlist', '--click-track', '5'], 4, 'Playlist')
+            runs['l5'] = click_run(binary, env, sock, sink, out, 'l5', ['--route', 'playlist:' + LONG_PLAYLIST, '--click-track', '105'], 104, 'Playlist')
+            runs['l2'] = album_run(binary, env, sock, sink, out, 'l2', False)
+            runs['l2']['pass'] = runs['l2']['f6'] == 'PASS' and runs['l2'].get('ac') and runs['l2'].get('acSeconds', 99) <= 10
+            runs['f6s'] = album_run(binary, env, sock, sink, out, 'f6s', True)
+            runs['shuffleThen3'] = sequence(binary, env, sock, sink, out, 'shuffle-then-3', ['--click-cover', '0'], [0, 3])
+            runs['play5ThenShuffle'] = sequence(binary, env, sock, sink, out, 'play5-then-shuffle', ['--click-cover', '0'], [5, 0])
+        runs['leakGrep'] = leak_grep()
+    finally:
+        if os.path.exists(NAMES):
+            os.remove(NAMES)
     for name, r in runs.items():
         print(name, json.dumps(r), flush=True)
-    verdict = {'l1': runs['l1']['pass'], 'l2': runs['l2']['pass'], 'l3': runs['l3']['pass'], 'f6Literal': runs['l2']['f6Literal'], 'f6SabotageFails': runs['f6s']['f6Gapless'] == 'FAIL', 'runs': runs}
+    verdict = {'l1': runs['l1']['pass'], 'l2': runs['l2']['pass'], 'l3': runs['l3']['pass'], 'l5': runs['l5']['pass'], 'f6SabotageFails': runs['f6s']['f6'] == 'FAIL', 'runs': runs}
     json.dump(verdict, open(os.path.join(out, 'live.verdict.json'), 'w'), indent=1)
-    return all(verdict[k] for k in ('l1', 'l2', 'l3', 'f6SabotageFails'))
+    return all(verdict[k] for k in ('l1', 'l2', 'l3', 'l5', 'f6SabotageFails'))
 
 
 def shot(binary, which, stamp):

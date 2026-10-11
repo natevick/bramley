@@ -7,6 +7,7 @@ pub enum Kind {
     Albums,
     Artists,
     Playlists,
+    MusicVideos,
     LibrarySongs,
     LibraryAlbums,
     LibraryPlaylists,
@@ -25,6 +26,7 @@ pub struct Item {
     pub duration_ms: Option<u64>,
     pub artwork: Option<String>,
     pub track_count: Option<u32>,
+    pub playable: bool,
 }
 
 #[derive(Deserialize)]
@@ -45,6 +47,7 @@ struct Attributes {
     duration_in_millis: Option<u64>,
     artwork: Option<Artwork>,
     track_count: Option<u32>,
+    play_params: Option<serde::de::IgnoredAny>,
 }
 
 #[derive(Deserialize)]
@@ -64,6 +67,7 @@ impl From<Resource> for Item {
             duration_ms: a.duration_in_millis,
             artwork: a.artwork.and_then(|art| art.url),
             track_count: a.track_count,
+            playable: a.play_params.is_some(),
         }
     }
 }

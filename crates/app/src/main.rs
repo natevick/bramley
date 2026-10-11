@@ -83,7 +83,7 @@ pub struct Args {
     #[cfg(feature = "dev")]
     click_cover: Option<usize>,
     #[cfg(feature = "dev")]
-    click_track: Option<usize>,
+    click_track: Vec<usize>,
 }
 
 fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
@@ -125,7 +125,10 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
             #[cfg(feature = "dev")]
             "--click-cover" => a.click_cover = Some(value()?.parse()?),
             #[cfg(feature = "dev")]
-            "--click-track" => a.click_track = Some(value()?.parse()?),
+            "--click-track" => {
+                let clicks: Result<Vec<usize>, _> = value()?.split(',').map(str::parse).collect();
+                a.click_track = clicks.context("--click-track takes numbers")?;
+            }
             other => bail!("unknown argument {other}"),
         }
     }

@@ -148,14 +148,15 @@ fn shuffle_sets_the_container_then_shuffles_and_the_next_play_unshuffles() {
         start,
     };
     let expected = [
-        (set(0), Command::Shuffle(true)),
-        (set(2), Command::Shuffle(false)),
+        set(0),
+        Command::Shuffle(true),
+        Command::Play,
+        Command::Shuffle(false),
+        set(2),
+        Command::Play,
+        set(3),
+        Command::Play,
     ];
-    let expected: Vec<Command> = expected
-        .into_iter()
-        .flat_map(|(set, shuffle)| [set, shuffle, Command::Play])
-        .chain([set(3), Command::Play])
-        .collect();
     assert_eq!(sent, expected);
     let (mut signed_out, ends) = fake(true);
     assert!(!signed_out.apply(Action::Shuffle(album.clone())));

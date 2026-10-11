@@ -17,6 +17,7 @@ mod tests;
 
 pub const DEADLINE: Duration = Duration::from_secs(10);
 pub const MAX_TRACKS: usize = 1000;
+pub const WINDOW: usize = 100;
 const ART_PT: f32 = 160.0;
 const ROW_PT: f32 = 26.0;
 
@@ -26,8 +27,9 @@ type Found = (u64, bramley_api::Result<Reply>);
 pub struct Model {
     pub item: Item,
     pub tracks: Vec<Item>,
-    pub at: Vec<usize>,
-    pub seen: usize,
+    pub at: Vec<Option<usize>>,
+    pub queued: usize,
+    pub first_page: usize,
     pub next: Option<String>,
     pub broken: bool,
 }
@@ -38,25 +40,35 @@ impl Model {
             item: detail.item,
             tracks: Vec::new(),
             at: Vec::new(),
-            seen: 0,
+            queued: 0,
+            first_page: 0,
             next: None,
             broken: false,
         };
         model.add(detail.tracks);
+        model.first_page = model.queued;
         model
     }
 
     pub fn add(&mut self, page: bramley_api::Page) {
-        let first = self.seen;
-        self.seen += page.items.len();
-        let songs = page.items.into_iter().enumerate();
-        for (n, track) in songs.filter(|(_, t)| t.kind == Kind::Songs) {
-            self.tracks.push(track);
-            self.at.push(first + n);
+        for track in page.items {
+            let song = track.kind == Kind::Songs;
+            let queued = track.kind == Kind::MusicVideos || song && track.playable;
+            if song {
+                self.at.push(queued.then_some(self.queued));
+                self.tracks.push(track);
+            }
+            self.queued += usize::from(queued);
         }
+        let capped = self.tracks.len() >= MAX_TRACKS;
+        self.broken |= self.tracks.len() > MAX_TRACKS || capped && page.next.is_some();
         self.tracks.truncate(MAX_TRACKS);
         self.at.truncate(MAX_TRACKS);
-        self.next = page.next.filter(|_| self.tracks.len() < MAX_TRACKS);
+        self.next = page.next.filter(|_| !capped);
+    }
+
+    pub fn first_playable(&self) -> Option<usize> {
+        self.at.iter().position(Option::is_some)
     }
 
     pub fn summary(&self) -> String {
@@ -85,14 +97,25 @@ pub enum State {
 
 pub fn container(route: &Route) -> Option<Queue> {
     match route {
-        Route::Album(id) => Some(Queue::Album(id.clone())),
+        Route::Album(id) if !id.starts_with("l.") => Some(Queue::Album(id.clone())),
         Route::Playlist(id) if !id.starts_with("p.") => Some(Queue::Playlist(id.clone())),
         _ => None,
     }
 }
 
 pub fn play_from(open: &Queue, model: &Model, index: usize) -> Option<Action> {
-    Some(Action::PlayIn(open.clone(), *model.at.get(index)?))
+    let at = (*model.at.get(index)?)?;
+    if at < model.first_page {
+        return Some(Action::PlayIn(open.clone(), at));
+    }
+    let rows = model.tracks[index..].iter().zip(&model.at[index..]);
+    let playable = rows
+        .filter(|(_, at)| at.is_some())
+        .map(|(t, _)| t.id.clone());
+    Some(Action::PlayIn(
+        Queue::Songs(playable.take(WINDOW).collect()),
+        0,
+    ))
 }
 
 pub struct Detail {
@@ -104,7 +127,9 @@ pub struct Detail {
     rx: Receiver<Found>,
     pub(super) art: Art,
     #[cfg(feature = "dev")]
-    pub click_track: Option<usize>,
+    pub clicks: Vec<usize>,
+    #[cfg(feature = "dev")]
+    click_at: Option<Instant>,
 }
 
 impl Detail {
@@ -119,7 +144,9 @@ impl Detail {
             rx,
             art: Art::new(art_prefix, ART_PT),
             #[cfg(feature = "dev")]
-            click_track: None,
+            clicks: Vec::new(),
+            #[cfg(feature = "dev")]
+            click_at: None,
         }
     }
 
@@ -221,8 +248,11 @@ pub fn show(ui: &mut egui::Ui, detail: &mut Detail, actions: &mut Vec<Action>) {
         _ => return drop(ui.spinner()),
     };
     #[cfg(feature = "dev")]
-    if let Some(n) = detail.click_track.filter(|n| *n <= model.tracks.len()) {
-        detail.click_track = None;
+    if let Some(&n) = detail.clicks.first().filter(|n| **n <= model.tracks.len())
+        && detail.click_at.is_none_or(|at| Instant::now() >= at)
+    {
+        detail.clicks.remove(0);
+        detail.click_at = Some(Instant::now() + Duration::from_secs(12));
         match n {
             0 => actions.push(Action::Shuffle(open.clone())),
             n => actions.extend(play_from(open, model, n - 1)),
@@ -243,11 +273,11 @@ pub fn show(ui: &mut egui::Ui, detail: &mut Detail, actions: &mut Vec<Action>) {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 let play = labeled(ui.button("⏵ Play"), WidgetType::Button, "Play all");
-                if play.clicked() {
-                    actions.extend(play_from(open, model, 0));
+                if let Some(first) = model.first_playable().filter(|_| play.clicked()) {
+                    actions.extend(play_from(open, model, first));
                 }
                 let shuffle = labeled(ui.button("Shuffle"), WidgetType::Button, "Shuffle");
-                if shuffle.clicked() && !model.tracks.is_empty() {
+                if shuffle.clicked() && model.first_playable().is_some() {
                     actions.push(Action::Shuffle(open.clone()));
                 }
             });
@@ -268,7 +298,10 @@ pub fn show(ui: &mut egui::Ui, detail: &mut Detail, actions: &mut Vec<Action>) {
                 .frame(false)
                 .truncate();
             let size = [ui.available_width(), ROW_PT];
-            let row = ui.add_sized(size, row);
+            let playable = model.at[index].is_some();
+            let row = ui
+                .add_enabled_ui(playable, |ui| ui.add_sized(size, row))
+                .inner;
             let row = labeled(row, WidgetType::Button, &format!("Play {name}"));
             if row.clicked() {
                 actions.extend(play_from(open, model, index));
