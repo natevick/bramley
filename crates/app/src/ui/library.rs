@@ -294,9 +294,10 @@ fn tile(
     ui: &mut egui::Ui,
     art: &mut Art,
     item: &Item,
-    (pt, width): (f32, f32),
+    (cell, width): (bool, f32),
     verb: &str,
 ) -> bool {
+    let pt = if cell { CELL_PT } else { ROW_PT };
     let size = egui::vec2(pt, pt);
     let blank = egui::Rect::from_min_max(egui::epaint::WHITE_UV, egui::epaint::WHITE_UV);
     let image = match art.get(ui.ctx(), item, pt) {
@@ -304,14 +305,29 @@ fn tile(
         None => egui::Image::new((egui::TextureId::default(), size))
             .uv(blank)
             .tint(ui.visuals().faint_bg_color),
-    };
+    }
+    .fit_to_exact_size(size);
     let name = item.name.as_deref().unwrap_or("Untitled");
-    let text = match (&item.artist, pt == ROW_PT) {
-        (Some(artist), true) => format!("{name} · {artist}"),
+    let text = match (&item.artist, cell) {
+        (Some(artist), false) => format!("{name} · {artist}"),
         _ => name.to_owned(),
     };
-    let button = egui::Button::image_and_text(image.fit_to_exact_size(size), text.as_str());
-    let response = ui.add_sized([width, pt + 4.0], button.frame(false));
+    let response = if cell {
+        let shown = ui.vertical(|ui| {
+            let button = ui.add(egui::Button::image(image).frame(false));
+            ui.add_sized(
+                [pt, 16.0],
+                egui::Label::new(egui::RichText::new(&text).small()).truncate(),
+            );
+            button
+        });
+        shown.inner
+    } else {
+        let button = egui::Button::image_and_text(image, text.as_str())
+            .frame(false)
+            .truncate();
+        ui.add_sized([width, pt + 4.0], button)
+    };
     labeled(response, WidgetType::Button, &format!("{verb} {text}")).clicked()
 }
 
@@ -341,10 +357,10 @@ pub fn show(
     } else {
         1
     };
-    let (pt, width) = if albums {
-        (CELL_PT, CELL_PT)
+    let (row_pt, width) = if albums {
+        (CELL_PT + 22.0, CELL_PT)
     } else {
-        (ROW_PT, ui.available_width())
+        (ROW_PT + 4.0, ui.available_width())
     };
     let loaded = lib.list(list).items.len();
     #[allow(unused_mut)]
@@ -357,7 +373,7 @@ pub fn show(
         ui.ctx().request_repaint();
     }
     let mut hit = None;
-    area.show_rows(ui, pt + 4.0, loaded.div_ceil(columns), |ui, rows| {
+    area.show_rows(ui, row_pt, loaded.div_ceil(columns), |ui, rows| {
         let range = rows.start * columns..(rows.end * columns).min(loaded);
         lib.lists[list as usize].wanted |= range.end + MARGIN >= loaded;
         let mut built = 0;
@@ -366,7 +382,7 @@ pub fn show(
                 for index in (row * columns..(row + 1) * columns).filter(|i| *i < loaded) {
                     let item = &lib.lists[list as usize].items[index];
                     built += 1;
-                    if tile(ui, &mut lib.art, item, (pt, width), verb) {
+                    if tile(ui, &mut lib.art, item, (albums, width), verb) {
                         hit = Some(index);
                     }
                 }
