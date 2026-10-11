@@ -25,7 +25,8 @@
   - S3 DONE and merged (a8f5fe2). Norm re-ran it: 167 tests, gate PASS (R1 169.3 PSS / 201.8 RSS zone 3; R2 72.0; ballast FAIL holds; realStateUnchanged). Search reads the user token from the keyring; sign-out drops the API worker.
   - [ ] OPEN: real Apple sign-in on a desktop where Bramley and the browser share a machine (the true user flow). Verify that authorize() works under the page CSP and the token lands in the keyring.
   - ⚠ Memory headroom: R1 RSS crossed 200 (zone 3). The UI stories S6–S10 need a lean-memory brief and a gate run each.
-  - [ ] Then: S4 CI token (Nate adds 3 repo secrets in the GitHub UI, since the broker can't pipe secret values to gh), S12 MCP, S13 full harness, S6–S10 UI.
+  - S4 RUNNING (natevick/s4-ci-token). Nate added the 3 secrets 2026-10-10 (unverifiable with our PAT by design); Pages is enabled (build_type workflow, verified). After merge: Norm triggers workflow_dispatch and checks that https://natevick.github.io/bramley/developer-token.json serves a valid token.
+  - [ ] Then: S12 MCP, S13 full harness, S6–S10 UI (lean memory: R1 is in zone 3).
   - Merge gate for each: Norm re-runs the measurements (S1: measure-musickit.sh ≤ 112 plus sabotages; S0: the positive control), then reviewer, then fast-forward.
   - Norm's calls (Nate may override): `--play` is a dev-only flag, kept out of release builds; artwork is memory-only (no disk cache), which is the conservative reading of section D's "download".
   - Rule 7 entry APPROVED and logged (2026-10-10). At S4: add the three repo secrets and enable GitHub Pages. Nate approved both; Norm does them at S4 via broker/gh, or hands them back if credentials block it.
