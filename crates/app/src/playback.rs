@@ -69,6 +69,8 @@ pub struct Playback {
     pending: Option<Pending>,
     signed_out: bool,
     shuffled: bool,
+    generation: u64,
+    background: u64,
 }
 
 impl Playback {
@@ -84,12 +86,26 @@ impl Playback {
             pending: None,
             signed_out,
             shuffled: false,
+            generation: 0,
+            background: 0,
         }
     }
 
     #[cfg(feature = "dev")]
     pub fn fixture(&mut self, snap: Snapshot) {
         self.snap = snap;
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub fn snapshot(&self) -> &Snapshot {
+        &self.snap
+    }
+
+    pub fn background_settled(&self) -> bool {
+        self.snap.background_done >= self.background
     }
 
     pub fn seq(&self) -> u64 {
@@ -110,6 +126,12 @@ impl Playback {
             Action::PlayIn(queue, start) => return self.play(queue, start, false),
             Action::Shuffle(queue) => return self.play(queue, 0, true),
             _ if !self.started() => return false,
+            Action::TopUp(ids) => {
+                self.background += 1;
+                self.queued.push(Command::TopUp(Queue::Songs(ids)));
+                self.flush();
+                return true;
+            }
             Action::Play => (Command::Play, Some(PlayState::Playing), None),
             Action::Pause => (Command::Pause, Some(PlayState::Paused), None),
             Action::Seek(t) => (Command::Seek(t), None, Some(t)),
@@ -119,7 +141,6 @@ impl Playback {
             Action::QueueAdd(id) => (Command::PlayLater(Queue::Songs(vec![id])), None, None),
             Action::PlayNext(id) => (Command::PlayNext(Queue::Songs(vec![id])), None, None),
             Action::JumpTo(index, id) => (Command::JumpTo { index, id }, None, Some(0.0)),
-            Action::TopUp(ids) => (Command::PlayLater(Queue::Songs(ids)), None, None),
         };
         self.send(command, state, position);
         true
@@ -129,10 +150,12 @@ impl Playback {
         if self.signed_out {
             return false;
         }
+        self.generation += 1;
         if !self.started() {
             self.starting = Some((self.spawn)());
             (self.seq, self.snap, self.shuffled) = (0, Snapshot::default(), false);
             self.engine += 1;
+            self.background = 0;
         }
         if self.shuffled && !shuffle {
             self.shuffled = false;
@@ -246,7 +269,7 @@ impl Playback {
         self.shutdown();
         self.starting = None;
         (self.signed_out, self.snap) = (signed_out, Snapshot::default());
-        (self.pending, self.queued) = (None, Vec::new());
+        (self.pending, self.queued, self.background) = (None, Vec::new(), 0);
     }
 
     pub fn signed_in(&mut self) {

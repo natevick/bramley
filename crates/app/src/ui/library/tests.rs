@@ -456,51 +456,112 @@ fn window(at: usize, length: usize, ids: std::ops::Range<usize>) -> Snapshot {
     snap
 }
 
-#[test]
-fn a_songs_window_tops_up_once_near_its_end_paging_in_what_it_needs() {
+const LIVE: (u64, bool) = (1, true);
+
+fn songs(range: std::ops::Range<usize>) -> (egui::Context, Library) {
     let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
     frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
-    let next = "/v1/me/library/songs?offset=150";
-    answer(&mut lib, &ctx, now, page(0..150, Some(next)));
-    let ids = |r: std::ops::Range<usize>| r.map(|i| format!("i.{i}")).collect::<Vec<_>>();
+    let next = (range.end < 300).then_some("/v1/me/library/songs?offset=next");
+    answer(&mut lib, &ctx, now, page(range, next));
+    (ctx, lib)
+}
+
+fn ids(r: std::ops::Range<usize>) -> Vec<String> {
+    r.map(|i| format!("i.{i}")).collect()
+}
+
+#[test]
+fn a_songs_window_tops_up_16_at_a_time_near_its_end_up_to_a_hard_cap() {
+    let ((ctx, mut lib), now) = (songs(0..120), Instant::now());
     let clicked = lib.play_from(List::Songs, 0);
     assert_eq!(clicked, Some(Action::PlayIn(Queue::Songs(ids(0..100)), 0)));
+    lib.started(1);
     assert_eq!(
-        lib.top_up(&window(88, 100, 88..100)),
+        lib.top_up(&window(88, 100, 88..100), LIVE, now),
         None,
-        "11 ahead is not near the end"
+        "11 ahead"
     );
     let near = window(89, 100, 89..100);
-    assert_eq!(lib.top_up(&near), Some(Action::TopUp(ids(100..150))));
-    assert_eq!(lib.top_up(&window(140, 150, 140..150)), None);
-    let more = answer(&mut lib, &ctx, now, page(150..300, None));
-    assert_eq!(more, Call::Next(next.into()));
-    let topped = lib.top_up(&window(140, 150, 140..150));
-    assert_eq!(topped, Some(Action::TopUp(ids(150..250))));
-    let early = window(140, 150, 140..150);
+    assert_eq!(lib.top_up(&near, (1, false), now), None, "one in flight");
     assert_eq!(
-        lib.top_up(&early),
+        lib.top_up(&near, LIVE, now),
+        Some(Action::TopUp(ids(100..116)))
+    );
+    assert_eq!(
+        lib.top_up(&near, LIVE, now),
         None,
         "no second batch before the first lands"
     );
+    let tail = lib.top_up(&window(110, 116, 110..116), LIVE, now);
+    assert_eq!(tail, Some(Action::TopUp(ids(116..120))));
+    assert_eq!(lib.top_up(&window(110, 120, 110..120), LIVE, now), None);
+    let more = answer(&mut lib, &ctx, now, page(120..300, None));
+    assert_eq!(more, Call::Next("/v1/me/library/songs?offset=next".into()));
+    let paged = lib.top_up(&window(110, 120, 110..120), LIVE, now);
+    assert_eq!(paged, Some(Action::TopUp(ids(120..136))));
+    let short = window(QUEUE_CAP - 6, QUEUE_CAP - 3, 133..136);
     assert_eq!(
-        lib.top_up(&window(0, 1, 7..8)),
-        None,
-        "a replaced queue is not topped up"
+        lib.top_up(&short, LIVE, now),
+        Some(Action::TopUp(ids(136..139)))
     );
-    let full = window(QUEUE_CAP - 5, QUEUE_CAP, 245..250);
+    let full = window(QUEUE_CAP - 3, QUEUE_CAP, 136..139);
+    assert_eq!(lib.top_up(&full, LIVE, now), None, "the cap is hard");
+}
+
+#[test]
+fn a_top_up_that_never_lands_is_resent_with_backoff_then_given_up_with_a_notice() {
+    let ((_ctx, mut lib), t0) = (songs(0..150), Instant::now());
+    lib.play_from(List::Songs, 0);
+    lib.started(1);
+    let (near, batch) = (window(89, 100, 89..100), Some(Action::TopUp(ids(100..116))));
+    assert_eq!(lib.top_up(&near, LIVE, t0), batch);
+    let at = |s| t0 + Duration::from_secs(s);
+    assert_eq!(lib.top_up(&near, LIVE, at(4)), None);
+    assert_eq!(lib.top_up(&near, LIVE, at(5)), batch);
+    assert_eq!(lib.top_up(&near, LIVE, at(34)), None);
+    assert_eq!(lib.top_up(&near, LIVE, at(35)), batch);
+    assert_eq!(lib.top_up(&near, LIVE, at(95)), batch);
+    assert!(!lib.top_up_failed);
+    assert_eq!(lib.top_up(&near, LIVE, at(500)), None);
+    assert!(lib.top_up_failed, "the user is told");
+}
+
+#[test]
+fn only_the_queue_the_user_started_from_the_list_is_topped_up() {
+    let ((ctx, mut lib), now) = (songs(0..150), Instant::now());
+    let near = window(89, 100, 89..100);
+    lib.play_from(List::Songs, 0);
+    assert_eq!(lib.top_up(&near, LIVE, now), None, "not yet applied");
+    lib.started(1);
+    let cli_play = window(0, 1, 42..43);
     assert_eq!(
-        lib.top_up(&full),
+        lib.top_up(&cli_play, (2, true), now),
         None,
-        "the queue stops growing at its cap"
+        "`bramley play i.42`"
+    );
+    assert_eq!(lib.top_up(&near, LIVE, now), None, "and it stays dropped");
+    lib.play_from(List::Songs, 0);
+    lib.started(3);
+    frame(&ctx, &mut lib, &Route::Albums, 600.0, vec![]);
+    answer(&mut lib, &ctx, now, page(500..510, None));
+    lib.play_from(List::Albums, 0);
+    assert_eq!(lib.top_up(&near, (3, true), now), None, "an album click");
+    lib.play_from(List::Songs, 0);
+    lib.started(4);
+    lib.reset();
+    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+    answer(&mut lib, &ctx, now, page(0..150, None));
+    assert_eq!(
+        lib.top_up(&near, (4, true), now),
+        None,
+        "signed out and back in"
     );
 }
 
 #[test]
-fn a_window_stops_following_a_list_that_was_replaced() {
+fn a_window_stops_following_a_playlist_that_was_replaced() {
     let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
-    let near = window(95, 100, 95..100);
-    for (playlist, ids) in [("p.1", 0..150), ("p.2", 0..150)] {
+    for playlist in ["p.1", "p.2"] {
         frame(
             &ctx,
             &mut lib,
@@ -508,21 +569,11 @@ fn a_window_stops_following_a_list_that_was_replaced() {
             600.0,
             vec![],
         );
-        answer(&mut lib, &ctx, now, page(ids, None));
+        answer(&mut lib, &ctx, now, page(0..150, None));
         if playlist == "p.1" {
             lib.play_from(List::Tracks, 0);
+            lib.started(1);
         }
     }
-    assert_eq!(
-        lib.top_up(&near),
-        None,
-        "another playlist's tracks are not appended"
-    );
-    lib.play_from(List::Tracks, 0);
-    lib.reset();
-    assert_eq!(
-        lib.top_up(&near),
-        None,
-        "a reset library is not read past its end"
-    );
+    assert_eq!(lib.top_up(&window(95, 100, 95..100), LIVE, now), None);
 }

@@ -2,7 +2,7 @@
   "use strict";
   const C = globalThis.__bramley_player;
   delete globalThis.__bramley_player;
-  const S = { phase: "start", errors: [], events: [], steps: [], signInNeeded: null, playbackError: null, applied: 0 };
+  const S = { phase: "start", errors: [], events: [], steps: [], signInNeeded: null, playbackError: null, applied: 0, background: 0 };
   const describe = e => e && (e.name || "") + " " + (e.message || e.description || e.errorCode || String(e));
   const err = (where, e) => {
     S.errors.push(where + ": " + describe(e) + (e && e.stack ? " @ " + e.stack : ""));
@@ -63,9 +63,11 @@
     return true;
   }
 
-  let last = Promise.resolve(), seq = 0, started = 0, queueGen = 0, queueFailed = false;
+  let last = Promise.resolve(), seq = 0, started = 0, queueGen = 0, queueFailed = false, adding = Promise.resolve();
   const settled = p => p.then(() => {}, () => {});
-  const turnOf = p => Promise.race([settled(p), new Promise(r => setTimeout(r, C.commandWaitMs))]);
+  const within = (p, ms) => Promise.race([settled(p), new Promise(r => setTimeout(r, ms))]);
+  const turnOf = p => within(p, C.commandWaitMs);
+  const add = p => { adding = settled(p); return p; };
   const note = (name, what) => { S.steps.push([Math.round(performance.now()), name, what]); if (S.steps.length > 20) S.steps.shift(); };
   function enqueue(name, f, needsQueue) {
     const n = ++seq, prev = last;
@@ -97,13 +99,11 @@
     r.currentPlaybackDuration = g(() => m.currentPlaybackDuration);
     r.queuePosition = g(() => m.queue.position);
     r.queue = g(() => {
-      const q = m.queue, at = Math.max(q.position, 0), items = [];
-      for (let i = at; i < Math.min(q.length, at + C.queueShown); i++) {
-        const it = q.item(i);
-        items.push({ id: it.id, title: it.title, durationInMillis: it.attributes && it.attributes.durationInMillis });
-      }
-      return { position: q.position, length: q.length, items };
+      const q = m.queue, at = Math.max(q.position, 0);
+      const slot = it => it && typeof it.id === "string" ? { id: it.id, title: it.title, durationInMillis: it.attributes && it.attributes.durationInMillis } : { id: null };
+      return { position: q.position, length: q.length, items: q.items.slice(at, at + C.queueShown).map(slot) };
     });
+    r.background = S.background;
     r.item = g(() => m.nowPlayingItem && { id: m.nowPlayingItem.id, title: m.nowPlayingItem.title, artistName: m.nowPlayingItem.artistName, durationInMillis: m.nowPlayingItem.attributes && m.nowPlayingItem.attributes.durationInMillis });
     return r;
   };
@@ -112,7 +112,10 @@
       state,
       setQueue: options => {
         const gen = ++queueGen;
-        enqueue("setQueue", () => gen === queueGen ? m.setQueue(options) : false, false);
+        enqueue("setQueue", async () => {
+          await within(adding, 4 * C.commandWaitMs);
+          return gen === queueGen ? m.setQueue(options) : false;
+        }, false);
       },
       play: () => enqueue("play", () => m.play(), true),
       pause: () => enqueue("pause", () => m.pause(), false),
@@ -120,10 +123,12 @@
       next: () => enqueue("next", () => m.skipToNextItem(), true),
       previous: () => enqueue("previous", () => m.skipToPreviousItem(), true),
       volume: v => enqueue("volume", () => { m.volume = v; }, false),
-      playLater: options => enqueue("playLater", () => m.playLater(options), true),
+      playLater: options => enqueue("playLater", () => add(m.playLater(options)), true),
+      topUp: options => ready.then(() => S.signInNeeded || queueFailed ? null : add(m.playLater(options)))
+        .catch(e => err("topUp", e)).then(() => { S.background++; }),
       shuffle: on => enqueue("shuffle", () => { m.shuffleMode = on ? 1 : 0; }, true),
       playNext: options => enqueue("playNext", () => m.playNext(options), true),
-      jumpTo: ([index, id]) => enqueue("jumpTo", () => (m.queue.item(index) || {}).id === id ? m.changeToMediaAtIndex(index) : false, true),
+      jumpTo: ([index, id]) => enqueue("jumpTo", () => (m.queue.items[index] || {}).id === id ? m.changeToMediaAtIndex(index) : false, true),
     },
   });
 })();

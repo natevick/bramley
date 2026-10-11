@@ -7,20 +7,26 @@ use super::player_bar::clock;
 use crate::playback::Action;
 
 pub fn jump(shown: &Snapshot, row: usize) -> Option<Action> {
-    let item = shown.queue.get(row).filter(|_| row > 0)?;
-    Some(Action::JumpTo(shown.queue_position? + row, item.id.clone()))
+    let current = row == 0 && shown.queue_position.is_some();
+    let item = shown
+        .queue
+        .get(row)
+        .filter(|item| !current && !item.id.is_empty())?;
+    let at = shown.queue_position.unwrap_or(0);
+    Some(Action::JumpTo(at + row, item.id.clone()))
 }
 
 fn row(ui: &mut egui::Ui, shown: &Snapshot, row: usize, actions: &mut Vec<Action>) {
     let item = &shown.queue[row];
     let title = item.title.as_deref().unwrap_or("Untitled");
     let length = item.duration.map(clock).unwrap_or_default();
-    let text = if row == 0 {
+    let current = row == 0 && shown.queue_position.is_some();
+    let text = if current {
         RichText::new(title).strong()
     } else {
         RichText::new(title)
     };
-    let button = egui::Button::selectable(row == 0, text)
+    let button = egui::Button::selectable(current, text)
         .right_text(length)
         .truncate();
     let response = ui.add_sized([ui.available_width(), 26.0], button);
@@ -49,23 +55,22 @@ pub fn show(
         ui.label(RichText::new("Nothing queued.").weak());
         return;
     }
-    ui.label(RichText::new("Now playing").weak());
-    row(ui, shown, 0, actions);
-    if shown.queue.len() > 1 {
+    let first = usize::from(shown.queue_position.is_some());
+    if first == 1 {
+        ui.label(RichText::new("Now playing").weak());
+        row(ui, shown, 0, actions);
         ui.add_space(8.0);
-        let ahead = shown
-            .queue_length
-            .saturating_sub(shown.queue_position.unwrap_or(0) + 1);
+    }
+    let ahead = (shown.queue_length + first).saturating_sub(shown.queue_position.unwrap_or(0) + 1);
+    if shown.queue.len() > first {
         ui.label(RichText::new(format!("Up next · {ahead}")).weak());
     }
-    egui::ScrollArea::vertical().auto_shrink(false).show_rows(
-        ui,
-        26.0,
-        shown.queue.len() - 1,
-        |ui, rows| {
+    let rows = shown.queue.len() - first;
+    egui::ScrollArea::vertical()
+        .auto_shrink(false)
+        .show_rows(ui, 26.0, rows, |ui, rows| {
             for index in rows {
-                row(ui, shown, index + 1, actions);
+                row(ui, shown, index + first, actions);
             }
-        },
-    );
+        });
 }

@@ -68,6 +68,7 @@ pub enum Command {
     Volume(f32),
     PlayLater(Queue),
     Shuffle(bool),
+    TopUp(Queue),
     PlayNext(Queue),
     JumpTo { index: usize, id: String },
     Shutdown,
@@ -122,8 +123,28 @@ pub struct Snapshot {
     pub queue: Vec<QueueItem>,
     pub queue_position: Option<usize>,
     pub queue_length: usize,
+    pub background_done: u64,
     #[cfg(feature = "diagnostics")]
     pub diagnostics: Option<Diagnostics>,
+}
+
+impl Snapshot {
+    pub fn http_statuses(&self, path: &str) -> J {
+        #[cfg(feature = "diagnostics")]
+        if let Some(J::Object(seen)) = self
+            .diagnostics
+            .as_ref()
+            .and_then(|d| d.engine.as_ref())
+            .map(|e| &e["platform"]["xhr"]["endpoints"])
+        {
+            let ours = seen.iter().filter(|(key, _)| key.contains(path));
+            return ours
+                .map(|(key, v)| (key.clone(), v["statuses"].clone()))
+                .collect();
+        }
+        let _ = path;
+        J::Null
+    }
 }
 
 pub(crate) trait Backend {
@@ -323,6 +344,7 @@ pub(crate) fn command_js(command: &Command) -> String {
         Command::Volume(v) => ("volume", json!(v)),
         Command::PlayLater(queue) => ("playLater", queue_options(queue)),
         Command::Shuffle(on) => ("shuffle", json!(on)),
+        Command::TopUp(queue) => ("topUp", queue_options(queue)),
         Command::PlayNext(queue) => ("playNext", queue_options(queue)),
         Command::JumpTo { index, id } => ("jumpTo", json!([index, id])),
         Command::Shutdown => return String::new(),
@@ -340,7 +362,7 @@ fn queue_options(queue: &Queue) -> J {
 
 fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
     let js = match b.eval_json("__player.state()") {
-        Ok(js) => js,
+        Ok(js) => serde_json::from_str(&redact(&js.to_string(), secrets)).unwrap_or(J::Null),
         Err(e) => {
             return Snapshot {
                 error: Some(PlayerError::LoadFailed(redact(&e.to_string(), secrets))),
@@ -348,16 +370,14 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
             };
         }
     };
-    let text = |v: &J| v.as_str().map(|s| redact(s, secrets));
+    let text = |v: &J| v.as_str().map(str::to_owned);
     let seconds = |v: &J| v.as_f64().map(|ms| ms / 1000.0);
     let queue = &js["queue"];
     let shown = queue["items"].as_array().map_or(&[][..], Vec::as_slice);
-    let shown = shown.iter().take(QUEUE_SHOWN).filter_map(|item| {
-        Some(QueueItem {
-            id: text(&item["id"])?,
-            title: text(&item["title"]),
-            duration: seconds(&item["durationInMillis"]),
-        })
+    let shown = shown.iter().take(QUEUE_SHOWN).map(|item| QueueItem {
+        id: text(&item["id"]).unwrap_or_default(),
+        title: text(&item["title"]),
+        duration: seconds(&item["durationInMillis"]),
     });
     let error = if let Some(reason) = text(&js["signInNeeded"]) {
         Some(PlayerError::SignInNeeded(reason))
@@ -392,9 +412,10 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
         queue: shown.collect(),
         queue_position: queue["position"].as_u64().map(|at| at as usize),
         queue_length: queue["length"].as_u64().unwrap_or(0) as usize,
+        background_done: js["background"].as_u64().unwrap_or(0),
         #[cfg(feature = "diagnostics")]
         diagnostics: Some(Diagnostics {
-            js: serde_json::from_str(&redact(&without_queue(&js), secrets)).unwrap_or(J::Null),
+            js: serde_json::from_str(&without_queue(&js)).unwrap_or(J::Null),
             engine: None,
         }),
     }

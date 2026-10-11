@@ -23,6 +23,12 @@ pub const ART_CAP: usize = 96;
 pub const QUEUE_AHEAD: usize = 100;
 pub const TOP_UP_AT: usize = 10;
 pub const QUEUE_CAP: usize = 1000;
+pub const TOP_UP_BATCH: usize = 16;
+pub const TOP_UP_RETRIES: [Duration; 3] = [
+    Duration::from_secs(5),
+    Duration::from_secs(30),
+    Duration::from_secs(60),
+];
 pub const DEADLINE: Duration = Duration::from_secs(15);
 pub const RETRY: Duration = Duration::from_secs(5);
 pub const ART_RETRY: Duration = Duration::from_secs(60);
@@ -77,12 +83,17 @@ struct Follow {
     playlist: String,
     next: usize,
     batch: Vec<String>,
+    previous: Vec<String>,
+    generation: Option<u64>,
+    tries: usize,
+    sent: Option<Instant>,
 }
 
 #[derive(Default)]
 pub struct Library {
     lists: [Paged; 4],
     follow: Option<Follow>,
+    pub top_up_failed: bool,
     playlist: String,
     sent: u64,
     mail: Mailbox,
@@ -115,6 +126,7 @@ impl Library {
 
     pub fn reset(&mut self) {
         self.lists = Default::default();
+        self.follow = None;
         self.denied = false;
         self.art.clear();
     }
@@ -202,32 +214,67 @@ impl Library {
 impl Library {
     pub(crate) fn play_from(&mut self, list: List, index: usize) -> Option<Action> {
         let action = play(list, &self.list(list).items, index);
-        if let Some(Action::PlayIn(Queue::Songs(ids), _)) = &action {
-            let (playlist, next) = (self.playlist.clone(), index + ids.len());
-            let batch = ids.clone();
-            self.follow = Some(Follow {
+        self.follow = match &action {
+            Some(Action::PlayIn(Queue::Songs(ids), _)) => Some(Follow {
                 list,
-                playlist,
-                next,
-                batch,
-            });
-        }
+                playlist: self.playlist.clone(),
+                next: index + ids.len(),
+                batch: ids.clone(),
+                previous: Vec::new(),
+                generation: None,
+                tries: 0,
+                sent: None,
+            }),
+            _ => None,
+        };
         action
     }
 
-    pub fn top_up(&mut self, snap: &Snapshot) -> Option<Action> {
+    pub fn started(&mut self, generation: u64) {
+        if let Some(follow) = self.follow.as_mut() {
+            follow.generation.get_or_insert(generation);
+        }
+    }
+
+    pub fn top_up(
+        &mut self,
+        snap: &Snapshot,
+        (generation, settled): (u64, bool),
+        now: Instant,
+    ) -> Option<Action> {
         let follow = self.follow.as_mut()?;
+        if follow.generation != Some(generation) {
+            if follow.generation.is_some() {
+                self.follow = None;
+            }
+            return None;
+        }
         let at = snap.queue_position?;
         let (length, tail) = (snap.queue_length, &snap.queue.last()?.id);
         let ends = at + snap.queue.len() == length && length <= at + 1 + TOP_UP_AT;
-        if !ends || !follow.batch.contains(tail) {
+        if !ends || !settled {
+            return None;
+        }
+        if follow.previous.contains(tail) {
+            let Some(wait) = TOP_UP_RETRIES.get(follow.tries) else {
+                (self.follow, self.top_up_failed) = (None, true);
+                return None;
+            };
+            if follow.sent.is_some_and(|sent| now < sent + *wait) {
+                return None;
+            }
+            (follow.tries, follow.sent) = (follow.tries + 1, Some(now));
+            return Some(Action::TopUp(follow.batch.clone()));
+        }
+        if !follow.batch.contains(tail) {
             return None;
         }
         let paged = &mut self.lists[follow.list as usize];
         let cursor = paged.items.get(follow.next - 1).map(|item| &item.id);
         let moved = follow.list == List::Tracks && follow.playlist != self.playlist;
-        let end = paged.items.len().min(follow.next + QUEUE_AHEAD);
-        if moved || cursor != follow.batch.last() || length >= QUEUE_CAP {
+        let room = QUEUE_CAP.saturating_sub(length);
+        let end = paged.items.len().min(follow.next + TOP_UP_BATCH.min(room));
+        if moved || cursor != follow.batch.last() || room == 0 {
             self.follow = None;
             return None;
         }
@@ -235,11 +282,11 @@ impl Library {
             paged.wanted = true;
             return None;
         }
-        follow.batch = paged.items[follow.next..end]
+        let batch = paged.items[follow.next..end]
             .iter()
-            .map(|item| item.id.clone())
-            .collect();
-        follow.next = end;
+            .map(|item| item.id.clone());
+        follow.previous = std::mem::replace(&mut follow.batch, batch.collect());
+        (follow.next, follow.tries, follow.sent) = (end, 0, Some(now));
         Some(Action::TopUp(follow.batch.clone()))
     }
 }

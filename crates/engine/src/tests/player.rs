@@ -278,9 +278,10 @@ fn the_snapshot_carries_the_queue_window_from_the_current_item() {
     let fake = FakeEngine::default();
     let f = fake.clone();
     let (tx, rx, _) = spawn_fake(move || Ok(f), SNAPSHOT_EVERY);
-    let items: Vec<J> = (0..QUEUE_SHOWN + 5)
+    let mut items: Vec<J> = (0..QUEUE_SHOWN + 5)
         .map(|i| json!({"id": format!("i.{i}"), "title": format!("T {SECRET}"), "durationInMillis": 1500}))
         .collect();
+    items[1] = json!({"id": null});
     fake.set(
         json!({"queue": {"position": 7, "length": 300, "items": items}}),
         None,
@@ -294,6 +295,10 @@ fn the_snapshot_carries_the_queue_window_from_the_current_item() {
         duration: Some(1.5),
     };
     assert_eq!(s.queue[0], first);
+    assert_eq!(
+        (s.queue[1].id.as_str(), s.queue[2].id.as_str()),
+        ("", "i.2")
+    );
     fake.set(
         json!({"queue": {"position": -1, "length": 0, "items": []}}),
         None,

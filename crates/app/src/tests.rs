@@ -122,20 +122,24 @@ fn actions_map_to_commands() {
 }
 
 #[test]
-fn queue_actions_send_play_next_play_later_and_jump_in_order_once_playing() {
+fn queue_actions_send_in_order_and_a_top_up_runs_in_the_background() {
     let (mut p, ends) = fake(false);
     assert!(
         !p.apply(Action::PlayNext("x".into())),
         "no queue before a play"
     );
     p.apply(Action::PlaySong("a".into()));
+    let generation = p.generation();
     p.receive();
     let songs = |ids: &[&str]| Queue::Songs(ids.iter().map(|id| id.to_string()).collect());
+    let seq = p.seq();
+    assert!(p.apply(Action::TopUp(vec!["c".into(), "d".into()])));
+    assert_eq!(p.seq(), seq, "a top-up is not a pending user command");
+    assert!(!p.background_settled());
     for action in [
         Action::QueueAdd("b".into()),
         Action::PlayNext("x".into()),
         Action::JumpTo(2, "b".into()),
-        Action::TopUp(vec!["c".into(), "d".into()]),
     ] {
         assert!(p.apply(action));
     }
@@ -145,12 +149,22 @@ fn queue_actions_send_play_next_play_later_and_jump_in_order_once_playing() {
         id: "b".into(),
     };
     let expected = [
+        Command::TopUp(songs(&["c", "d"])),
         Command::PlayLater(songs(&["b"])),
-        Command::PlayNext(songs(&["x"])),
-        jump,
     ];
-    assert_eq!(sent[..3], expected);
-    assert_eq!(sent[3], Command::PlayLater(songs(&["c", "d"])));
+    assert_eq!(sent[..2], expected);
+    assert_eq!(sent[2..], [Command::PlayNext(songs(&["x"])), jump]);
+    let mut done = snap(PlayState::Playing, 1.0, p.seq(), None);
+    done.background_done = 1;
+    ends.borrow()[0].1.send(done).unwrap();
+    p.receive();
+    assert!(p.background_settled());
+    p.apply(Action::PlaySong("e".into()));
+    assert_eq!(
+        p.generation(),
+        generation + 1,
+        "every new queue is a new generation"
+    );
 }
 
 #[test]

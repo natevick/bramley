@@ -205,8 +205,9 @@ fn play_later_appends_after_the_queue_and_is_skipped_once_the_queue_failed() {
 
 const FAKE_QUEUE: &str = r#"
 const item = id => ({ id, title: "T" + id, attributes: { durationInMillis: 1000 } });
-fakeM.queue = { position: 0, list: [item("A")], get length() { return this.list.length; }, item(i) { return this.list[i]; } };
+fakeM.queue = { position: 0, list: [item("A")], get length() { return this.list.length; }, get items() { return this.list.slice(); } };
 fakeM.playLater = async o => { fakeM.queue.list.push(...o.songs.map(item)); };
+fakeM.queue.list.push({ id: 7 });
 fakeM.playNext = async o => { fakeM.queue.list.splice(fakeM.queue.position + 1, 0, ...o.songs.map(item)); };
 fakeM.changeToMediaAtIndex = async i => { mklog.push("change " + i); fakeM.queue.position = i; };
 "#;
@@ -237,10 +238,14 @@ fn the_queue_window_reads_the_public_queue_and_jumps_only_to_the_item_shown() {
             .map(|i| i["id"].clone())
             .collect::<Vec<_>>()
     };
-    assert_eq!(ids(&e), ["A", "X", "B", "C"]);
+    assert_eq!(
+        ids(&e),
+        [json!("A"), json!("X"), J::Null, json!("B")],
+        "a bad entry keeps its slot"
+    );
     assert_eq!(
         (queue(&e)["position"].clone(), queue(&e)["length"].clone()),
-        (json!(0), json!(5))
+        (json!(0), json!(6))
     );
     assert_eq!(
         queue(&e)["items"][1],
@@ -250,7 +255,36 @@ fn the_queue_window_reads_the_public_queue_and_jumps_only_to_the_item_shown() {
         index,
         id: id.into(),
     };
-    send(&mut e, &[jump(3, "B"), jump(3, "C")], 300);
-    assert_eq!(log(&e), json!(["change 3"]));
+    send(&mut e, &[jump(4, "B"), jump(4, "C")], 300);
+    assert_eq!(log(&e), json!(["change 4"]));
     assert_eq!(ids(&e), ["C", "D"]);
+}
+
+const SLOW_ADD: &str = r#"
+fakeM.q = "OLD";
+fakeM.playLater = o => later(300, () => mklog.push("added " + o.songs + " to " + fakeM.q));
+"#;
+
+#[test]
+fn a_new_queue_waits_for_a_top_up_in_flight_but_a_pause_does_not() {
+    let (mut e, _sink) = player(100);
+    ready(&mut e);
+    e.eval_script("slow.js", SLOW_ADD).unwrap();
+    let top_up = Command::TopUp(Queue::Songs(vec!["T".into()]));
+    send(&mut e, &[top_up.clone(), Command::Pause], 100);
+    assert_eq!(
+        log(&e),
+        json!(["pause"]),
+        "the pause did not queue behind the top-up"
+    );
+    e.run_for(Duration::from_millis(400));
+    assert_eq!(log(&e), json!(["added T to OLD"]));
+    assert_eq!(e.eval_json("__player.state().background").unwrap(), 1);
+    send(&mut e, &[top_up, songs("NEW")], 600);
+    let order = json!(["added T to OLD", "setQueue-start NEW", "setQueue-done NEW"]);
+    assert_eq!(
+        log(&e),
+        order,
+        "the top-up landed before the queue it would have joined"
+    );
 }

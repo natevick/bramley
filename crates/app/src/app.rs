@@ -25,6 +25,7 @@ use crate::{signin, ui};
 const REPAINT_EVERY: Duration = Duration::from_secs(1);
 const MEMORY_ONLY: [&str; 5] = ["title", "artist", "queue", "queuePosition", "queueLength"];
 const QUEUE_FIRST: &str = "Play something first; the queue starts with it.";
+const TOP_UP_FAILED: &str = "More songs from your library could not be added to the queue.";
 const STILL_CLEARING: &str =
     "signed out here, but the stored sign-in is still being removed; run sign-out again to check";
 
@@ -259,6 +260,10 @@ impl App {
             "library": self.library.status(),
             "detail": self.detail.status(),
         });
+        #[cfg(feature = "dev")]
+        {
+            status["libraryHttp"] = shown.http_statuses("/v1/me/library/songs");
+        }
         if let (Some(status), Value::Object(token)) =
             (status.as_object_mut(), self.user.developer().status())
         {
@@ -523,8 +528,15 @@ impl App {
                 .push(Nav::Go(ui::nav::Route::Album(id.to_owned())));
             self.click_cover = None;
         }
-        if let Some(more) = self.library.top_up(&self.playback.shown()) {
+        let queue = (
+            self.playback.generation(),
+            self.playback.background_settled(),
+        );
+        if let Some(more) = self.library.top_up(self.playback.snapshot(), queue, now) {
             self.playback.apply(more);
+        }
+        if std::mem::take(&mut self.library.top_up_failed) {
+            self.notice = Some(TOP_UP_FAILED);
         }
         if changed
             || self
@@ -613,6 +625,7 @@ impl App {
                 self.notice = Some(QUEUE_FIRST);
             }
         }
+        self.library.started(self.playback.generation());
     }
 
     #[cfg(feature = "dev")]
