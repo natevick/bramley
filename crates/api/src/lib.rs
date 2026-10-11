@@ -54,14 +54,25 @@ impl Job {
 impl Client {
     pub fn run(&self, call: Call) -> Result<Reply> {
         let api = self.session()?;
+        match api.run(call.clone()) {
+            Err(Error::DeveloperToken) if self.renew(&api.tokens.developer) => {
+                self.session()?.run(call)
+            }
+            ran => ran,
+        }
+    }
+}
+
+impl Session<'_> {
+    fn run(&self, call: Call) -> Result<Reply> {
         Ok(match call {
-            Call::Storefront => Reply::Storefront(api.storefront()?),
-            Call::Search(term) => Reply::Search(api.search(&term)?),
-            Call::Album(id) => Reply::Detail(api.album(&id)?),
-            Call::Playlist(id) => Reply::Detail(api.playlist(&id)?),
-            Call::Library(shelf) => Reply::Page(api.library(shelf)?),
-            Call::PlaylistTracks(id) => Reply::Page(api.playlist_tracks(&id)?),
-            Call::Next(next) => Reply::Page(api.next(&next)?),
+            Call::Storefront => Reply::Storefront(self.storefront()?),
+            Call::Search(term) => Reply::Search(self.search(&term)?),
+            Call::Album(id) => Reply::Detail(self.album(&id)?),
+            Call::Playlist(id) => Reply::Detail(self.playlist(&id)?),
+            Call::Library(shelf) => Reply::Page(self.library(shelf)?),
+            Call::PlaylistTracks(id) => Reply::Page(self.playlist_tracks(&id)?),
+            Call::Next(next) => Reply::Page(self.next(&next)?),
         })
     }
 }

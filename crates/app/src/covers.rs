@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::Cursor;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -53,7 +52,6 @@ pub struct Tally {
 pub struct Source {
     pub api: String,
     pub art_prefix: Option<String>,
-    pub config: PathBuf,
     pub user: crate::credentials::Credentials,
 }
 
@@ -211,19 +209,31 @@ fn load_chart(
     px: u32,
     tally: &Tally,
 ) -> Result<Option<Chart>> {
-    let developer = crate::read_token(&source.config, "developer-token")?;
+    let tokens = source.user.developer();
+    let developer = tokens.get().map_err(|why| anyhow!(why))?;
     let Some(user) = source.user.load().map_err(|why| anyhow!(why))? else {
         return Ok(None);
     };
-    let bearer = format!("Bearer {developer}");
-    let checked = signed_in(agent, source, &bearer, &user, tally).and_then(|ok| {
-        ok.then(|| chart(agent, source, &bearer, px, tally))
-            .transpose()
-    });
-    checked.map_err(|e| match e.is::<DeveloperTokenRejected>() {
-        true => e,
-        false => anyhow!("{}", redact(&format!("{e:#}"), &[developer, user])),
-    })
+    let attempt = |developer: &str| {
+        let bearer = format!("Bearer {developer}");
+        let checked = signed_in(agent, source, &bearer, &user, tally).and_then(|ok| {
+            ok.then(|| chart(agent, source, &bearer, px, tally))
+                .transpose()
+        });
+        checked.map_err(|e| match e.is::<DeveloperTokenRejected>() {
+            true => e,
+            false => anyhow!(
+                "{}",
+                redact(&format!("{e:#}"), &[developer.into(), user.clone()])
+            ),
+        })
+    };
+    match attempt(&developer) {
+        Err(e) if e.is::<DeveloperTokenRejected>() && tokens.refetch(&developer) => {
+            attempt(&tokens.get().map_err(|why| anyhow!(why))?)
+        }
+        loaded => loaded,
+    }
 }
 
 pub fn fetch(

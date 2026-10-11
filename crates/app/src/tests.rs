@@ -12,6 +12,7 @@ use serde_json::json;
 
 use crate::covers::{self, Grid, Source};
 use crate::credentials::Credentials;
+use crate::devtoken::DeveloperToken;
 use crate::playback::{Action, Banner, HOLD_LIMIT, Link, Playback, SignedOut, Spawn};
 
 type Ends = Rc<RefCell<Vec<(Receiver<Command>, Sender<Snapshot>)>>>;
@@ -688,7 +689,12 @@ fn only_https_mzstatic_artwork_is_fetched_unless_dev_names_the_exact_origin() {
 #[cfg(not(feature = "dev"))]
 #[test]
 fn the_api_base_override_and_screenshots_are_refused_outside_dev() {
-    for flag in ["--api-base", "--screenshot", "--after"] {
+    for flag in [
+        "--api-base",
+        "--screenshot",
+        "--after",
+        "--developer-token-url",
+    ] {
         let args = [flag, "1"].map(String::from);
         assert!(crate::parse_args(args.into_iter()).is_err(), "{flag}");
     }
@@ -720,6 +726,7 @@ type Requests = Arc<Mutex<Vec<(String, Option<String>, Option<String>)>>>;
 #[derive(Clone, Copy)]
 struct Serve {
     me: u16,
+    renewed: bool,
     chart: u16,
     big: bool,
     redirect: bool,
@@ -729,6 +736,7 @@ struct Serve {
 
 const SERVE: Serve = Serve {
     me: 200,
+    renewed: false,
     chart: 200,
     big: false,
     redirect: false,
@@ -780,13 +788,17 @@ fn fixture(serve: Serve) -> Fixture {
                 auth = auth.or(header(&line, "authorization"));
                 user = user.or(header(&line, "music-user-token"));
             }
-            seen.lock().unwrap().push((path.clone(), auth, user));
+            seen.lock()
+                .unwrap()
+                .push((path.clone(), auth.clone(), user));
             let refusal = json!({"errors": [{"detail": format!("rejected {FIXTURE_TOKEN}")}]});
             let (status, extra, body) = if path == "/v1/me/storefront" {
                 if serve.me == 0 {
                     continue;
                 }
-                (serve.me, String::new(), b"{}".to_vec())
+                let renewed = serve.renewed && auth.as_deref() == Some("Bearer renewed-token");
+                let status = if renewed { 200 } else { serve.me };
+                (status, String::new(), b"{}".to_vec())
             } else if path.starts_with("/v1/") {
                 if serve.slow_chart {
                     std::thread::sleep(Duration::from_millis(300));
@@ -865,7 +877,6 @@ fn fixture_source(fx: &Fixture, art_prefix: bool) -> (Source, std::path::PathBuf
         api,
         art_prefix: art_prefix.then(|| fx.base.clone()),
         user: mock_user(&config),
-        config: config.clone(),
     };
     (source, config)
 }
@@ -1950,4 +1961,237 @@ fn cli_search_takes_the_user_token_from_the_keyring_and_refuses_without_one() {
         crate::cli::outcome(&reply),
         Err((crate::cli::REFUSED, "sign in needed".into()))
     );
+}
+
+const DAY: i64 = 86_400;
+
+fn published(days: i64, token: &str, pad: usize) -> Vec<u8> {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+    let now = now.unwrap().as_secs() as i64;
+    let pad = "p".repeat(pad);
+    let body = json!({"token": token, "iat": now, "exp": now + days * DAY, "pad": pad});
+    body.to_string().into_bytes()
+}
+
+fn token_server(status: u16, extra: String, body: Vec<u8>) -> (String, Arc<Mutex<usize>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!(
+        "http://{}/bramley/developer-token.json",
+        listener.local_addr().unwrap()
+    );
+    let hits = Arc::new(Mutex::new(0));
+    let counted = hits.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let mut stream = stream.unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap() > 2 {
+                line.clear();
+            }
+            *counted.lock().unwrap() += 1;
+            let head = format!(
+                "HTTP/1.1 {status} X\r\n{extra}Content-Length: {}\r\n\r\n",
+                body.len()
+            );
+            let _ = stream
+                .write_all(head.as_bytes())
+                .and_then(|()| stream.write_all(&body));
+        }
+    });
+    (url, hits)
+}
+
+fn dev_token(
+    url: &str,
+    cached: Option<Vec<u8>>,
+    config: bool,
+) -> (DeveloperToken, std::path::PathBuf) {
+    let dir = token_dir(&format!(
+        "devtoken-{}",
+        url.rsplit(':').next().unwrap().replace('/', "-")
+    ));
+    if let Some(body) = cached {
+        std::fs::create_dir_all(dir.join("cache")).unwrap();
+        std::fs::write(dir.join("cache/developer-token.json"), body).unwrap();
+    }
+    if config {
+        std::fs::write(dir.join("developer-token"), "config-dir-token\n").unwrap();
+    }
+    (
+        DeveloperToken::new(Some(url.into()), &dir.join("cache"), &dir),
+        dir,
+    )
+}
+
+fn cache_of(dir: &std::path::Path) -> Vec<u8> {
+    std::fs::read(dir.join("cache/developer-token.json")).unwrap_or_default()
+}
+
+#[test]
+fn a_cached_token_with_30_or_more_days_left_is_used_without_a_request() {
+    let (url, hits) = token_server(200, String::new(), published(180, "fetched", 0));
+    let (token, dir) = dev_token(&url, Some(published(100, "cached", 0)), false);
+    let got = (token.get(), token.get());
+    let status = token.status();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(got, (Ok("cached".into()), Ok("cached".into())));
+    assert_eq!(
+        (*hits.lock().unwrap(), &status["devTokenSource"]),
+        (0, &json!("cache"))
+    );
+}
+
+#[test]
+fn under_30_days_one_fetch_replaces_the_cache_owner_only() {
+    let (url, hits) = token_server(200, String::new(), published(180, "fetched", 0));
+    let (token, dir) = dev_token(&url, Some(published(20, "cached", 0)), false);
+    let got = (token.get(), token.get());
+    let cache = String::from_utf8(cache_of(&dir)).unwrap();
+    #[cfg(unix)]
+    let mode = std::os::unix::fs::PermissionsExt::mode(
+        &std::fs::metadata(dir.join("cache/developer-token.json"))
+            .unwrap()
+            .permissions(),
+    ) & 0o777;
+    #[cfg(not(unix))]
+    let mode = 0o600;
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(got, (Ok("fetched".into()), Ok("fetched".into())));
+    assert_eq!(
+        (*hits.lock().unwrap(), cache.contains("\"fetched\""), mode),
+        (1, true, 0o600)
+    );
+    assert_eq!(token.warning(), None);
+}
+
+#[test]
+fn a_failed_renewal_uses_the_cache_and_warns_with_the_days_left() {
+    for (days, status, served) in [(20, 500, 180), (10, 500, 180), (100, 200, 10)] {
+        let (url, _) = token_server(status, String::new(), published(served, "fetched", 0));
+        let cached = (days < 30).then(|| published(days, "cached", 0));
+        let (token, dir) = dev_token(&url, cached, false);
+        let got = token.get().unwrap();
+        let left = token.status()["devTokenDaysLeft"].as_i64().unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        let expect = if status == 200 { served } else { days };
+        assert!((expect - 1..=expect).contains(&left), "{days} {left}");
+        assert_eq!(
+            got,
+            if status == 200 { "fetched" } else { "cached" },
+            "{days}"
+        );
+        assert!(token.warning().is_some(), "{days}");
+    }
+}
+
+#[test]
+fn with_no_cache_a_failed_fetch_falls_back_to_the_config_file_and_then_errors_loudly() {
+    let (url, hits) = token_server(500, String::new(), Vec::new());
+    let (token, dir) = dev_token(&url, None, true);
+    let fallback = (token.get(), token.status()["devTokenSource"].clone());
+    assert_eq!((token.get().is_ok(), *hits.lock().unwrap()), (true, 1));
+    std::fs::remove_file(dir.join("developer-token")).unwrap();
+    let (token, _) = dev_token(&url, None, false);
+    let missing = token.get().unwrap_err();
+    let wrote = dir.join("cache").exists();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(fallback, (Ok("config-dir-token".into()), json!("config")));
+    assert!(
+        missing.contains("developer token is unavailable: HTTP 500"),
+        "{missing}"
+    );
+    assert_eq!((token.missing(), wrote), (Some(missing), false));
+}
+
+#[test]
+fn malformed_expired_oversize_or_redirected_tokens_leave_the_cache_untouched() {
+    let (elsewhere, followed) = token_server(200, String::new(), published(180, "elsewhere", 0));
+    let oversize = published(180, "big", 0).len();
+    let refused = [
+        (200, String::new(), b"{not json".to_vec()),
+        (200, String::new(), published(-1, "expired", 0)),
+        (200, String::new(), published(180, "", 0)),
+        (
+            200,
+            String::new(),
+            published(180, "big", (64 << 10) + 1 - oversize),
+        ),
+        (
+            302,
+            format!("Location: {elsewhere}\r\n"),
+            published(180, "moved", 0),
+        ),
+    ];
+    for (status, extra, body) in refused {
+        let (url, _) = token_server(status, extra, body);
+        let old = published(20, "cached", 0);
+        let (token, dir) = dev_token(&url, Some(old.clone()), false);
+        let got = token.get();
+        let cache = cache_of(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!((got, cache == old), (Ok("cached".into()), true), "{url}");
+    }
+    assert_eq!(*followed.lock().unwrap(), 0);
+}
+
+#[test]
+fn a_developer_token_401_on_covers_refetches_once_and_only_a_new_token_is_retried() {
+    for (served, loads) in [("renewed-token", true), (FIXTURE_TOKEN, false)] {
+        let fx = fixture(Serve {
+            me: 401,
+            renewed: true,
+            ..SERVE
+        });
+        let (mut source, config) = fixture_source(&fx, true);
+        let (url, hits) = token_server(200, String::new(), published(180, served, 0));
+        let cache = source.user.dir().join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(
+            cache.join("developer-token.json"),
+            published(100, FIXTURE_TOKEN, 0),
+        )
+        .unwrap();
+        let developer = DeveloperToken::new(Some(url), &cache, &config);
+        source.user = source.user.with_developer(developer);
+        let ctx = egui::Context::default();
+        let mut grid = Grid::new(Some(source));
+        grid.follow(&ctx, true);
+        settle(&mut grid, &ctx);
+        std::fs::remove_dir_all(&config).unwrap();
+        let seen = (
+            grid.uploaded() == 50,
+            grid.developer_rejected(),
+            grid.rejected(),
+        );
+        assert_eq!(seen, (loads, !loads, false), "{served}");
+        assert_eq!(*hits.lock().unwrap(), 1, "{served}");
+        let asked = fx
+            .paths()
+            .iter()
+            .filter(|p| *p == "/v1/me/storefront")
+            .count();
+        assert_eq!(asked, if loads { 2 } else { 1 }, "{served}");
+    }
+}
+
+#[test]
+fn no_developer_token_anywhere_is_a_banner_in_the_app() {
+    let dir = token_dir("no-developer-token");
+    let (_inbox, inbox) = channel();
+    let spawn = spawning(|| Err(anyhow!("no player in this test")));
+    let user = mock_user(&dir);
+    let ctx = egui::Context::default();
+    let app = crate::app::App::new(
+        &ctx,
+        crate::Args::default(),
+        spawn,
+        (user.clone(), false),
+        (inbox, true),
+        None,
+    );
+    let missing = user.developer().get().unwrap_err();
+    let banner = app.status_json()["banner"].clone();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(banner, json!(format!("{:?}", Banner::Error(missing))));
 }

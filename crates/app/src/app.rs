@@ -152,7 +152,7 @@ impl App {
 
     pub fn status_json(&self) -> Value {
         let shown = self.playback.shown();
-        json!({
+        let mut status = json!({
             "pid": std::process::id(),
             "engineStarted": self.playback.started(),
             "state": format!("{:?}", shown.state),
@@ -177,7 +177,13 @@ impl App {
             "coversRequested": self.covers.requested(),
             "coversFailed": self.covers.failures(),
             "coversError": self.covers.failed(),
-        })
+        });
+        if let (Some(status), Value::Object(token)) =
+            (status.as_object_mut(), self.user.developer().status())
+        {
+            status.extend(token);
+        }
+        status
     }
 
     fn write_status(&mut self) {
@@ -252,10 +258,9 @@ impl App {
                 let worker = match self.api.take() {
                     Some(api) => Ok(api),
                     None => {
-                        let user = self.user.clone();
-                        bramley_api::worker(bramley_api::Client::new(move || {
-                            crate::api_tokens(&user)
-                        }))
+                        let (user, developer) = (self.user.clone(), self.user.developer().clone());
+                        let client = bramley_api::Client::new(move || crate::api_tokens(&user));
+                        bramley_api::worker(client.renewing(move |old| developer.refetch(old)))
                     }
                 };
                 let unsent = match worker {
@@ -307,8 +312,9 @@ impl App {
         if self.waiting().is_some() {
             return Ok(());
         }
-        let developer = crate::read_token(self.user.dir(), "developer-token")
-            .map_err(|_| "sign-in needs Bramley's developer token, which is missing")?;
+        let developer = self.user.developer().peek();
+        let developer =
+            developer.ok_or("sign-in needs Bramley's developer token, which is missing")?;
         let (user, generation) = (self.user.clone(), self.generation.clone());
         let at = generation.load(Ordering::SeqCst);
         let keep: signin::Keep = Box::new(move |token| {
@@ -369,7 +375,9 @@ impl App {
         }
         let developer = self.covers.developer_rejected();
         let rejected = || Banner::Error(covers::DEVELOPER_REJECTED.into());
+        let missing = || self.user.developer().missing().map(Banner::Error);
         let banner = self.playback.banner().or_else(|| developer.then(rejected));
+        let banner = banner.or_else(missing);
         banner.filter(|b| self.checking.is_none() || *b != Banner::SignInNeeded)
     }
 
@@ -406,6 +414,9 @@ impl App {
             }
             if let Some(notice) = self.notice {
                 ui::notice(ui, notice);
+            }
+            if let Some(warning) = self.user.developer().warning() {
+                ui::notice(ui, &warning);
             }
             ui.horizontal(|ui| {
                 ui.heading("Bramley");

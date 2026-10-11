@@ -56,6 +56,7 @@ pub struct Tokens {
 }
 
 type TokenSource = Arc<dyn Fn() -> std::result::Result<Tokens, String> + Send + Sync>;
+type Renew = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Shelf {
@@ -71,13 +72,14 @@ pub struct Client {
     agent: ureq::Agent,
     base: String,
     tokens: TokenSource,
+    renew: Renew,
     storefront: Storefront,
     hasher: RandomState,
 }
 
 pub struct Session<'a> {
     client: &'a Client,
-    tokens: Tokens,
+    pub(crate) tokens: Tokens,
     user_key: Option<u64>,
 }
 
@@ -104,9 +106,19 @@ impl Client {
             agent,
             base: base.to_owned(),
             tokens: Arc::new(tokens),
+            renew: Arc::new(|_| false),
             storefront: Storefront::default(),
             hasher: RandomState::new(),
         }
+    }
+
+    pub fn renewing(mut self, renew: impl Fn(&str) -> bool + Send + Sync + 'static) -> Self {
+        self.renew = Arc::new(renew);
+        self
+    }
+
+    pub(crate) fn renew(&self, rejected: &str) -> bool {
+        (self.renew)(rejected)
     }
 
     pub fn session(&self) -> Result<Session<'_>> {

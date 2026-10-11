@@ -2,6 +2,7 @@ mod app;
 mod cli;
 mod covers;
 mod credentials;
+mod devtoken;
 mod playback;
 mod signin;
 #[cfg(test)]
@@ -58,6 +59,8 @@ pub struct Args {
     output_device: Option<String>,
     #[cfg(feature = "dev")]
     api_base: Option<String>,
+    #[cfg(feature = "dev")]
+    developer_token_url: Option<String>,
 }
 
 fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
@@ -76,6 +79,8 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
             "--output-device" => a.output_device = Some(value()?),
             #[cfg(feature = "dev")]
             "--api-base" => a.api_base = Some(value()?),
+            #[cfg(feature = "dev")]
+            "--developer-token-url" => a.developer_token_url = Some(value()?),
             other => bail!("unknown argument {other}"),
         }
     }
@@ -101,7 +106,7 @@ fn read_token(dir: &Path, name: &str) -> Result<String> {
 }
 
 fn api_tokens(user: &Credentials) -> Result<bramley_api::Tokens, String> {
-    let developer = read_token(user.dir(), "developer-token").map_err(|e| format!("{e:#}"))?;
+    let developer = user.developer().get()?;
     let user = user.load().map_err(str::to_owned)?;
     Ok(bramley_api::Tokens { developer, user })
 }
@@ -116,7 +121,6 @@ fn cover_source(args: &Args, user: &Credentials) -> Option<covers::Source> {
             .clone()
             .unwrap_or_else(|| covers::API_BASE.into()),
         art_prefix,
-        config: config_dir().ok()?,
         user: user.clone(),
     })
 }
@@ -124,7 +128,8 @@ fn cover_source(args: &Args, user: &Credentials) -> Option<covers::Source> {
 fn boot(user: &Credentials, start: impl FnOnce(Tokens) -> Result<Link>) -> Result<Link> {
     let user_token = user.load().map_err(|why| anyhow!(why))?;
     let user_token = user_token.ok_or_else(|| anyhow!(SignedOut))?;
-    let (developer, user) = (read_token(user.dir(), "developer-token")?, user_token);
+    let developer = user.developer().get().map_err(|why| anyhow!(why))?;
+    let user = user_token;
     let secrets = [developer.clone(), user.clone()];
     start(Tokens { developer, user }).map_err(|e| anyhow!(redact(&format!("{e:#}"), &secrets)))
 }
@@ -215,7 +220,15 @@ fn main() -> Result<()> {
     let output_device = std::env::var("PULSE_SINK").ok().filter(|s| !s.is_empty());
     #[cfg(feature = "dev")]
     let output_device = args.output_device.clone().or(output_device);
-    let user = Credentials::system(&config_dir()?);
+    #[cfg(feature = "dev")]
+    let token_url = (args.developer_token_url.clone()).unwrap_or_else(|| devtoken::URL.into());
+    #[cfg(not(feature = "dev"))]
+    let token_url = devtoken::URL.to_owned();
+    let config = config_dir()?;
+    let developer = devtoken::DeveloperToken::system(token_url, &config);
+    let user = Credentials::system(&config, developer);
+    let prefetch = user.developer().clone();
+    std::thread::spawn(move || prefetch.get());
     let source = cover_source(&args, &user);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

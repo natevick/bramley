@@ -574,3 +574,35 @@ fn live_search_and_the_largest_library_playlist() {
         tracks.len()
     );
 }
+
+#[test]
+fn a_developer_token_401_renews_once_and_retries_only_with_a_new_token() {
+    for renews in [true, false] {
+        let server = searchable(vec![(401, String::new(), Vec::new()), ok(SEARCH)]);
+        let (asked, current) = (
+            Arc::new(Mutex::new(Vec::new())),
+            Arc::new(Mutex::new(DEVELOPER)),
+        );
+        let (seen, now) = (asked.clone(), current.clone());
+        let api = Client::at(&server.base, move || {
+            Ok(Tokens {
+                developer: (*now.lock().unwrap()).into(),
+                user: Some(USER.into()),
+            })
+        })
+        .renewing(move |rejected| {
+            seen.lock().unwrap().push(rejected.to_owned());
+            *current.lock().unwrap() = "renewed-token";
+            renews
+        });
+        let ran = api.run(Call::Search("queen".into()));
+        let last = server.targets().len() - 1;
+        let bearer = server.header(last, "authorization");
+        assert_eq!(*asked.lock().unwrap(), [DEVELOPER], "{renews}");
+        match renews {
+            true => assert_eq!(bearer.as_deref(), Some("Bearer renewed-token")),
+            false => assert_eq!(ran, Err(Error::DeveloperToken)),
+        }
+        assert_eq!(ran.is_ok(), renews);
+    }
+}

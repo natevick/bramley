@@ -7,6 +7,8 @@ use std::time::Duration;
 use keyring_core::api::CredentialStore;
 use keyring_core::{Entry, Error};
 
+use crate::devtoken::DeveloperToken;
+
 pub const USER_TOKEN: &str = "music-user-token";
 const DEFAULT_SERVICE: &str = "bramley";
 const OPEN_WAIT: Duration = Duration::from_secs(5);
@@ -35,14 +37,16 @@ pub struct Credentials {
     mode: Arc<OnceLock<&'static str>>,
     service: String,
     dir: PathBuf,
+    developer: DeveloperToken,
 }
 
 impl Credentials {
-    pub fn system(dir: &Path) -> Self {
+    pub fn system(dir: &Path, developer: DeveloperToken) -> Self {
         let service = std::env::var("BRAMLEY_KEYRING_SERVICE")
             .ok()
             .filter(|s| !s.is_empty());
-        Credentials::with(None, service.as_deref().unwrap_or(DEFAULT_SERVICE), dir)
+        let service = service.as_deref().unwrap_or(DEFAULT_SERVICE);
+        Credentials::with(None, service, dir, developer)
     }
 
     #[cfg(test)]
@@ -51,10 +55,22 @@ impl Credentials {
             Some(store.map_or(Backend::File, Backend::Keyring)),
             service,
             dir,
+            DeveloperToken::new(None, dir, dir),
         )
     }
 
-    fn with(backend: Option<Backend>, service: &str, dir: &Path) -> Self {
+    #[cfg(test)]
+    pub fn with_developer(mut self, developer: DeveloperToken) -> Self {
+        self.developer = developer;
+        self
+    }
+
+    fn with(
+        backend: Option<Backend>,
+        service: &str,
+        dir: &Path,
+        developer: DeveloperToken,
+    ) -> Self {
         let mode = OnceLock::new();
         if let Some(backend) = &backend {
             let _ = mode.set(backend.name());
@@ -64,11 +80,16 @@ impl Credentials {
             mode: Arc::new(mode),
             service: service.to_owned(),
             dir: dir.to_owned(),
+            developer,
         }
     }
 
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    pub fn developer(&self) -> &DeveloperToken {
+        &self.developer
     }
 
     pub fn storage(&self) -> Option<&'static str> {
