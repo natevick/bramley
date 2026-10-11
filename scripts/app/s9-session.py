@@ -153,6 +153,7 @@ def live(a, out, sock, sink):
             png = os.path.join(PRIVATE, route.split(':')[0] + '.png')
             subprocess.run([a.binary, '--route', route, '--screenshot', png, '--after', '12'] + common, env=env, capture_output=True, timeout=60)
         found['privateShots'] = sorted(os.listdir(PRIVATE))
+        found.pop('playlist')
         return found, results
 
 
