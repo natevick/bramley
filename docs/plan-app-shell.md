@@ -159,6 +159,8 @@ Nate's order holds; **no hard dependency problem**. S2 is split a/b/c to fit one
 - **Risk:** `l.`/`p.` library ids in `setQueue` are unproven.
 - **Budget** 300/150/40. **Deps:** S7.
 
+Addition 2026-10-11 (Norm, from the S6 review): S8 makes Home's cover grid playable. Clicking a cover opens its album detail, with play. That keeps album art inside a playback context (compliance §D).
+
 ## S9. Library lists
 - **Goal:** sidebar entries for library playlists, albums and songs, paged lazily.
 - **Files:** `ui/library.rs`, `ui/sidebar.rs`.
