@@ -43,6 +43,7 @@ struct Native {
     http_bytes: u64,
     redact: Vec<String>,
     truncate_scripts: bool,
+    retired_drains: [u64; 2],
 }
 
 impl Native {
@@ -376,7 +377,12 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
                     st.sbs.remove(&sb);
                 }
             }
-            "media" => drop(st.medias.remove(&id)),
+            "media" => {
+                if let Some(m) = st.medias.remove(&id) {
+                    st.retired_drains[0] += m.counters.drains_acked;
+                    st.retired_drains[1] += m.counters.drain_timeouts;
+                }
+            }
             "cdm" => drop(st.cdms.remove(&id)),
             _ => {}
         }
@@ -622,6 +628,7 @@ impl Engine {
             http_bytes: 0,
             redact: Vec::new(),
             truncate_scripts: false,
+            retired_drains: [0; 2],
         }));
         let rt = Runtime::new()?;
         rt.set_max_stack_size(4 * 1024 * 1024);
@@ -773,6 +780,18 @@ impl Engine {
 
     pub fn output_failed(&self) -> bool {
         self.n.borrow().medias.values().any(|m| m.output_failed())
+    }
+
+    pub fn drains(&self) -> [u64; 2] {
+        let st = self.n.borrow();
+        st.medias
+            .values()
+            .fold(st.retired_drains, |[acked, timeouts], m| {
+                [
+                    acked + m.counters.drains_acked,
+                    timeouts + m.counters.drain_timeouts,
+                ]
+            })
     }
 
     pub fn status(&self) -> J {

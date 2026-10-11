@@ -104,6 +104,8 @@ pub struct Snapshot {
     pub error: Option<PlayerError>,
     pub preview_only: bool,
     pub applied: u64,
+    pub drains_acked: u64,
+    pub drain_timeouts: u64,
     #[cfg(feature = "diagnostics")]
     pub diagnostics: Option<Diagnostics>,
 }
@@ -114,6 +116,7 @@ pub(crate) trait Backend {
     fn eval_json(&self, expression: &str) -> Result<J>;
     fn current_time(&self) -> Option<f64>;
     fn output_failed(&self) -> bool;
+    fn drains(&self) -> [u64; 2];
     #[cfg(feature = "diagnostics")]
     fn status(&self) -> J;
 }
@@ -133,6 +136,9 @@ impl Backend for Engine {
     }
     fn output_failed(&self) -> bool {
         Engine::output_failed(self)
+    }
+    fn drains(&self) -> [u64; 2] {
+        Engine::drains(self)
     }
     #[cfg(feature = "diagnostics")]
     fn status(&self) -> J {
@@ -334,6 +340,7 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
     } else {
         text(&js["playbackError"]).map(PlayerError::Playback)
     };
+    let [drains_acked, drain_timeouts] = b.drains();
     Snapshot {
         item_id: text(&js["item"]["id"]),
         title: text(&js["item"]["title"]),
@@ -351,6 +358,8 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
         error,
         preview_only: js["previewOnly"] == true,
         applied: js["applied"].as_u64().unwrap_or(0),
+        drains_acked,
+        drain_timeouts,
         #[cfg(feature = "diagnostics")]
         diagnostics: Some(Diagnostics {
             js: serde_json::from_str(&redact(&js.to_string(), secrets)).unwrap_or(J::Null),

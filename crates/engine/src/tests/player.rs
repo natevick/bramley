@@ -24,6 +24,7 @@ struct Fake {
     state: J,
     time: Option<f64>,
     output_failed: bool,
+    drains: [u64; 2],
 }
 
 #[derive(Clone, Default)]
@@ -67,6 +68,9 @@ impl Backend for FakeEngine {
     }
     fn output_failed(&self) -> bool {
         self.0.lock().unwrap().output_failed
+    }
+    fn drains(&self) -> [u64; 2] {
+        self.0.lock().unwrap().drains
     }
     #[cfg(feature = "diagnostics")]
     fn status(&self) -> J {
@@ -221,6 +225,9 @@ fn snapshots_use_native_time_and_map_errors_redacted() {
     );
     assert_eq!(s.artist.as_deref(), Some("A <redacted>"));
     assert_eq!((s.applied, s.preview_only), (3, true));
+    fake.0.lock().unwrap().drains = [4, 1];
+    let s = wait_for(&rx, |s| s.drains_acked > 0);
+    assert_eq!((s.drains_acked, s.drain_timeouts), (4, 1));
     let cases = [
         (
             json!({"signInNeeded": format!("401 for {SECRET}")}),

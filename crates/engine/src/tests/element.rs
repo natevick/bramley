@@ -573,3 +573,32 @@ fn endpoint_logging_records_only_the_scheme_of_data_urls() {
     let keys: Vec<&String> = endpoints.as_object().unwrap().keys().collect();
     assert_eq!(keys, ["GET data:"], "{endpoints}");
 }
+
+#[test]
+fn drain_acks_count_across_tracks_and_outlive_the_element_that_played_them() {
+    let (mut e, sink) = engine();
+    let log = run(
+        &mut e,
+        &sink,
+        &script(
+            r#"
+            const a = fresh();
+            audio.src = URL.createObjectURL(a.ms);
+            await fill(a.ms, a.opened, bytes);
+            a.ms.endOfStream();
+            const ended = new Promise(r => audio.addEventListener("ended", r, { once: true }));
+            await audio.play();
+            await ended;
+            audio.removeAttribute("src");
+            audio.load();
+            await later(10);
+        "#,
+        ),
+    );
+    assert!(has(&log, "ev:ended"), "{log:?}");
+    assert_eq!(e.drains(), [1, 0]);
+    e.run_gc();
+    e.tick();
+    assert_eq!(e.status()["live"]["medias"], 0);
+    assert_eq!(e.drains(), [1, 0]);
+}
