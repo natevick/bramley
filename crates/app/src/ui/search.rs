@@ -6,8 +6,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
 use bramley_api::{Call, Error, Item, Job, Kind, Reply, SearchResults};
-use egui::epaint::WHITE_UV;
-use egui::{ColorImage, Key, Rect, RichText, TextureHandle, WidgetType};
+use egui::{Color32, ColorImage, Key, RichText, TextureHandle, WidgetType};
 use serde_json::{Value, json};
 
 use super::labeled;
@@ -326,9 +325,7 @@ fn row(ui: &mut egui::Ui, item: &Item, art: &mut Art, emit: (&mut Vec<Action>, &
     let size = egui::vec2(ART_PT, ART_PT);
     let image = match art.textures.get(&item.id) {
         Some(Some(texture)) => egui::Image::new(texture),
-        _ => egui::Image::new((egui::TextureId::default(), size))
-            .uv(Rect::from_min_max(WHITE_UV, WHITE_UV))
-            .tint(ui.visuals().faint_bg_color),
+        _ => egui::Image::new((egui::TextureId::default(), size)).tint(Color32::TRANSPARENT),
     };
     let button = egui::Button::image_and_text(image.fit_to_exact_size(size), text).frame(false);
     let enabled = item.kind != Kind::Artists;

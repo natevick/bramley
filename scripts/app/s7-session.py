@@ -18,15 +18,19 @@ PUBLISH, SHOT = os.path.join(ROOT, 'docs', 'screens', 's7'), 'search-results-dar
 
 class Fixture(s6.Fixture):
     def do_GET(self):
+        if self.path == '/v1/me/storefront':
+            return self.reply(b'{"data":[{"id":"us","type":"storefronts"}]}')
         if not self.path.startswith('/v1/catalog/us/search'):
             return super().do_GET()
         base = f'http://127.0.0.1:{self.server.server_address[1]}'
         def rows(kind, names, art=True):
-            attrs = lambda i, n: {'name': n, 'artistName': 'Fixture Artist', **({'artwork': {'url': f'{base}/art/{i * 7}/{{w}}x{{h}}bb.jpg'}} if art else {})}
+            attrs = lambda i, n: {'name': n, **({'artistName': 'Fixture Artist'} if kind != 'artists' else {}), **({'artwork': {'url': f'{base}/art/{i * 7}/{{w}}x{{h}}bb.jpg'}} if art else {})}
             return {'data': [{'id': f'{kind[0]}{i}', 'type': kind, 'attributes': attrs(i, n)} for i, n in enumerate(names)]}
         results = {'songs': rows('songs', [f'Fixture Song {i}' for i in range(1, 5)]), 'albums': rows('albums', ['Fixture Album A', 'Fixture Album B']),
                    'artists': rows('artists', ['Fixture Artist'], art=False), 'playlists': rows('playlists', ['Fixture Playlist'])}
-        body = json.dumps({'results': results}).encode()
+        self.reply(json.dumps({'results': results}).encode())
+
+    def reply(self, body):
         self.send_response(200)
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
