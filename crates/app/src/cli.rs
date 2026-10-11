@@ -15,8 +15,10 @@ pub const NOT_RUNNING: i32 = 3;
 pub const REFUSED: i32 = 5;
 const APPLY_TIME: Duration = Duration::from_secs(3);
 const REPLY_MARGIN: Duration = Duration::from_secs(1);
+const LIBRARY_VIA_MCP: &str =
+    "your library is shared only with an agent you connect through `bramley mcp`";
 const LATE: &str = "the app did not answer in time; the command was not applied";
-const COMMANDS: &str = "usage: bramley [play [id] | pause | toggle | next | prev | seek <seconds> | volume <0-100> | now | queue add <id> | search <term> | library playlists | sign-in | sign-out | mcp]";
+const COMMANDS: &str = "usage: bramley [play [id] | pause | toggle | next | prev | seek <seconds> | volume <0-100> | now | queue add <id> | search <term> | sign-in | sign-out | mcp]";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Request {
@@ -131,6 +133,7 @@ pub fn client(slot: &Slot, args: &[String], out: &mut impl Write, err: &mut impl
     };
     let request = match parse(args) {
         Err(e) => return fail(USAGE, &format!("{e}")),
+        Ok(Request::Library(_)) => return fail(USAGE, LIBRARY_VIA_MCP),
         Ok(request) => request,
     };
     match send(slot, args) {

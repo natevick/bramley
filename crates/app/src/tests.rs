@@ -462,6 +462,8 @@ fn cli_exit_codes_without_a_running_app() {
     assert!(err.contains("not running"), "{err}");
     assert_eq!(run(&slot, "volume 500").0, USAGE);
     assert_eq!(run(&slot, "search bohemian rhapsody").0, NOT_RUNNING);
+    let (code, _, err) = run(&slot, "library playlists");
+    assert!(code == USAGE && err.contains("bramley mcp"), "{err}");
 }
 
 #[test]
