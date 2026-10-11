@@ -102,14 +102,8 @@ fn read_token(dir: &Path, name: &str) -> Result<String> {
 
 fn api_tokens(user: &Credentials) -> Result<bramley_api::Tokens, String> {
     let developer = read_token(user.dir(), "developer-token").map_err(|e| format!("{e:#}"))?;
-    Ok(bramley_api::Tokens {
-        developer,
-        user: user.load(),
-    })
-}
-
-fn signed_out(user: &Credentials) -> bool {
-    user.load().is_none()
+    let user = user.load().map_err(str::to_owned)?;
+    Ok(bramley_api::Tokens { developer, user })
 }
 
 fn cover_source(args: &Args, user: &Credentials) -> Option<covers::Source> {
@@ -128,7 +122,8 @@ fn cover_source(args: &Args, user: &Credentials) -> Option<covers::Source> {
 }
 
 fn boot(user: &Credentials, start: impl FnOnce(Tokens) -> Result<Link>) -> Result<Link> {
-    let user_token = user.load().ok_or_else(|| anyhow!(SignedOut))?;
+    let user_token = user.load().map_err(|why| anyhow!(why))?;
+    let user_token = user_token.ok_or_else(|| anyhow!(SignedOut))?;
     let (developer, user) = (read_token(user.dir(), "developer-token")?, user_token);
     let secrets = [developer.clone(), user.clone()];
     start(Tokens { developer, user }).map_err(|e| anyhow!(redact(&format!("{e:#}"), &secrets)))
@@ -221,7 +216,6 @@ fn main() -> Result<()> {
     #[cfg(feature = "dev")]
     let output_device = args.output_device.clone().or(output_device);
     let user = Credentials::system(&config_dir()?);
-    let signed_out = signed_out(&user);
     let source = cover_source(&args, &user);
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -237,14 +231,8 @@ fn main() -> Result<()> {
             let _ = waker.set(cc.egui_ctx.clone());
             let spawn = spawner(cc.egui_ctx.clone(), output_device, user.clone());
             let channel = (inbox, guarded);
-            let app = app::App::new(
-                &cc.egui_ctx,
-                args,
-                spawn,
-                (user, signed_out),
-                channel,
-                source,
-            );
+            let mut app = app::App::new(&cc.egui_ctx, args, spawn, (user, true), channel, source);
+            app.check_sign_in();
             Ok(Box::new(app))
         }),
     )

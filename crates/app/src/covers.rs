@@ -212,7 +212,7 @@ fn load_chart(
     tally: &Tally,
 ) -> Result<Option<Chart>> {
     let developer = crate::read_token(&source.config, "developer-token")?;
-    let Some(user) = source.user.load() else {
+    let Some(user) = source.user.load().map_err(|why| anyhow!(why))? else {
         return Ok(None);
     };
     let bearer = format!("Bearer {developer}");

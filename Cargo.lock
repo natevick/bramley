@@ -577,6 +577,7 @@ dependencies = [
  "serde_json",
  "ureq",
  "windows-native-keyring-store",
+ "zbus",
  "zbus-secret-service-keyring-store",
 ]
 

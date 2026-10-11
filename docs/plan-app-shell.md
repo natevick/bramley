@@ -99,9 +99,9 @@ Nate's order holds; **no hard dependency problem**. S2 is split a/b/c to fit one
 ## S3b. Keyring and sign-in-needed
 - **What:**
   - the OS keyring, behind `cfg` modules, following Spotifast's `credentials.rs`;
-  - import the old token file without deleting it;
+  - import the old token file into the keyring, read it back, then delete the file (one copy; see decisions.md, 2026-10-10 user-token storage);
   - `SignInNeeded` shows a loud banner, then runs S3a, then respawns the player;
-  - with no Secret Service, show a loud error and never store plaintext.
+  - with no Secret Service on the bus, keep the token in an atomic 0600 file and show "file" as the storage mode in status and the UI. Any other keyring error, timeout or cancelled unlock is a loud error and never falls back to plaintext.
 - **AC:**
   1. A corrupted token shows the banner within 20 s, with 0 decrypted seconds.
   2. `grep -F -f <(secret-tool lookup …)` over logs, status and `target/` finds nothing.

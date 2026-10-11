@@ -273,7 +273,7 @@ fn boot_redacts_the_real_tokens_and_a_missing_user_token_is_signed_out() {
         format!("{:#}", refused.unwrap_err()),
         "refused <redacted> for <redacted>"
     );
-    assert!(user.clear());
+    assert!(user.clear().is_ok());
     let missing = crate::boot(&user, |_| unreachable!("started without a user token"));
     std::fs::remove_dir_all(&dir).unwrap();
     assert!(missing.unwrap_err().is::<SignedOut>());
@@ -353,6 +353,7 @@ impl FakeApp {
         };
         let stop: std::sync::Arc<std::sync::atomic::AtomicBool> = Default::default();
         let stopped = std::sync::Arc::clone(&stop);
+        let config = slot.dir().to_owned();
         let thread = std::thread::spawn(move || {
             let ctx = egui::Context::default();
             let (wake, woken) = channel();
@@ -363,7 +364,7 @@ impl FakeApp {
             let spawned = ends.clone();
             let spawn = spawning(move || live(&spawned));
             let args = crate::Args::default();
-            let user = (mock_user(std::path::Path::new("")), signed_out);
+            let user = (mock_user(&config), signed_out);
             let mut app = crate::app::App::new(&ctx, args, spawn, user, (inbox, true), None);
             waker.set(ctx.clone()).unwrap();
             let mut shown = false;
@@ -704,10 +705,10 @@ fn a_blank_user_token_is_signed_out_like_boot_sees_it() {
     let mut seen = Vec::new();
     for body in [" \n", "user-token-opaque"] {
         std::fs::write(&token, body).unwrap();
-        seen.push(crate::signed_out(&mock_user(&dir)));
+        seen.push(mock_user(&dir).load().unwrap().is_none());
     }
     std::fs::remove_dir_all(&dir).unwrap();
-    seen.push(crate::signed_out(&mock_user(&dir)));
+    seen.push(mock_user(&dir).load().unwrap().is_none());
     assert_eq!(seen, [true, false, true]);
 }
 
@@ -1227,6 +1228,655 @@ fn main_installs_a_logger_that_withholds_ureq_wire_dumps() {
     assert!(!text.contains(secret) && !String::from_utf8_lossy(&bytes).contains(secret));
 }
 
+const MARKED: &str = "X-Bramley-Sign-In: 1\r\n";
+
+fn raw(addr: &str, request: &str) -> (u16, String) {
+    let mut stream = std::net::TcpStream::connect(addr).unwrap();
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut reply = String::new();
+    std::io::Read::read_to_string(&mut stream, &mut reply).unwrap();
+    let status = reply.split_whitespace().nth(1).unwrap().parse().unwrap();
+    (status, reply)
+}
+
+fn split(url: &str) -> (String, String) {
+    let (addr, home) = url.trim_start_matches("http://").split_once('/').unwrap();
+    (addr.to_owned(), format!("/{home}"))
+}
+
+fn ask(
+    url: &str,
+    method: &str,
+    path: &str,
+    host: Option<&str>,
+    headers: &str,
+    body: &str,
+) -> (u16, String) {
+    let (addr, home) = split(url);
+    let host = host.map_or(String::new(), |h| format!("Host: {h}\r\n"));
+    let path = path.replace("{home}", &home);
+    let length = body.len();
+    raw(
+        &addr,
+        &format!(
+            "{method} {path} HTTP/1.1\r\n{host}{headers}Content-Length: {length}\r\n\r\n{body}"
+        ),
+    )
+}
+
+fn kept_into(kept: &Arc<Mutex<Vec<String>>>) -> crate::signin::Keep {
+    let seen = kept.clone();
+    Box::new(move |token| {
+        seen.lock().unwrap().push(token.to_owned());
+        Ok(())
+    })
+}
+
+fn header_value(reply: &str, name: &str) -> Option<String> {
+    reply
+        .split("\r\n\r\n")
+        .next()?
+        .lines()
+        .find_map(|line| header(line, name))
+}
+
+#[test]
+fn the_sign_in_page_needs_the_exact_host_and_the_nonce_and_carries_a_csp() {
+    let kept = Arc::new(Mutex::new(Vec::new()));
+    let server =
+        crate::signin::start("dev</script>\"x", crate::signin::LIFETIME, kept_into(&kept)).unwrap();
+    let (host, home) = split(&server.url);
+    assert_eq!(home.len(), 34);
+    let (status, reply) = ask(&server.url, "GET", "{home}", Some(&host), "", "");
+    assert_eq!(status, 200);
+    let page = reply.split_once("\r\n\r\n").unwrap().1;
+    assert!(page.contains(r#"window.BRAMLEY_DEV_TOKEN = "dev<\/script>\"x";"#));
+    assert!(page.contains(r#"src="https://js-cdn.music.apple.com/musickit/v3/musickit.js""#));
+    assert!(page.contains("if (r.ok) { localStorage.clear(); sessionStorage.clear();"));
+    let csp = header_value(&reply, "content-security-policy").unwrap();
+    let script = csp
+        .split("'nonce-")
+        .nth(1)
+        .unwrap()
+        .split('\'')
+        .next()
+        .unwrap();
+    assert!(
+        csp.starts_with("script-src 'self' 'nonce-")
+            && csp.contains("https://js-cdn.music.apple.com; frame-ancestors 'none'"),
+        "{csp}"
+    );
+    assert_eq!(
+        page.matches(&format!("<script nonce=\"{script}\">"))
+            .count(),
+        2
+    );
+    assert!(!home.contains(script));
+    assert_eq!(
+        header_value(&reply, "x-content-type-options").as_deref(),
+        Some("nosniff")
+    );
+    let port = host.rsplit(':').next().unwrap();
+    for bad in [
+        Some(format!("localhost:{port}")),
+        Some("127.0.0.1:1".into()),
+        Some("127.0.0.1".into()),
+        None,
+    ] {
+        assert_eq!(
+            ask(&server.url, "GET", "{home}", bad.as_deref(), "", "").0,
+            403,
+            "{bad:?}"
+        );
+    }
+    let wrong = format!("/{}/", "0".repeat(32));
+    let bare = home.trim_end_matches('/');
+    for path in [wrong.as_str(), "/", "/token", bare, &format!("{home}x")] {
+        assert_eq!(
+            ask(&server.url, "GET", path, Some(&host), "", "").0,
+            404,
+            "{path}"
+        );
+    }
+    let twice = format!("Host: {host}\r\n");
+    assert_eq!(
+        ask(&server.url, "GET", "{home}", Some(&host), &twice, "").0,
+        400
+    );
+}
+
+#[test]
+fn the_token_is_taken_once_with_a_storage_wipe_and_a_refused_post_does_not_use_it_up() {
+    let kept = Arc::new(Mutex::new(Vec::new()));
+    let (seen, mut fail) = (kept.clone(), true);
+    let keep: crate::signin::Keep = Box::new(move |token| {
+        seen.lock().unwrap().push(token.to_owned());
+        if std::mem::take(&mut fail) {
+            Err("the keyring said no")
+        } else {
+            Ok(())
+        }
+    });
+    let server = crate::signin::start("dev", crate::signin::LIFETIME, keep).unwrap();
+    let host = split(&server.url).0;
+    let post = |body: &str| {
+        ask(
+            &server.url,
+            "POST",
+            "{home}token",
+            Some(&host),
+            MARKED,
+            body,
+        )
+    };
+    assert_eq!(
+        ask(
+            &server.url,
+            "POST",
+            "{home}token",
+            Some("evil.test"),
+            MARKED,
+            "t0k"
+        )
+        .0,
+        403
+    );
+    assert_eq!([post("").0, post("two words").0], [400, 400]);
+    let (status, refused) = post("first");
+    assert_eq!(
+        (status, refused.ends_with("the keyring said no")),
+        (500, true)
+    );
+    assert_eq!(header_value(&refused, "clear-site-data"), None);
+    assert!(server.done.try_recv().is_err());
+    let (status, ok) = post(" mut-token \n");
+    assert_eq!(
+        (status, header_value(&ok, "clear-site-data").as_deref()),
+        (200, Some("\"storage\""))
+    );
+    assert_eq!(
+        [
+            post("again").0,
+            ask(&server.url, "GET", "{home}", Some(&host), "", "").0
+        ],
+        [410, 410]
+    );
+    assert_eq!(*kept.lock().unwrap(), ["first", "mut-token"]);
+    assert!(server.done.recv_timeout(Duration::from_secs(1)).is_ok());
+}
+
+#[test]
+fn a_cross_origin_text_plain_post_is_refused_and_preflights_get_405() {
+    let kept = Arc::new(Mutex::new(Vec::new()));
+    let server = crate::signin::start("dev", crate::signin::LIFETIME, kept_into(&kept)).unwrap();
+    let host = split(&server.url).0;
+    let evil = "Origin: https://evil.example\r\nSec-Fetch-Site: cross-site\r\nContent-Type: text/plain;charset=UTF-8\r\n";
+    let preflight = "Origin: https://evil.example\r\nAccess-Control-Request-Method: POST\r\nAccess-Control-Request-Headers: x-bramley-sign-in\r\n";
+    let (status, reply) = ask(
+        &server.url,
+        "OPTIONS",
+        "{home}token",
+        Some(&host),
+        preflight,
+        "",
+    );
+    assert_eq!(
+        (
+            status,
+            reply.to_ascii_lowercase().contains("access-control-allow")
+        ),
+        (405, false)
+    );
+    assert_eq!(
+        ask(
+            &server.url,
+            "POST",
+            "{home}token",
+            Some(&host),
+            evil,
+            "attacker-token"
+        )
+        .0,
+        403
+    );
+    assert!(kept.lock().unwrap().is_empty());
+    assert_eq!(
+        ask(
+            &server.url,
+            "POST",
+            "{home}token",
+            Some(&host),
+            MARKED,
+            "user-token"
+        )
+        .0,
+        200
+    );
+    assert_eq!(*kept.lock().unwrap(), ["user-token"]);
+}
+
+#[test]
+fn the_sign_in_server_stops_at_its_lifetime_even_for_an_open_connection_or_when_dropped() {
+    let kept = Arc::new(Mutex::new(Vec::new()));
+    let short = crate::signin::start("dev", Duration::from_millis(300), kept_into(&kept)).unwrap();
+    let (addr, home) = split(&short.url);
+    let mut early = std::net::TcpStream::connect(&addr).unwrap();
+    std::thread::sleep(Duration::from_millis(600));
+    write!(
+        early,
+        "POST {home}token HTTP/1.1\r\nHost: {addr}\r\n{MARKED}Content-Length: 4\r\n\r\nlate"
+    )
+    .unwrap();
+    let mut reply = String::new();
+    std::io::Read::read_to_string(&mut early, &mut reply).unwrap();
+    assert!(reply.starts_with("HTTP/1.1 410"), "{reply}");
+    assert!(kept.lock().unwrap().is_empty());
+    let gone = short.done.recv_timeout(Duration::from_secs(2));
+    assert_eq!(gone, Err(std::sync::mpsc::RecvTimeoutError::Disconnected));
+    assert!(std::net::TcpStream::connect(&addr).is_err());
+    let dropped = crate::signin::start("dev", crate::signin::LIFETIME, kept_into(&kept)).unwrap();
+    let host = split(&dropped.url).0;
+    drop(dropped);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(std::net::TcpStream::connect(&host).is_err());
+}
+
+#[test]
+fn a_dripping_client_cannot_hold_the_sign_in_server_past_its_budget() {
+    let kept = Arc::new(Mutex::new(Vec::new()));
+    let server = crate::signin::start("dev", crate::signin::LIFETIME, kept_into(&kept)).unwrap();
+    let (addr, home) = split(&server.url);
+    let mut drip = std::net::TcpStream::connect(&addr).unwrap();
+    let dripper = std::thread::spawn(move || {
+        for byte in b"GET /xxxxxxxxxx" {
+            if drip.write_all(&[*byte]).is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(700));
+        }
+    });
+    std::thread::sleep(Duration::from_millis(200));
+    let start = Instant::now();
+    let status = raw(
+        &addr,
+        &format!("GET {home} HTTP/1.1\r\nHost: {addr}\r\n\r\n"),
+    )
+    .0;
+    let waited = start.elapsed();
+    dripper.join().unwrap();
+    assert_eq!(status, 200);
+    assert!(waited < Duration::from_millis(6500), "{waited:?}");
+}
+
+#[test]
+fn the_browser_opens_an_owner_only_redirect_file_so_argv_never_holds_the_nonce() {
+    let dir = token_dir("redirect-test");
+    let url = "http://127.0.0.1:1/0123456789abcdef0123456789abcdef/";
+    let page = crate::signin::redirect_file(&dir, url).unwrap();
+    let body = std::fs::read_to_string(&page).unwrap();
+    #[cfg(unix)]
+    let mode =
+        std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&page).unwrap().permissions())
+            & 0o777;
+    #[cfg(not(unix))]
+    let mode = 0o600;
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(!page.to_string_lossy().contains("0123456789abcdef"));
+    assert_eq!(
+        (body.contains(&format!("content=\"0;url={url}\"")), mode),
+        (true, 0o600)
+    );
+}
+
+fn token_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("../../target/tmp/{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn keyring_entry(store: &Arc<keyring_core::mock::Store>) -> keyring_core::Entry {
+    keyring_core::api::CredentialStoreApi::build(&**store, "bramley-test", "music-user-token", None)
+        .unwrap()
+}
+
+fn fail_next(store: &Arc<keyring_core::mock::Store>) {
+    let entry = keyring_entry(store);
+    let cred: &keyring_core::mock::Cred = entry.as_any().downcast_ref().unwrap();
+    cred.set_error(keyring_core::Error::NoStorageAccess("locked".into()));
+}
+
+#[test]
+fn the_keyring_is_the_one_copy_and_an_import_deletes_the_file_only_once_read_back() {
+    let dir = token_dir("keyring-test");
+    let store = keyring_core::mock::Store::new().unwrap();
+    let user = Credentials::new(Some(store.clone()), "bramley-test", &dir);
+    let file = dir.join("music-user-token");
+    std::fs::write(&file, "old-file-token\n").unwrap();
+    fail_next(&store);
+    assert!(user.load().is_err());
+    assert!(file.exists());
+    assert_eq!(user.load(), Ok(Some("old-file-token".into())));
+    assert_eq!(
+        (keyring_entry(&store).get_password().unwrap(), file.exists()),
+        ("old-file-token".into(), false)
+    );
+    std::fs::write(&file, "stale-file-token\n").unwrap();
+    assert_eq!(user.save("fresh-token", || true), Ok(()));
+    let restarted = Credentials::new(Some(store.clone()), "bramley-test", &dir).load();
+    let left = file.exists();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        (left, restarted, user.storage()),
+        (false, Ok(Some("fresh-token".into())), Some("keyring"))
+    );
+}
+
+#[test]
+fn keyring_errors_are_errors_and_never_fall_back_to_a_file() {
+    let dir = token_dir("keyring-error-test");
+    let store = keyring_core::mock::Store::new().unwrap();
+    let user = Credentials::new(Some(store.clone()), "bramley-test", &dir);
+    assert_eq!(user.save("old-token", || true), Ok(()));
+    fail_next(&store);
+    assert!(user.save("new-token", || true).is_err());
+    let file = dir.join("music-user-token").exists();
+    fail_next(&store);
+    let locked = user.load();
+    let later = user.load();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        (file, locked.is_err(), later),
+        (false, true, Ok(Some("old-token".into())))
+    );
+}
+
+#[test]
+fn without_a_secret_service_the_token_goes_to_an_owner_only_file_written_atomically() {
+    let dir = token_dir("no-keyring-test");
+    let file = dir.join("music-user-token");
+    let stale = dir.join("music-user-token.partial");
+    std::fs::write(&stale, "stale\n").unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(&stale, std::os::unix::fs::PermissionsExt::from_mode(0o644)).unwrap();
+    let user = Credentials::new(None, "bramley-test", &dir);
+    assert_eq!(user.save("file-token", || true), Ok(()));
+    let saved = std::fs::read_to_string(&file).unwrap();
+    #[cfg(unix)]
+    let mode =
+        std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&file).unwrap().permissions())
+            & 0o777;
+    #[cfg(not(unix))]
+    let mode = 0o600;
+    let leftovers = std::fs::read_dir(&dir).unwrap().count();
+    let loaded = user.load();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        (saved.as_str(), mode, leftovers),
+        ("file-token\n", 0o600, 1)
+    );
+    assert_eq!(
+        (loaded, user.storage()),
+        (Ok(Some("file-token".into())), Some("file"))
+    );
+}
+
+#[test]
+fn sign_out_clears_the_keyring_and_a_late_save_is_discarded() {
+    let dir = token_dir("sign-out-test");
+    let store = keyring_core::mock::Store::new().unwrap();
+    let user = Credentials::new(Some(store.clone()), "bramley-test", &dir);
+    std::fs::write(dir.join("music-user-token"), "old-file-token\n").unwrap();
+    assert_eq!(user.save("keyring-token", || true), Ok(()));
+    assert_eq!(user.clear(), Ok(()));
+    assert!(user.save("late-token", || false).is_err());
+    let restarted = Credentials::new(Some(store), "bramley-test", &dir).load();
+    let file = dir.join("music-user-token").exists();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!((restarted, file), (Ok(None), false));
+}
+
+fn ask_app(
+    inbox: &Sender<crate::cli::Envelope>,
+    ctx: &egui::Context,
+    app: &mut crate::app::App,
+    request: crate::cli::Request,
+) -> serde_json::Value {
+    let (reply, answer) = channel();
+    inbox
+        .send((request, Instant::now() + Duration::from_secs(5), reply))
+        .unwrap();
+    let until = Instant::now() + Duration::from_secs(10);
+    loop {
+        cover_meshes(ctx, app);
+        if let Ok(text) = answer.try_recv() {
+            return serde_json::from_str(&text).unwrap();
+        }
+        assert!(Instant::now() < until, "no reply");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn post_token(url: &str, token: &str) -> u16 {
+    let host = split(url).0;
+    ask(url, "POST", "{home}token", Some(&host), MARKED, token).0
+}
+
+fn wait_for(
+    ctx: &egui::Context,
+    app: &mut crate::app::App,
+    done: &dyn Fn(&serde_json::Value) -> bool,
+) -> serde_json::Value {
+    let until = Instant::now() + Duration::from_secs(20);
+    while !done(&app.status_json()) && Instant::now() < until {
+        cover_meshes(ctx, app);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    app.status_json()
+}
+
+fn frames(ctx: &egui::Context, app: &mut crate::app::App, n: usize) -> serde_json::Value {
+    for _ in 0..n {
+        cover_meshes(ctx, app);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    app.status_json()
+}
+
+#[test]
+fn sign_in_revalidates_with_the_new_token_and_sign_out_shuts_down_and_forgets() {
+    let (mut app, ends, inbox, ctx, config, fx) = app_on(SERVE);
+    wait_for(&ctx, &mut app, &|s| s["texturesUploaded"] == 50);
+    let out = ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignIn);
+    let url = out["signInUrl"].as_str().unwrap().to_owned();
+    assert_eq!(
+        out["banner"].as_str(),
+        Some(format!("SigningIn({url:?})").as_str())
+    );
+    let again = ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignIn);
+    assert_eq!(again["signInUrl"].as_str(), Some(url.as_str()));
+    assert_eq!(post_token(&url, "new-token"), 200);
+    let revalidated = || {
+        let seen = fx.requests.lock().unwrap();
+        seen.iter()
+            .any(|r| r.0 == "/v1/me/storefront" && r.2.as_deref() == Some("new-token"))
+    };
+    let status = wait_for(&ctx, &mut app, &|s| {
+        revalidated() && s["texturesUploaded"] == 50
+    });
+    assert_eq!(
+        (
+            status["banner"].as_str(),
+            status["signInUrl"].as_str(),
+            revalidated()
+        ),
+        (None, None, true)
+    );
+    ask_app(
+        &inbox,
+        &ctx,
+        &mut app,
+        crate::cli::Request::Do(Action::PlaySong("1".into())),
+    );
+    let out = ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignOut);
+    let shut = ends.borrow()[0]
+        .0
+        .try_iter()
+        .any(|c| c == Command::Shutdown);
+    let seen = (
+        out["banner"].as_str(),
+        out["texturesUploaded"].as_u64(),
+        out["error"].as_str(),
+        shut,
+    );
+    assert_eq!(seen, (Some("SignInNeeded"), Some(0), None, true));
+    let url = ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignIn)["signInUrl"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(post_token(&url, "back-token"), 200);
+    let status = wait_for(&ctx, &mut app, &|s| s["texturesUploaded"] == 50);
+    std::fs::remove_dir_all(&config).unwrap();
+    assert_eq!(
+        (status["banner"].as_str(), status["tokenStorage"].as_str()),
+        (None, Some("keyring"))
+    );
+    let play = ask_app(
+        &inbox,
+        &ctx,
+        &mut app,
+        crate::cli::Request::Do(Action::PlaySong("2".into())),
+    );
+    assert_eq!((play["refused"].as_str(), ends.borrow().len()), (None, 2));
+}
+
+#[test]
+fn play_then_sign_out_in_one_frame_never_reaches_the_engine() {
+    let (mut app, ends, inbox, ctx, config, _fx) = app_on(SERVE);
+    wait_for(&ctx, &mut app, &|s| s["texturesUploaded"] == 50);
+    let at = Instant::now() + Duration::from_secs(5);
+    let ((played, _), (signed_out, answer)) = (channel(), channel());
+    inbox
+        .send((
+            crate::cli::Request::Do(Action::PlaySong("1".into())),
+            at,
+            played,
+        ))
+        .unwrap();
+    inbox
+        .send((crate::cli::Request::SignOut, at, signed_out))
+        .unwrap();
+    let after = frames(&ctx, &mut app, 30);
+    let out: serde_json::Value = serde_json::from_str(&answer.recv().unwrap()).unwrap();
+    std::fs::remove_dir_all(&config).unwrap();
+    let sent: Vec<Command> = ends
+        .borrow()
+        .iter()
+        .flat_map(|e| e.0.try_iter().collect::<Vec<_>>())
+        .collect();
+    assert_eq!(
+        (out["banner"].as_str(), after["engineStarted"].as_bool()),
+        (Some("SignInNeeded"), Some(false))
+    );
+    assert!(
+        !sent
+            .iter()
+            .any(|c| matches!(c, Command::Play | Command::SetQueue { .. })),
+        "{sent:?}"
+    );
+}
+
+#[test]
+fn a_token_post_in_flight_across_sign_out_is_refused_and_never_stored() {
+    let (mut app, _ends, inbox, ctx, config, _fx) = app_on(SERVE);
+    wait_for(&ctx, &mut app, &|s| s["texturesUploaded"] == 50);
+    let url = ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignIn)["signInUrl"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let (addr, home) = split(&url);
+    let mut stream = std::net::TcpStream::connect(&addr).unwrap();
+    write!(
+        stream,
+        "POST {home}token HTTP/1.1\r\nHost: {addr}\r\n{MARKED}Content-Length: 10\r\n\r\n"
+    )
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    let out = ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignOut);
+    stream.write_all(b"late-token").unwrap();
+    let mut reply = String::new();
+    std::io::Read::read_to_string(&mut stream, &mut reply).unwrap();
+    let status = frames(&ctx, &mut app, 30);
+    let stored = crate::boot(&mock_user(&config), |_| {
+        unreachable!("a late token was stored")
+    });
+    std::fs::remove_dir_all(&config).unwrap();
+    assert!(
+        reply.starts_with("HTTP/1.1 500") && reply.contains("signed out while"),
+        "{reply}"
+    );
+    assert_eq!(
+        (out["banner"].as_str(), status["banner"].as_str()),
+        (Some("SignInNeeded"), Some("SignInNeeded"))
+    );
+    assert!(stored.unwrap_err().is::<SignedOut>());
+}
+
+#[test]
+fn until_the_startup_keyring_check_answers_play_is_refused_and_no_banner_flashes() {
+    let (mut app, ends, inbox, ctx, config, _fx) = app_on(SERVE);
+    app.check_sign_in();
+    let play = ask_app(
+        &inbox,
+        &ctx,
+        &mut app,
+        crate::cli::Request::Do(Action::PlaySong("1".into())),
+    );
+    assert_eq!(
+        (
+            play["refused"].is_string(),
+            play["banner"].as_str(),
+            ends.borrow().len()
+        ),
+        (true, None, 0)
+    );
+    let status = wait_for(&ctx, &mut app, &|s| s["texturesUploaded"] == 50);
+    std::fs::remove_dir_all(&config).unwrap();
+    assert_eq!(
+        (status["banner"].as_str(), status["tokenStorage"].as_str()),
+        (None, Some("keyring"))
+    );
+}
+
+#[test]
+fn the_status_file_is_owner_only() {
+    let dir = token_dir("status-test");
+    let path = dir.join("status.json");
+    let ctx = egui::Context::default();
+    let flags = ["--status".to_owned(), path.display().to_string()];
+    let args = crate::parse_args(flags.into_iter()).unwrap();
+    let user = (mock_user(&dir), true);
+    let mut app = crate::app::App::new(
+        &ctx,
+        args,
+        spawning(|| unreachable!()),
+        user,
+        (channel().1, true),
+        None,
+    );
+    cover_meshes(&ctx, &mut app);
+    drop(app);
+    #[cfg(unix)]
+    let mode =
+        std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&path).unwrap().permissions())
+            & 0o777;
+    #[cfg(not(unix))]
+    let mode = 0o600;
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(mode, 0o600);
+}
+
 fn searched(answer: bramley_api::Result<bramley_api::Reply>) -> String {
     let (inbox_tx, inbox) = channel();
     let ctx = egui::Context::default();
@@ -1272,323 +1922,4 @@ fn a_rejected_developer_token_fails_cli_search() {
     let reply = searched(Err(bramley_api::Error::DeveloperToken));
     let why = covers::DEVELOPER_REJECTED.to_owned();
     assert_eq!(crate::cli::outcome(&reply), Err((1, why)));
-}
-
-fn ask(
-    server: &crate::signin::Server,
-    method: &str,
-    path: &str,
-    host: Option<&str>,
-    body: &str,
-) -> (u16, String) {
-    let base = server.url.trim_start_matches("http://");
-    let (addr, home) = base.split_once('/').unwrap();
-    let mut stream = std::net::TcpStream::connect(addr).unwrap();
-    let host = host.map_or(String::new(), |h| format!("Host: {h}\r\n"));
-    let path = path.replace("{home}", &format!("/{home}"));
-    let length = body.len();
-    write!(
-        stream,
-        "{method} {path} HTTP/1.1\r\n{host}Content-Length: {length}\r\n\r\n{body}"
-    )
-    .unwrap();
-    let mut reply = String::new();
-    std::io::Read::read_to_string(&mut stream, &mut reply).unwrap();
-    let status = reply.split_whitespace().nth(1).unwrap().parse().unwrap();
-    (status, reply.split_once("\r\n\r\n").unwrap().1.to_owned())
-}
-
-fn sign_in_server(
-    keep: impl FnMut(&str) -> bool + Send + 'static,
-) -> (crate::signin::Server, String) {
-    let server = crate::signin::start("dev</script>\"x", crate::signin::LIFETIME, keep).unwrap();
-    let host = server
-        .url
-        .trim_start_matches("http://")
-        .split('/')
-        .next()
-        .unwrap()
-        .to_owned();
-    (server, host)
-}
-
-#[test]
-fn the_sign_in_page_needs_the_exact_host_and_the_nonce() {
-    let (server, host) = sign_in_server(|_| true);
-    let nonce = server.url.rsplit('/').nth(1).unwrap().to_owned();
-    assert_eq!(nonce.len(), 32);
-    let (status, page) = ask(&server, "GET", "{home}", Some(&host), "");
-    assert_eq!(status, 200);
-    assert!(page.contains(r#"window.BRAMLEY_DEV_TOKEN = "dev<\/script>\"x";"#));
-    assert!(page.contains(r#"src="https://js-cdn.music.apple.com/musickit/v3/musickit.js""#));
-    let port = host.rsplit(':').next().unwrap();
-    for bad in [
-        Some(format!("localhost:{port}")),
-        Some("127.0.0.1:1".into()),
-        Some("127.0.0.1".into()),
-        None,
-    ] {
-        assert_eq!(
-            ask(&server, "GET", "{home}", bad.as_deref(), "").0,
-            403,
-            "{bad:?}"
-        );
-    }
-    let wrong = format!("/{}/", "0".repeat(32));
-    for path in [
-        wrong.as_str(),
-        "/",
-        "/token",
-        &format!("/{nonce}"),
-        &format!("/{nonce}/x"),
-    ] {
-        assert_eq!(ask(&server, "GET", path, Some(&host), "").0, 404, "{path}");
-    }
-    let twice = format!(
-        "GET {} HTTP/1.1\r\nHost: {host}\r\nHost: {host}\r\n\r\n",
-        server.url
-    );
-    let addr = host.clone();
-    let mut stream = std::net::TcpStream::connect(addr).unwrap();
-    stream.write_all(twice.as_bytes()).unwrap();
-    let mut reply = String::new();
-    std::io::Read::read_to_string(&mut stream, &mut reply).unwrap();
-    assert!(reply.starts_with("HTTP/1.1 400"), "{reply}");
-}
-
-#[test]
-fn the_token_is_taken_once_and_a_failed_or_bad_post_does_not_use_it_up() {
-    let kept = Arc::new(Mutex::new(Vec::new()));
-    let (seen, mut fail) = (kept.clone(), true);
-    let (server, host) = sign_in_server(move |token| {
-        seen.lock().unwrap().push(token.to_owned());
-        !std::mem::take(&mut fail)
-    });
-    let post = |body: &str| ask(&server, "POST", "{home}token", Some(&host), body).0;
-    assert_eq!(
-        ask(&server, "POST", "{home}token", Some("evil.test"), "t0k").0,
-        403
-    );
-    assert_eq!(
-        [post(""), post("two words"), post("first")],
-        [400, 400, 500]
-    );
-    assert!(server.done.try_recv().is_err());
-    assert_eq!(post(" mut-token \n"), 200);
-    assert_eq!(
-        [
-            post("again"),
-            ask(&server, "GET", "{home}", Some(&host), "").0
-        ],
-        [410, 410]
-    );
-    assert_eq!(*kept.lock().unwrap(), ["first", "mut-token"]);
-    assert!(server.done.recv_timeout(Duration::from_secs(1)).is_ok());
-    assert!(server.done.try_recv().is_err());
-}
-
-#[test]
-fn the_sign_in_server_stops_answering_at_its_lifetime_or_when_dropped() {
-    let short = crate::signin::start("dev", Duration::from_millis(200), |_| true).unwrap();
-    let addr = short
-        .url
-        .trim_start_matches("http://")
-        .split('/')
-        .next()
-        .unwrap()
-        .to_owned();
-    assert!(std::net::TcpStream::connect(&addr).is_ok());
-    let gone = short.done.recv_timeout(Duration::from_secs(2));
-    assert_eq!(gone, Err(std::sync::mpsc::RecvTimeoutError::Disconnected));
-    assert!(std::net::TcpStream::connect(&addr).is_err());
-    let (dropped, host) = sign_in_server(|_| true);
-    drop(dropped);
-    std::thread::sleep(Duration::from_millis(300));
-    assert!(std::net::TcpStream::connect(&host).is_err());
-}
-
-fn token_dir(name: &str) -> std::path::PathBuf {
-    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../target/tmp/{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-fn keyring_entry(store: &Arc<keyring_core::mock::Store>) -> keyring_core::Entry {
-    keyring_core::api::CredentialStoreApi::build(&**store, "bramley-test", "music-user-token", None)
-        .unwrap()
-}
-
-#[test]
-fn a_sign_in_lives_in_the_keyring_and_an_old_file_is_imported_and_kept() {
-    let dir = token_dir("keyring-test");
-    let store = keyring_core::mock::Store::new().unwrap();
-    let user = Credentials::new(Some(store.clone()), "bramley-test", &dir);
-    std::fs::write(dir.join("music-user-token"), "old-file-token\n").unwrap();
-    assert_eq!(user.load().as_deref(), Some("old-file-token"));
-    assert_eq!(
-        keyring_entry(&store).get_password().unwrap(),
-        "old-file-token"
-    );
-    std::fs::remove_file(dir.join("music-user-token")).unwrap();
-    assert!(user.save("fresh-token"));
-    let file = dir.join("music-user-token").exists();
-    let restarted = Credentials::new(Some(store.clone()), "bramley-test", &dir).load();
-    std::fs::remove_dir_all(&dir).unwrap();
-    assert_eq!((file, restarted.as_deref()), (false, Some("fresh-token")));
-}
-
-#[test]
-fn an_unavailable_keyring_falls_back_to_an_owner_only_file() {
-    let dir = token_dir("no-keyring-test");
-    let store = keyring_core::mock::Store::new().unwrap();
-    let failing = keyring_entry(&store);
-    let cred: &keyring_core::mock::Cred = failing.as_any().downcast_ref().unwrap();
-    cred.set_error(keyring_core::Error::NoStorageAccess("locked".into()));
-    let locked = Credentials::new(Some(store.clone()), "bramley-test", &dir);
-    std::fs::write(dir.join("music-user-token"), "world-readable\n").unwrap();
-    #[cfg(unix)]
-    std::fs::set_permissions(
-        dir.join("music-user-token"),
-        std::os::unix::fs::PermissionsExt::from_mode(0o644),
-    )
-    .unwrap();
-    let kept = [
-        locked.save("locked-token"),
-        Credentials::new(None, "bramley-test", &dir).save("none-token"),
-    ];
-    let saved = std::fs::read_to_string(dir.join("music-user-token")).unwrap();
-    #[cfg(unix)]
-    let mode = std::os::unix::fs::PermissionsExt::mode(
-        &std::fs::metadata(dir.join("music-user-token"))
-            .unwrap()
-            .permissions(),
-    ) & 0o777;
-    #[cfg(not(unix))]
-    let mode = 0o600;
-    let loaded = Credentials::new(None, "bramley-test", &dir).load();
-    std::fs::remove_dir_all(&dir).unwrap();
-    assert_eq!(kept, [true, true]);
-    assert_eq!(
-        (saved.as_str(), mode, loaded.as_deref()),
-        ("none-token\n", 0o600, Some("none-token"))
-    );
-    assert!(keyring_entry(&store).get_password().is_err());
-}
-
-#[test]
-fn sign_out_clears_keyring_and_file_so_a_restart_stays_signed_out() {
-    let dir = token_dir("sign-out-test");
-    let store = keyring_core::mock::Store::new().unwrap();
-    let user = Credentials::new(Some(store.clone()), "bramley-test", &dir);
-    std::fs::write(dir.join("music-user-token"), "old-file-token\n").unwrap();
-    assert!(user.save("keyring-token"));
-    assert!(user.clear());
-    let restarted = Credentials::new(Some(store), "bramley-test", &dir).load();
-    let file = dir.join("music-user-token").exists();
-    std::fs::remove_dir_all(&dir).unwrap();
-    assert_eq!((restarted, file), (None, false));
-}
-
-fn ask_app(
-    inbox: &Sender<crate::cli::Envelope>,
-    ctx: &egui::Context,
-    app: &mut crate::app::App,
-    request: crate::cli::Request,
-) -> serde_json::Value {
-    let (reply, answer) = channel();
-    inbox
-        .send((request, Instant::now() + Duration::from_secs(5), reply))
-        .unwrap();
-    cover_meshes(ctx, app);
-    serde_json::from_str(&answer.recv().unwrap()).unwrap()
-}
-
-fn post_token(url: &str, token: &str) -> u16 {
-    let addr = url.trim_start_matches("http://").split('/').next().unwrap();
-    let mut stream = std::net::TcpStream::connect(addr).unwrap();
-    let path = url.trim_start_matches(&format!("http://{addr}"));
-    let length = token.len();
-    write!(
-        stream,
-        "POST {path}token HTTP/1.1\r\nHost: {addr}\r\nContent-Length: {length}\r\n\r\n{token}"
-    )
-    .unwrap();
-    let mut reply = String::new();
-    std::io::Read::read_to_string(&mut stream, &mut reply).unwrap();
-    reply.split_whitespace().nth(1).unwrap().parse().unwrap()
-}
-
-#[test]
-fn sign_in_revalidates_with_the_new_token_and_sign_out_shuts_down_and_forgets() {
-    let (mut app, ends, inbox, ctx, config, fx) = app_on(SERVE);
-    let wait_for = |app: &mut crate::app::App, done: &dyn Fn(&serde_json::Value) -> bool| {
-        let until = Instant::now() + Duration::from_secs(20);
-        while !done(&app.status_json()) && Instant::now() < until {
-            cover_meshes(&ctx, app);
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        app.status_json()
-    };
-    wait_for(&mut app, &|s| s["texturesUploaded"] == 50);
-    let out = ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignIn);
-    let url = out["signInUrl"].as_str().unwrap().to_owned();
-    assert_eq!(
-        out["banner"].as_str(),
-        Some(format!("SigningIn({url:?})").as_str())
-    );
-    let again = ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignIn);
-    assert_eq!(again["signInUrl"].as_str(), Some(url.as_str()));
-    assert_eq!(post_token(&url, "new-token"), 200);
-    let revalidated = || {
-        let seen = fx.requests.lock().unwrap();
-        seen.iter()
-            .any(|r| r.0 == "/v1/me/storefront" && r.2.as_deref() == Some("new-token"))
-    };
-    let status = wait_for(&mut app, &|s| revalidated() && s["texturesUploaded"] == 50);
-    assert_eq!(
-        (
-            status["banner"].as_str(),
-            status["signInUrl"].as_str(),
-            revalidated()
-        ),
-        (None, None, true)
-    );
-    ask_app(
-        &inbox,
-        &ctx,
-        &mut app,
-        crate::cli::Request::Do(Action::PlaySong("1".into())),
-    );
-    let out = ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignOut);
-    let shut = ends.borrow()[0]
-        .0
-        .try_iter()
-        .any(|c| c == Command::Shutdown);
-    let file = config.join("music-user-token").exists();
-    let restarted = crate::signed_out(&mock_user(&config));
-    let seen = (
-        out["banner"].as_str(),
-        out["texturesUploaded"].as_u64(),
-        shut,
-        file,
-        restarted,
-    );
-    assert_eq!(seen, (Some("SignInNeeded"), Some(0), true, false, true));
-    let url = ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignIn)["signInUrl"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    assert_eq!(post_token(&url, "back-token"), 200);
-    let status = wait_for(&mut app, &|s| s["texturesUploaded"] == 50);
-    std::fs::remove_dir_all(&config).unwrap();
-    assert_eq!(status["banner"].as_str(), None);
-    let play = ask_app(
-        &inbox,
-        &ctx,
-        &mut app,
-        crate::cli::Request::Do(Action::PlaySong("2".into())),
-    );
-    assert_eq!((play["refused"].as_str(), ends.borrow().len()), (None, 2));
 }

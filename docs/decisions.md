@@ -13,3 +13,7 @@
   Every UI slice ships screenshots before merge.
 - **2026-10-10: artwork cache (Nate).** Artwork is cached in memory only, never on disk.
 - **2026-10-10: agent access (Nate).** Bramley is controllable by agents: a CLI (`bramley play|pause|next|…`) and a local MCP server (`bramley mcp`). Both talk to the running instance. See the compliance interpretation log.
+- **2026-10-10: user-token storage (coordinator's call after the S3 review; Nate may override).**
+  - The keyring is the source of truth, and there is only ever one copy. An import into the keyring is read back and then deletes the old `music-user-token` file. A save to the keyring also removes the file.
+  - The 0600 file is used only when no Secret Service exists on the bus. It is written atomically, and the storage mode ("keyring" or "file") shows in status and the UI. A keyring error, timeout or cancelled unlock prompt is an error, never a silent fallback. A failed keyring write makes the sign-in page show the error instead of "Done".
+- **2026-10-10: the sign-in page wipes its own storage (coordinator's call; the reviewer asked for Nate's read under compliance rule 2).** After a successful token POST, the page calls `localStorage.clear()` and `sessionStorage.clear()` on its own loopback origin, and the response carries `Clear-Site-Data: "storage"`. This is our page's behaviour on our origin, not a change to MusicKit. `unauthorize()` is not called, because it would revoke the token Bramley just stored.

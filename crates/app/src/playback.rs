@@ -218,11 +218,19 @@ impl Playback {
         true
     }
 
-    pub fn signed_in(&mut self) {
+    fn restart(&mut self, signed_out: bool) {
         self.shutdown();
         self.starting = None;
-        (self.signed_out, self.snap) = (false, Snapshot::default());
+        (self.signed_out, self.snap) = (signed_out, Snapshot::default());
         (self.pending, self.queued) = (None, Vec::new());
+    }
+
+    pub fn signed_in(&mut self) {
+        self.restart(false);
+    }
+
+    pub fn sign_out(&mut self) {
+        self.restart(true);
     }
 
     pub fn mark_signed_out(&mut self) {

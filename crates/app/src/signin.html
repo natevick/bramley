@@ -13,9 +13,9 @@ button:disabled{opacity:.5;cursor:default}
 <p>Sign in once so Bramley can play your music on Apple Music. The sign-in window is Apple's own. Bramley only receives the access token it hands back.</p>
 <button id="go" disabled>Sign in</button>
 <p id="status">Loading MusicKit…</p>
-<script>window.BRAMLEY_DEV_TOKEN = __DEV_TOKEN__;</script>
+<script nonce="__CSP_NONCE__">window.BRAMLEY_DEV_TOKEN = __DEV_TOKEN__;</script>
 <script src="https://js-cdn.music.apple.com/musickit/v3/musickit.js" async></script>
-<script>
+<script nonce="__CSP_NONCE__">
 const go = document.getElementById("go"), status = document.getElementById("status");
 document.addEventListener("musickitloaded", async () => {
   try {
@@ -27,8 +27,9 @@ go.onclick = async () => {
   go.disabled = true; status.textContent = "Waiting for Apple sign-in…";
   try {
     const token = await MusicKit.getInstance().authorize();
-    const r = await fetch("token", { method: "POST", body: token });
-    status.textContent = r.ok ? "Done. You can close this tab." : "Bramley did not accept the token (" + r.status + ").";
+    const r = await fetch("token", { method: "POST", headers: { "X-Bramley-Sign-In": "1" }, body: token });
+    if (r.ok) { localStorage.clear(); sessionStorage.clear(); status.textContent = "Done. You can close this tab."; }
+    else { status.textContent = "Bramley could not keep the sign-in (" + r.status + "): " + await r.text(); go.disabled = false; }
   } catch (e) { status.textContent = "Sign-in did not complete: " + e; go.disabled = false; }
 };
 </script>

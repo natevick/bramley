@@ -1,8 +1,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::channel;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use keyring_core::api::CredentialStore;
@@ -10,14 +9,30 @@ use keyring_core::{Entry, Error};
 
 pub const USER_TOKEN: &str = "music-user-token";
 const DEFAULT_SERVICE: &str = "bramley";
-const QUICK: Duration = Duration::from_secs(5);
-const PATIENT: Duration = Duration::from_secs(60);
+const OPEN_WAIT: Duration = Duration::from_secs(5);
+const WAIT: Duration = Duration::from_secs(60);
+const UNAVAILABLE: &str = "the system keyring did not answer; unlock it and try again";
+const STALE: &str = "Bramley signed out while this sign-in was arriving";
 
-static WARNED: AtomicBool = AtomicBool::new(false);
+#[derive(Clone)]
+enum Backend {
+    Keyring(Arc<CredentialStore>),
+    File,
+}
+
+impl Backend {
+    fn name(&self) -> &'static str {
+        match self {
+            Backend::Keyring(_) => "keyring",
+            Backend::File => "file",
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct Credentials {
-    store: Option<Arc<CredentialStore>>,
+    state: Arc<Mutex<Option<Backend>>>,
+    mode: Arc<OnceLock<&'static str>>,
     service: String,
     dir: PathBuf,
 }
@@ -27,13 +42,26 @@ impl Credentials {
         let service = std::env::var("BRAMLEY_KEYRING_SERVICE")
             .ok()
             .filter(|s| !s.is_empty());
-        let service = service.as_deref().unwrap_or(DEFAULT_SERVICE);
-        Credentials::new(native_store(), service, dir)
+        Credentials::with(None, service.as_deref().unwrap_or(DEFAULT_SERVICE), dir)
     }
 
+    #[cfg(test)]
     pub fn new(store: Option<Arc<CredentialStore>>, service: &str, dir: &Path) -> Self {
+        Credentials::with(
+            Some(store.map_or(Backend::File, Backend::Keyring)),
+            service,
+            dir,
+        )
+    }
+
+    fn with(backend: Option<Backend>, service: &str, dir: &Path) -> Self {
+        let mode = OnceLock::new();
+        if let Some(backend) = &backend {
+            let _ = mode.set(backend.name());
+        }
         Credentials {
-            store,
+            state: Arc::new(Mutex::new(backend)),
+            mode: Arc::new(mode),
             service: service.to_owned(),
             dir: dir.to_owned(),
         }
@@ -43,70 +71,96 @@ impl Credentials {
         &self.dir
     }
 
-    fn keyring<T: Send + 'static>(
+    pub fn storage(&self) -> Option<&'static str> {
+        self.mode.get().copied()
+    }
+
+    fn locked<T>(
         &self,
-        wait: Duration,
+        op: impl FnOnce(&Backend) -> Result<T, &'static str>,
+    ) -> Result<T, &'static str> {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let backend = match state.clone() {
+            Some(backend) => backend,
+            None => {
+                let backend = bounded(OPEN_WAIT, open_native)
+                    .flatten()
+                    .ok_or(UNAVAILABLE)?;
+                let _ = self.mode.set(backend.name());
+                state.insert(backend).clone()
+            }
+        };
+        op(&backend)
+    }
+
+    fn entry<T: Send + 'static>(
+        &self,
+        store: &Arc<CredentialStore>,
         op: impl FnOnce(&Entry) -> keyring_core::Result<T> + Send + 'static,
-    ) -> Option<keyring_core::Result<T>> {
-        let (store, service) = (self.store.clone()?, self.service.clone());
-        bounded(wait, move || {
+    ) -> Result<keyring_core::Result<T>, &'static str> {
+        let (store, service) = (store.clone(), self.service.clone());
+        bounded(WAIT, move || {
             store.build(&service, USER_TOKEN, None).and_then(|e| op(&e))
+        })
+        .ok_or(UNAVAILABLE)
+    }
+
+    fn keep_in(&self, store: &Arc<CredentialStore>, token: &str) -> Result<(), &'static str> {
+        let copy = token.to_owned();
+        let stored = self.entry(store, move |e| {
+            e.set_password(&copy).and_then(|()| e.get_password())
+        })?;
+        if stored.ok().as_deref() != Some(token) {
+            return Err(UNAVAILABLE);
+        }
+        remove(&self.dir.join(USER_TOKEN))
+    }
+
+    pub fn load(&self) -> Result<Option<String>, &'static str> {
+        let file = || crate::read_token(&self.dir, USER_TOKEN).ok();
+        self.locked(|backend| match backend {
+            Backend::File => Ok(file()),
+            Backend::Keyring(store) => match self.entry(store, Entry::get_password)? {
+                Ok(token) => Ok(Some(token.trim().to_owned()).filter(|t| !t.is_empty())),
+                Err(Error::NoEntry) => match file() {
+                    Some(token) => self.keep_in(store, &token).map(|()| Some(token)),
+                    None => Ok(None),
+                },
+                Err(_) => Err(UNAVAILABLE),
+            },
         })
     }
 
-    pub fn load(&self) -> Option<String> {
-        match self.keyring(QUICK, Entry::get_password) {
-            Some(Ok(token)) => Some(token.trim().to_owned()).filter(|t| !t.is_empty()),
-            Some(Err(Error::NoEntry)) => {
-                let token = crate::read_token(&self.dir, USER_TOKEN).ok()?;
-                let copy = token.clone();
-                if !matches!(
-                    self.keyring(QUICK, move |e| e.set_password(&copy)),
-                    Some(Ok(()))
-                ) {
-                    self.warn();
-                }
-                Some(token)
+    pub fn save(&self, token: &str, current: impl Fn() -> bool) -> Result<(), &'static str> {
+        self.locked(|backend| match backend {
+            _ if !current() => Err(STALE),
+            Backend::File => write_private(&self.dir.join(USER_TOKEN), &format!("{token}\n"))
+                .map_err(|_| "the sign-in file could not be written"),
+            Backend::Keyring(store) => self.keep_in(store, token),
+        })
+    }
+
+    pub fn clear(&self) -> Result<(), &'static str> {
+        self.locked(|backend| {
+            if let Backend::Keyring(store) = backend
+                && !matches!(
+                    self.entry(store, Entry::delete_credential)?,
+                    Ok(()) | Err(Error::NoEntry)
+                )
+            {
+                return Err(UNAVAILABLE);
             }
-            _ => {
-                self.warn();
-                crate::read_token(&self.dir, USER_TOKEN).ok()
-            }
-        }
+            remove(&self.dir.join(USER_TOKEN))
+        })
     }
+}
 
-    pub fn save(&self, token: &str) -> bool {
-        let copy = token.to_owned();
-        if matches!(
-            self.keyring(PATIENT, move |e| e.set_password(&copy)),
-            Some(Ok(()))
-        ) {
-            return true;
+fn remove(path: &Path) -> Result<(), &'static str> {
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            Err("the old sign-in file could not be removed")
         }
-        self.warn();
-        write_private(&self.dir.join(USER_TOKEN), token).is_ok()
-    }
-
-    pub fn clear(&self) -> bool {
-        let keyring = self.store.is_none()
-            || matches!(
-                self.keyring(QUICK, Entry::delete_credential),
-                Some(Ok(()) | Err(Error::NoEntry))
-            );
-        let file = match std::fs::remove_file(self.dir.join(USER_TOKEN)) {
-            Err(e) => e.kind() == std::io::ErrorKind::NotFound,
-            Ok(()) => true,
-        };
-        keyring && file
-    }
-
-    fn warn(&self) {
-        if !WARNED.swap(true, Ordering::SeqCst) {
-            eprintln!(
-                "bramley: WARNING: the system keyring is unavailable, so the Apple Music sign-in is kept in {} (owner-only)",
-                self.dir.join(USER_TOKEN).display()
-            );
-        }
+        _ => Ok(()),
     }
 }
 
@@ -122,30 +176,46 @@ fn bounded<T: Send + 'static>(
     rx.recv_timeout(wait).ok()
 }
 
-fn write_private(path: &Path, token: &str) -> std::io::Result<()> {
+pub fn write_private(path: &Path, contents: &str) -> std::io::Result<()> {
+    let partial = path.with_extension("partial");
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file = options.open(path)?;
+    let mut file = options.open(&partial)?;
     #[cfg(unix)]
     file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
-    writeln!(file, "{token}")
+    file.write_all(contents.as_bytes())?;
+    file.sync_all()?;
+    std::fs::rename(&partial, path)
 }
 
-fn native_store() -> Option<Arc<CredentialStore>> {
-    static STORE: OnceLock<Option<Arc<CredentialStore>>> = OnceLock::new();
-    let open = || {
-        #[cfg(target_os = "linux")]
-        let store = zbus_secret_service_keyring_store::Store::new();
-        #[cfg(target_os = "macos")]
-        let store = apple_native_keyring_store::keychain::Store::new();
-        #[cfg(windows)]
-        let store = windows_native_keyring_store::Store::new();
-        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
-        return store.ok().map(|s| s as Arc<CredentialStore>);
-        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-        None
+fn open_native() -> Option<Backend> {
+    #[cfg(target_os = "linux")]
+    let store = match secret_service_on_bus()? {
+        false => return Some(Backend::File),
+        true => zbus_secret_service_keyring_store::Store::new(),
     };
-    STORE.get_or_init(|| bounded(QUICK, open).flatten()).clone()
+    #[cfg(target_os = "macos")]
+    let store = apple_native_keyring_store::keychain::Store::new();
+    #[cfg(windows)]
+    let store = windows_native_keyring_store::Store::new();
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    return Some(Backend::Keyring(store.ok()?));
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+    Some(Backend::File)
+}
+
+#[cfg(target_os = "linux")]
+fn secret_service_on_bus() -> Option<bool> {
+    const NAME: &str = "org.freedesktop.secrets";
+    let Ok(bus) = zbus::blocking::Connection::session() else {
+        return Some(false);
+    };
+    let dbus = zbus::blocking::fdo::DBusProxy::new(&bus).ok()?;
+    if dbus.name_has_owner(NAME.try_into().ok()?).ok()? {
+        return Some(true);
+    }
+    let activatable = dbus.list_activatable_names().ok()?;
+    Some(activatable.iter().any(|name| name.as_str() == NAME))
 }

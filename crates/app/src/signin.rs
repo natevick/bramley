@@ -9,10 +9,12 @@ pub const LIFETIME: Duration = Duration::from_secs(10 * 60);
 const PAGE: &str = include_str!("signin.html");
 const MAX_TOKEN: usize = 8 * 1024;
 const MAX_REQUEST: u64 = 16 * 1024 + MAX_TOKEN as u64;
-const READ_WAIT: Duration = Duration::from_secs(5);
+const CONNECTION_BUDGET: Duration = Duration::from_secs(5);
+const MARK: &str = "x-bramley-sign-in";
 const POLL: Duration = Duration::from_millis(50);
 
 type Reply = (&'static str, String, bool);
+pub type Keep = Box<dyn FnMut(&str) -> Result<(), &'static str> + Send>;
 
 pub struct Server {
     pub url: String,
@@ -31,31 +33,52 @@ struct Site {
     home: String,
     post: String,
     page: String,
+    csp: String,
     used: bool,
+    expires: Instant,
 }
 
-pub fn start(
-    developer: &str,
-    lifetime: Duration,
-    mut keep: impl FnMut(&str) -> bool + Send + 'static,
-) -> std::io::Result<Server> {
+struct Budget {
+    stream: TcpStream,
+    until: Instant,
+}
+
+impl Read for Budget {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let left = self.until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+        self.stream.set_read_timeout(Some(left))?;
+        self.stream.read(buf)
+    }
+}
+
+pub fn start(developer: &str, lifetime: Duration, mut keep: Keep) -> std::io::Result<Server> {
     let listener = TcpListener::bind(("127.0.0.1", 0))?;
     listener.set_nonblocking(true)?;
     let host = format!("127.0.0.1:{}", listener.local_addr()?.port());
+    let script = nonce()?;
     let nonce = nonce()?;
     let embedded = serde_json::to_string(developer)?.replace("</", "<\\/");
+    let deadline = Instant::now() + lifetime;
     let mut site = Site {
         home: format!("/{nonce}/"),
         post: format!("/{nonce}/token"),
-        page: PAGE.replace("__DEV_TOKEN__", &embedded),
+        page: PAGE
+            .replace("__DEV_TOKEN__", &embedded)
+            .replace("__CSP_NONCE__", &script),
+        csp: format!(
+            "script-src 'self' 'nonce-{script}' https://js-cdn.music.apple.com; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+        ),
         used: false,
+        expires: deadline,
         host,
     };
     let url = format!("http://{}{}", site.host, site.home);
     let (tx, done) = channel();
     let stop = Arc::new(AtomicBool::new(false));
     let halt = stop.clone();
-    let deadline = Instant::now() + lifetime;
     std::thread::Builder::new()
         .name("sign-in".into())
         .spawn(move || {
@@ -80,18 +103,25 @@ fn nonce() -> std::io::Result<String> {
 }
 
 impl Site {
-    fn answer(&mut self, stream: TcpStream, keep: &mut impl FnMut(&str) -> bool) -> bool {
+    fn answer(&mut self, stream: TcpStream, keep: &mut Keep) -> bool {
+        let until = Instant::now() + CONNECTION_BUDGET;
         let _ = stream.set_nonblocking(false);
-        let _ = stream.set_read_timeout(Some(READ_WAIT));
+        let _ = stream.set_write_timeout(Some(CONNECTION_BUDGET));
         let Ok(mut out) = stream.try_clone() else {
             return false;
         };
-        let mut reader = BufReader::new(stream.take(MAX_REQUEST));
+        let mut reader = BufReader::new(Budget { stream, until }.take(MAX_REQUEST));
         let bad = ("400 Bad Request", String::new(), false);
         let (status, body, kept) = self.route(&mut reader, keep).unwrap_or(bad);
+        let wipe = if kept {
+            "Clear-Site-Data: \"storage\"\r\n"
+        } else {
+            ""
+        };
         let head = format!(
-            "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n",
-            body.len()
+            "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: {}\r\nX-Content-Type-Options: nosniff\r\n{wipe}Connection: close\r\n\r\n",
+            body.len(),
+            self.csp
         );
         let _ = out
             .write_all(head.as_bytes())
@@ -99,16 +129,12 @@ impl Site {
         kept
     }
 
-    fn route(
-        &mut self,
-        reader: &mut impl BufRead,
-        keep: &mut impl FnMut(&str) -> bool,
-    ) -> Option<Reply> {
+    fn route(&mut self, reader: &mut impl BufRead, keep: &mut Keep) -> Option<Reply> {
         let mut line = String::new();
         reader.read_line(&mut line).ok()?;
         let mut words = line.split_whitespace();
         let (method, path) = (words.next()?.to_owned(), words.next()?.to_owned());
-        let (mut host, mut length) = (None, 0usize);
+        let (mut host, mut length, mut marked) = (None, 0usize, false);
         loop {
             let mut header = String::new();
             if reader.read_line(&mut header).ok()? == 0 || header.trim().is_empty() {
@@ -119,6 +145,7 @@ impl Site {
                 "host" if host.is_none() => host = Some(value.trim().to_owned()),
                 "host" => return None,
                 "content-length" => length = value.trim().parse().ok()?,
+                MARK => marked = value.trim() == "1",
                 _ => {}
             }
         }
@@ -134,19 +161,20 @@ impl Site {
         if path != self.home && path != self.post {
             return empty("404 Not Found");
         }
-        if self.used {
+        if self.used || Instant::now() >= self.expires {
             return empty("410 Gone");
         }
         match method.as_str() {
             "GET" if path == self.home => Some(("200 OK", self.page.clone(), false)),
+            "POST" if path == self.post && !marked => empty("403 Forbidden"),
             "POST" if path == self.post => {
                 let body = String::from_utf8(body).ok()?;
                 let token = body.trim();
                 if token.is_empty() || !token.bytes().all(|b| b.is_ascii_graphic()) {
                     return None;
                 }
-                if !keep(token) {
-                    return empty("500 Internal Server Error");
+                if let Err(why) = keep(token) {
+                    return Some(("500 Internal Server Error", why.to_owned(), false));
                 }
                 self.used = true;
                 Some(("200 OK", String::new(), true))
@@ -157,8 +185,17 @@ impl Site {
     }
 }
 
+pub fn redirect_file(dir: &std::path::Path, url: &str) -> std::io::Result<std::path::PathBuf> {
+    let path = dir.join("bramley-sign-in.html");
+    let page = format!(
+        "<!doctype html><meta http-equiv=\"refresh\" content=\"0;url={url}\"><a href=\"{url}\">Continue to Bramley sign-in</a>\n"
+    );
+    crate::credentials::write_private(&path, &page)?;
+    Ok(path)
+}
+
 #[cfg(not(test))]
-pub fn open_browser(url: &str) {
+pub fn open_browser(page: &std::path::Path) {
     use std::process::{Command, Stdio};
     #[cfg(target_os = "macos")]
     let mut command = Command::new("open");
@@ -169,7 +206,7 @@ pub fn open_browser(url: &str) {
     #[cfg(not(any(target_os = "macos", windows)))]
     let mut command = Command::new("xdg-open");
     let spawned = command
-        .arg(url)
+        .arg(page)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())

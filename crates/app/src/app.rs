@@ -1,7 +1,9 @@
 #[cfg(feature = "dev")]
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::mpsc::{Sender, TryRecvError, channel};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -17,6 +19,27 @@ use crate::playback::{Action, Banner, Playback, Spawn};
 use crate::{signin, ui};
 
 const REPAINT_EVERY: Duration = Duration::from_secs(1);
+const STILL_CLEARING: &str =
+    "signed out here, but the stored sign-in is still being removed; run sign-out again to check";
+
+type Job = Receiver<Result<bool, &'static str>>;
+type Waiting = Vec<(Instant, Sender<String>)>;
+
+fn worker(job: impl FnOnce() -> Result<bool, &'static str> + Send + 'static) -> Job {
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(job());
+    });
+    rx
+}
+
+fn poll(job: &Job) -> Option<Result<bool, &'static str>> {
+    match job.try_recv() {
+        Ok(result) => Some(result),
+        Err(TryRecvError::Empty) => None,
+        Err(TryRecvError::Disconnected) => Some(Err("the keyring worker stopped")),
+    }
+}
 
 struct StatusWriter {
     tx: Option<Sender<String>>,
@@ -29,9 +52,7 @@ impl StatusWriter {
         let thread = std::thread::spawn(move || {
             while let Ok(mut status) = rx.recv() {
                 status = rx.try_iter().last().unwrap_or(status);
-                let partial = path.with_extension("partial");
-                let written = std::fs::write(&partial, status);
-                if let Err(e) = written.and_then(|()| std::fs::rename(&partial, &path)) {
+                if let Err(e) = crate::credentials::write_private(&path, &status) {
                     eprintln!("bramley: status not written to {}: {e}", path.display());
                 }
             }
@@ -65,6 +86,9 @@ pub struct App {
     user: Credentials,
     sign_in: Option<(signin::Server, bool)>,
     notice: Option<&'static str>,
+    generation: Arc<AtomicU64>,
+    checking: Option<Job>,
+    clearing: Option<(Job, Waiting)>,
     covers: Grid,
     actions: Vec<Action>,
     inbox: Inbox,
@@ -104,6 +128,9 @@ impl App {
             user,
             sign_in: None,
             notice: None,
+            generation: Arc::default(),
+            checking: None,
+            clearing: None,
             covers: Grid::new(source),
             actions,
             inbox,
@@ -141,6 +168,7 @@ impl App {
             "banner": self.banner().map(|b| format!("{b:?}")),
             "signInUrl": self.waiting(),
             "notice": self.notice,
+            "tokenStorage": self.user.storage(),
             "framesPainted": self.frames,
             "glRenderer": self.renderer,
             "texturesUploaded": self.covers.uploaded(),
@@ -165,6 +193,49 @@ impl App {
             | self.covers.receive(ctx)
             | self.answer_requests(ctx)
             | self.follow_sign_in()
+            | self.follow_account()
+    }
+
+    pub fn check_sign_in(&mut self) {
+        self.playback.mark_signed_out();
+        let user = self.user.clone();
+        self.checking = Some(worker(move || user.load().map(|token| token.is_some())));
+    }
+
+    fn follow_account(&mut self) -> bool {
+        let checked = self.checking.as_ref().and_then(poll);
+        match checked {
+            Some(Ok(true)) => self.playback.signed_in(),
+            Some(Err(why)) => self.notice = Some(why),
+            _ => {}
+        }
+        if checked.is_some() {
+            self.checking = None;
+        }
+        let Some((job, waiting)) = self.clearing.as_mut() else {
+            return checked.is_some();
+        };
+        let (cleared, now) = (poll(job), Instant::now());
+        let due: Vec<_> = waiting
+            .extract_if(.., |(at, _)| cleared.is_some() || *at <= now)
+            .map(|(_, reply)| reply)
+            .collect();
+        if cleared.is_some() {
+            self.clearing = None;
+        }
+        if let Some(Err(why)) = cleared {
+            self.notice = Some(why);
+        }
+        let mut answer = self.status_json();
+        match cleared {
+            None => answer["error"] = json!(STILL_CLEARING),
+            Some(Err(why)) => answer["error"] = json!(why),
+            Some(Ok(_)) => {}
+        }
+        for reply in due {
+            let _ = reply.send(answer.to_string());
+        }
+        checked.is_some() || cleared.is_some()
     }
 
     fn answer_requests(&mut self, ctx: &egui::Context) -> bool {
@@ -204,7 +275,13 @@ impl App {
             let show = request == Request::Show;
             let outcome = match request {
                 Request::SignIn => self.start_sign_in().err().map(|why| ("error", why)),
-                Request::SignOut => self.sign_out().err().map(|why| ("error", why)),
+                Request::SignOut => {
+                    self.sign_out();
+                    if let Some((_, waiting)) = self.clearing.as_mut() {
+                        waiting.push((deadline, reply));
+                    }
+                    continue;
+                }
                 request => cli::command(&mut self.playback, request, deadline),
             };
             if show && outcome.is_none() {
@@ -232,19 +309,24 @@ impl App {
         }
         let developer = crate::read_token(self.user.dir(), "developer-token")
             .map_err(|_| "sign-in needs Bramley's developer token, which is missing")?;
-        let user = self.user.clone();
-        let keep = move |token: &str| {
-            let kept = user.save(token);
-            if !kept {
-                eprintln!("bramley: the sign-in could not be stored");
-            }
-            kept
-        };
+        let (user, generation) = (self.user.clone(), self.generation.clone());
+        let at = generation.load(Ordering::SeqCst);
+        let keep: signin::Keep = Box::new(move |token| {
+            let current = || generation.load(Ordering::SeqCst) == at;
+            let kept = user.save(token, current);
+            kept.inspect_err(|why| eprintln!("bramley: the sign-in was not kept: {why}"))
+        });
         let server = signin::start(&developer, signin::LIFETIME, keep)
             .map_err(|_| "the sign-in page could not start")?;
         println!("bramley: sign in to Apple Music at {}", server.url);
         #[cfg(not(test))]
-        signin::open_browser(&server.url);
+        {
+            let dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
+            let dir = dir.unwrap_or_else(|| self.user.dir().to_owned());
+            if let Ok(page) = signin::redirect_file(&dir, &server.url) {
+                signin::open_browser(&page);
+            }
+        }
         (self.sign_in, self.notice) = (Some((server, false)), None);
         Ok(())
     }
@@ -270,14 +352,15 @@ impl App {
         true
     }
 
-    fn sign_out(&mut self) -> Result<(), &'static str> {
-        self.sign_in = None;
-        self.playback.shutdown();
-        self.playback.mark_signed_out();
+    fn sign_out(&mut self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        (self.sign_in, self.checking, self.notice) = (None, None, None);
+        self.playback.sign_out();
         self.covers.reset();
-        self.notice =
-            (!self.user.clear()).then_some("sign-out could not remove the stored sign-in");
-        self.notice.map_or(Ok(()), Err)
+        let user = self.user.clone();
+        let waiting = self.clearing.take().map(|(_, waiting)| waiting);
+        let job = worker(move || user.clear().map(|()| false));
+        self.clearing = Some((job, waiting.unwrap_or_default()));
     }
 
     fn banner(&self) -> Option<Banner> {
@@ -286,7 +369,8 @@ impl App {
         }
         let developer = self.covers.developer_rejected();
         let rejected = || Banner::Error(covers::DEVELOPER_REJECTED.into());
-        self.playback.banner().or_else(|| developer.then(rejected))
+        let banner = self.playback.banner().or_else(|| developer.then(rejected));
+        banner.filter(|b| self.checking.is_none() || *b != Banner::SignInNeeded)
     }
 
     pub fn tick(&mut self, ctx: &egui::Context) {
@@ -326,15 +410,16 @@ impl App {
             ui.horizontal(|ui| {
                 ui.heading("Bramley");
                 sign_out = covers_allowed(&self.playback) && ui.button("Sign out").clicked();
+                if let Some(mode) = self.user.storage() {
+                    ui::storage(ui, mode);
+                }
             });
             self.covers.show(ui);
         });
-        let outcome = match (sign_in, sign_out) {
-            (true, _) => self.start_sign_in(),
-            (_, true) => self.sign_out(),
-            _ => Ok(()),
-        };
-        if let Err(why) = outcome {
+        if sign_out {
+            self.sign_out();
+        }
+        if let Some(Err(why)) = sign_in.then(|| self.start_sign_in()) {
             self.notice = Some(why);
             eprintln!("bramley: {why}");
         }
