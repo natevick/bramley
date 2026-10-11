@@ -16,6 +16,7 @@ use crate::cli::{self, Inbox, Request};
 use crate::covers::{self, Grid, Source};
 use crate::credentials::Credentials;
 use crate::playback::{Action, Banner, Playback, Spawn, play_or_pause};
+use crate::ui::library::Library;
 use crate::ui::nav::{Nav, Shell};
 use crate::ui::search::Search;
 use crate::{signin, ui};
@@ -87,6 +88,7 @@ pub struct App {
     #[cfg(feature = "dev")]
     api_port: Option<u16>,
     search: Search,
+    library: Library,
     playback: Playback,
     user: Credentials,
     sign_in: Option<(signin::Server, bool)>,
@@ -138,8 +140,12 @@ impl App {
         let mut shell = Shell::default();
         #[allow(unused_mut)]
         let mut search = Search::new(source.as_ref().and_then(|s| s.art_prefix.clone()));
+        #[allow(unused_mut)]
+        let mut library = Library::new(source.as_ref().and_then(|s| s.art_prefix.clone()));
         #[cfg(feature = "dev")]
         {
+            library.scroll_end = args.scroll_end.map(|after| Instant::now() + after);
+            library.click_last = args.click_last;
             (shell.route, shell.queue_open) = (args.route.unwrap_or_default(), args.queue_open);
             if let Some(term) = &args.search {
                 shell.query.clone_from(term);
@@ -152,6 +158,7 @@ impl App {
             #[cfg(feature = "dev")]
             api_port: loopback_port(args.api_base.as_deref()),
             search,
+            library,
             playback: Playback::new(spawn, signed_out),
             user,
             sign_in: None,
@@ -212,6 +219,7 @@ impl App {
             "route": self.shell.route.title(),
             "queueOpen": self.shell.queue_open,
             "search": self.search.status(),
+            "library": self.library.status(),
         });
         if let (Some(status), Value::Object(token)) =
             (status.as_object_mut(), self.user.developer().status())
@@ -233,6 +241,7 @@ impl App {
         self.playback.receive()
             | self.covers.receive(ctx)
             | self.search.receive(ctx)
+            | self.library.receive(ctx)
             | self.answer_requests(ctx)
             | self.follow_sign_in()
             | self.follow_account()
@@ -422,6 +431,7 @@ impl App {
         (self.sign_in, self.checking, self.notice, self.api) = (None, None, None, None);
         self.playback.sign_out();
         self.covers.reset();
+        self.library.reset();
         let user = self.user.clone();
         let waiting = self.clearing.take().map(|(_, waiting)| waiting);
         let job = worker(move || user.clear().map(|()| false));
@@ -454,6 +464,11 @@ impl App {
         if let Some(wait) = self.search.wait(now) {
             ctx.request_repaint_after(wait);
         }
+        let waker = ctx.clone();
+        let wake = move || waker.request_repaint();
+        for job in (self.library).tick(now, covers_allowed(&self.playback), wake) {
+            self.send_api(job);
+        }
         if changed
             || self
                 .status_at
@@ -482,7 +497,7 @@ impl App {
         egui::Panel::left("library")
             .default_size(200.0)
             .show(ui, |ui| {
-                ui::sidebar::show(ui, &self.shell.route, &mut self.navs);
+                ui::sidebar::show(ui, &self.shell.route, &mut self.library, &mut self.navs);
                 sign_out = ui::sidebar::account(ui, signed_in, self.user.storage());
             });
         if self.shell.queue_open {
@@ -501,10 +516,11 @@ impl App {
                 ui::notice(ui, &warning);
             }
             dismissed = self.agent_notice && crate::mcp::notice(ui).clicked();
-            let view = (&mut self.shell, &mut self.search);
+            let view = (&mut self.shell, &mut self.search, &mut self.library);
             let emit = (&mut self.actions, &mut self.navs);
             ui::content::show(ui, view, &self.covers, emit);
         });
+        self.library.art.flush(ui.ctx());
         if sign_out {
             self.sign_out();
         }

@@ -23,6 +23,7 @@ impl std::error::Error for SignedOut {}
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     PlaySong(String),
+    PlayIn(Queue, usize),
     Play,
     Pause,
     Seek(f64),
@@ -94,7 +95,8 @@ impl Playback {
 
     pub fn apply(&mut self, action: Action) -> bool {
         let (command, state, position) = match action {
-            Action::PlaySong(id) => return self.play_song(id),
+            Action::PlaySong(id) => return self.play(Queue::Songs(vec![id]), 0),
+            Action::PlayIn(queue, start) => return self.play(queue, start),
             _ if !self.started() => return false,
             Action::Play => (Command::Play, Some(PlayState::Playing), None),
             Action::Pause => (Command::Pause, Some(PlayState::Paused), None),
@@ -108,7 +110,7 @@ impl Playback {
         true
     }
 
-    fn play_song(&mut self, id: String) -> bool {
+    fn play(&mut self, queue: Queue, start: usize) -> bool {
         if self.signed_out {
             return false;
         }
@@ -117,8 +119,7 @@ impl Playback {
             (self.seq, self.snap) = (0, Snapshot::default());
             self.engine += 1;
         }
-        let queue = Queue::Songs(vec![id]);
-        self.send(Command::SetQueue { queue, start: 0 }, None, Some(0.0));
+        self.send(Command::SetQueue { queue, start }, None, Some(0.0));
         self.send(Command::Play, Some(PlayState::Playing), None);
         true
     }

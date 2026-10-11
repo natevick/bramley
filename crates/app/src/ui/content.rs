@@ -1,6 +1,7 @@
 use egui::{RichText, WidgetType};
 
 use super::labeled;
+use super::library::{self, Library};
 use super::nav::{Nav, Route, Shell};
 use super::search::{self, Search};
 use crate::covers::Grid;
@@ -12,7 +13,7 @@ pub fn search_id() -> egui::Id {
 
 pub fn show(
     ui: &mut egui::Ui,
-    (shell, search): (&mut Shell, &mut Search),
+    (shell, search, library): (&mut Shell, &mut Search, &mut Library),
     covers: &Grid,
     (actions, navs): (&mut Vec<Action>, &mut Vec<Nav>),
 ) {
@@ -30,6 +31,12 @@ pub fn show(
     match &shell.route {
         Route::Home => covers.show(ui),
         Route::Search => search::show(ui, (shell, search), title.inner, (actions, navs)),
+        Route::Playlists | Route::Albums | Route::Songs => {
+            library::show(ui, library, &shell.route, (actions, navs))
+        }
+        Route::Playlist(id) if id.starts_with("p.") => {
+            library::show(ui, library, &shell.route, (actions, navs))
+        }
         route => {
             let what = route.title().to_lowercase();
             ui.label(RichText::new(format!("Your {what} will appear here.")).weak());

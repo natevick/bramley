@@ -122,6 +122,19 @@ fn actions_map_to_commands() {
 }
 
 #[test]
+fn play_in_starts_the_engine_on_its_queue_at_the_start_index_unless_signed_out() {
+    let queue = Queue::Playlist("p.LIST".into());
+    let (mut out, never) = fake(true);
+    assert!(!out.apply(Action::PlayIn(queue.clone(), 3)));
+    assert_eq!(never.borrow().len(), 0);
+    let (mut p, ends) = fake(false);
+    assert!(p.apply(Action::PlayIn(queue.clone(), 3)));
+    p.receive();
+    let sent: Vec<Command> = ends.borrow()[0].0.try_iter().collect();
+    assert_eq!(sent, [Command::SetQueue { queue, start: 3 }, Command::Play]);
+}
+
+#[test]
 fn shown_state_holds_until_a_snapshot_has_applied_the_command() {
     let (mut p, ends) = fake(false);
     p.apply(Action::PlaySong("42".into()));

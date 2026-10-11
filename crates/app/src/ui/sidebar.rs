@@ -1,5 +1,6 @@
 use egui::RichText;
 
+use super::library::Library;
 use super::nav::{Nav, Route};
 
 fn entry(ui: &mut egui::Ui, current: &Route, route: Route, navs: &mut Vec<Nav>) {
@@ -10,7 +11,7 @@ fn entry(ui: &mut egui::Ui, current: &Route, route: Route, navs: &mut Vec<Nav>) 
     }
 }
 
-pub fn show(ui: &mut egui::Ui, current: &Route, navs: &mut Vec<Nav>) {
+pub fn show(ui: &mut egui::Ui, current: &Route, library: &mut Library, navs: &mut Vec<Nav>) {
     ui.add_space(10.0);
     ui.heading("Bramley");
     ui.add_space(10.0);
@@ -23,7 +24,7 @@ pub fn show(ui: &mut egui::Ui, current: &Route, navs: &mut Vec<Nav>) {
         entry(ui, current, route, navs);
     }
     ui.add_space(6.0);
-    ui.label(RichText::new("Your playlists will be listed here.").weak());
+    super::library::sidebar(ui, library, current, navs);
 }
 
 pub fn account(ui: &mut egui::Ui, signed_in: bool, storage: Option<&str>) -> bool {

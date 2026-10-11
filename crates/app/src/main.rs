@@ -67,6 +67,10 @@ pub struct Args {
     #[cfg(feature = "dev")]
     queue_open: bool,
     #[cfg(feature = "dev")]
+    scroll_end: Option<Duration>,
+    #[cfg(feature = "dev")]
+    click_last: bool,
+    #[cfg(feature = "dev")]
     theme: Option<egui::Theme>,
     #[cfg(feature = "dev")]
     size: Option<[f32; 2]>,
@@ -98,6 +102,10 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
             "--route" => a.route = Some(ui::nav::Route::parse(&value()?).context("unknown route")?),
             #[cfg(feature = "dev")]
             "--queue-open" => a.queue_open = true,
+            #[cfg(feature = "dev")]
+            "--scroll-end" => a.scroll_end = Some(Duration::try_from_secs_f64(value()?.parse()?)?),
+            #[cfg(feature = "dev")]
+            "--click-last" => a.click_last = true,
             #[cfg(feature = "dev")]
             "--theme" => a.theme = Some(theme(&value()?).context("--theme takes dark or light")?),
             #[cfg(feature = "dev")]
