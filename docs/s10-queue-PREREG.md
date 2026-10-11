@@ -81,3 +81,12 @@ live-1 FAILed F8 and could not score T. A timeline of each (`now` polled every s
 ## Amendment 2 (after live-2; no bar changed)
 
 At position 90, a 98-item window has 7 items ahead, so the top-up fires at once and lands before the harness's next poll. live-2 therefore read W as 197. W is now the smallest `queueLength` seen between the click and position 90. In T-S it stays the length at position 90 minus one; T-S never tops up, and its live-2 length held at 99. live-2's other readings stand: F8 PASS and J PASS on the `6b7b59d` build. The top-up landed: the queue grew 98 → 197, songs pages 1 → 2.
+
+## Amendment 3 (after live-3; no bar changed)
+
+live-3 repeated live-2: F8 PASS and J PASS; the top-up landed (98 → 197, pages 2) and playback reached index 110. The harness still read W as 197, because it started collecting lengths after the 10 s PSS sample, by which time the jump and the top-up had both happened. Two procedure changes follow:
+
+- **W** is now the smallest non-zero `queueLength` seen by any `now` poll since the engine started.
+- **The jump target is 95**, which cuts the near-end seeks from 8 to 3. Each seek now waits for `Playing` first, and a seek that doesn't advance within 30 s counts as a stall. Up to 3 stalls are allowed and reported.
+
+T-S in live-3 stalled at index 96 before reaching X, so it did not fail for the reason the PREREG names. It is not claimed.

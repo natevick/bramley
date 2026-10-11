@@ -19,7 +19,7 @@ PRIVATE = os.path.join(ROOT, 'target', 'screens', 'PRIVATE-real-art', 's10')
 PUBLIC = os.path.join(ROOT, 'docs', 'screens', 's10')
 QUEUE_KEYS = ('"queue"', '"queuePosition"', '"queueLength"')
 COMMON = ['--size', '1100x720']
-JUMP = 90
+JUMP = 95
 
 
 def discover(config):
@@ -61,7 +61,12 @@ def live_runs(a, out, sink, env, found, names):
         r = subprocess.run([a.binary, *args], env=env, capture_output=True, text=True, timeout=20)
         return r.returncode, json.loads((r.stdout.splitlines() or ['{}'])[0] or '{}')
 
-    now = lambda: cli('now')[1]
+    lengths = []
+
+    def now():
+        n = cli('now')[1]
+        lengths.append(n.get('queueLength') or 0)
+        return n
 
     def until(pred, timeout, what):
         return cs.wait_for(lambda: (lambda n: n if pred(n) else None)(now()), timeout, what)
@@ -111,28 +116,29 @@ def live_runs(a, out, sink, env, found, names):
 
     def topup(p, snap, res, sabotage=False):
         safe()
+        lengths.clear()
         cs.wait_for(lambda: snap().get('engineStarted'), 60, 'the click')
         if sabotage:
             cs.wait_for(lambda: cli('queue', 'add', x)[0] == 0, 20, 'queue add X')
         n = until(lambda n: n.get('itemId') in found['song0'] or (n.get('queuePosition') or 0) > 0, 60, 'the clicked song')
         res['clickedPlays'] = n.get('itemId') in found['song0']
         res['pssWindow'] = round(statistics.median(s9.pss(p, 10)), 1)
-        lengths = []
-        n = until(lambda n: lengths.append(n.get('queueLength') or 0) or n.get('queuePosition') == JUMP, 90, f'position {JUMP}')
-        window = res['window'] = n.get('queueLength') - 1 if sabotage else min(lengths)
+        n = until(lambda n: n.get('queuePosition') == JUMP, 90, f'position {JUMP}')
+        window = res['window'] = n.get('queueLength') - 1 if sabotage else min(l for l in lengths if l)
         try:
             until(lambda n: (n.get('queueLength') or 0) >= window + 90, 60, 'the top-up')
             res['pssTopped'] = round(statistics.median(s9.pss(p, 10)), 1)
         except RuntimeError:
             pass
         res['toppedTo'] = now().get('queueLength')
-        while (now().get('queuePosition') or 0) < window:
-            at = now().get('queuePosition') or 0
-            cli('seek', str(max(0.0, (now().get('duration') or 30) - 4)))
+        res['stalls'] = 0
+        while (now().get('queuePosition') or 0) < window and res['stalls'] < 3:
+            n = until(lambda n: n.get('state') == 'Playing', 30, 'playing before a seek')
+            cli('seek', str(max(0.0, (n.get('duration') or 30) - 4)))
             try:
-                until(lambda n: (n.get('queuePosition') or 0) > at and n.get('state') == 'Playing', 30, f'past {at}')
+                until(lambda m: (m.get('queuePosition') or 0) > n['queuePosition'] and m.get('state') == 'Playing', 30, 'the next item')
             except RuntimeError:
-                break
+                res['stalls'] += 1
         time.sleep(2)
         n = now()
         res['atWindowEnd'] = n.get('queuePosition') == window
