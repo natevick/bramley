@@ -64,14 +64,14 @@ fn answer(lib: &mut Library, ctx: &egui::Context, now: Instant, reply: Reply) ->
 fn songs_page_in_as_the_list_nears_its_end_and_250_items_give_250_rows() {
     let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
     frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
-    assert_eq!(
-        answer(
-            &mut lib,
-            &ctx,
-            now,
-            page(0..100, Some("/v1/me/library/songs?offset=100"))
-        ),
-        Call::Library(Shelf::Songs)
+    let first = lib.tick(now, true, || {}).remove(0);
+    assert_eq!(first.call, Call::Library(Shelf::Songs));
+    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+    (first.done)(Ok(page(0..100, Some("/v1/me/library/songs?offset=100"))));
+    lib.receive(&ctx);
+    assert!(
+        lib.tick(now, true, || {}).is_empty(),
+        "a want from before the page arrived is spent"
     );
     frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
     assert!(

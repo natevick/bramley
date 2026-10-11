@@ -152,6 +152,7 @@ impl Library {
                 Ok(Reply::Page(mut page)) => {
                     paged.items.append(&mut page.items);
                     (paged.next, paged.busy_until, paged.failed) = (page.next, None, false);
+                    paged.wanted = false;
                     paged.total = page.total.or(paged.total);
                     paged.pages += 1;
                 }
@@ -369,7 +370,8 @@ pub fn show(
         .auto_shrink(false);
     #[cfg(feature = "dev")]
     if lib.scroll_end.is_some_and(|at| Instant::now() >= at) {
-        area = area.vertical_scroll_offset(f32::MAX);
+        let rows = loaded.div_ceil(columns) as f32;
+        area = area.vertical_scroll_offset(rows * (row_pt + ui.spacing().item_spacing.y));
         ui.ctx().request_repaint();
     }
     let mut hit = None;
