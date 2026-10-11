@@ -1,7 +1,37 @@
-import argparse, contextlib, glob, hashlib, http.server, json, os, shutil, signal, statistics, subprocess, threading, time
+import argparse, contextlib, glob, hashlib, http.server, json, os, re, shutil, signal, statistics, subprocess, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SONG = '6781024437'
+REAL_CONFIG = os.path.expanduser('~/.config/bramley')
+SIGNED_IN = ('idle', 'play', 'shot', 'guardtest')
+SECRETS = ['gdbus', 'call', '--session', '--dest', 'org.freedesktop.secrets']
+
+
+def keyring_items(service):
+    r = subprocess.run(SECRETS + ['--object-path', '/org/freedesktop/secrets', '--method', 'org.freedesktop.Secret.Service.SearchItems', "{'service': '%s'}" % service], capture_output=True, text=True, timeout=10)
+    return sorted(re.findall(r"objectpath '([^']+)'", r.stdout)) if r.returncode == 0 else None
+
+
+def assert_isolated(env):
+    config, service = env.get('BRAMLEY_CONFIG_DIR'), env.get('BRAMLEY_KEYRING_SERVICE', 'bramley')
+    if not config or os.path.realpath(config) == os.path.realpath(REAL_CONFIG) or service in ('', 'bramley'):
+        raise RuntimeError(f'refusing to launch against the real config or keyring: {config!r}, {service!r}')
+
+
+@contextlib.contextmanager
+def isolated(tag, signed_in):
+    config = os.path.join(ROOT, 'target', 'tmp', f'config-{tag}-{os.getpid()}')
+    env = {'BRAMLEY_CONFIG_DIR': config, 'BRAMLEY_KEYRING_SERVICE': f'bramley-gate-{tag}'}
+    try:
+        os.makedirs(config, mode=0o700)
+        for f in ('developer-token', 'music-user-token') if signed_in else ('developer-token',):
+            shutil.copy(os.path.join(REAL_CONFIG, f), config)
+        assert_isolated(env)
+        yield env, config
+    finally:
+        for item in keyring_items(env['BRAMLEY_KEYRING_SERVICE']) or []:
+            subprocess.run(SECRETS + ['--object-path', item, '--method', 'org.freedesktop.Secret.Item.Delete'], capture_output=True, timeout=10)
+        shutil.rmtree(config, ignore_errors=True)
 
 
 def pw_dump():
@@ -140,9 +170,11 @@ class Refuse(http.server.BaseHTTPRequestHandler):
         pass
 
 
-def refuse_shot(name, binary, a):
+def refuse_shot(name, binary, a, iso):
     png = os.path.join(ROOT, 'target', 'tmp', f'{name}.png')
-    run = subprocess.run([binary, '--screenshot', png], capture_output=True, text=True, timeout=20)
+    env = dict(os.environ, **iso)
+    assert_isolated(env)
+    run = subprocess.run([binary, '--screenshot', png], env=env, capture_output=True, text=True, timeout=20)
     res = {'name': name, 'mode': 'refuseshot', 'binary': os.path.basename(binary), 'exit': run.returncode, 'unknownArgument': 'unknown argument --screenshot' in run.stderr, 'pngWritten': os.path.exists(png)}
     json.dump(res, open(os.path.join(a.out, name + '.verdict.json'), 'w'), indent=1)
     return res
@@ -154,37 +186,30 @@ MODES = ('idle', 'play', 'shot', 'guardtest', 'signedout', 'refuseshot', 'expire
 def run_one(name, binary, mode, a, sock, sink):
     if mode not in MODES:
         raise RuntimeError(f'{name}: unknown mode {mode}')
-    if mode == 'refuseshot':
-        return refuse_shot(name, binary, a)
-    config = os.path.join(ROOT, 'target', 'tmp', f'{mode}-{os.getpid()}')
     server = None
-    try:
-        if mode == 'signedout':
-            os.makedirs(config, exist_ok=True)
-            shutil.copy(os.path.expanduser('~/.config/bramley/developer-token'), config)
-        if mode.startswith('expired-'):
-            os.makedirs(config, exist_ok=True)
-            for f in ('developer-token', 'music-user-token'):
-                open(os.path.join(config, f), 'w').write(f'expired-{f}')
-            Refuse.paths, Refuse.status = [], int(mode.split('-')[1])
-            server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Refuse)
-            threading.Thread(target=server.serve_forever, daemon=True).start()
-        return run_app(name, binary, mode, a, sock, sink, config, server)
-    finally:
-        if server:
-            server.shutdown()
-        shutil.rmtree(config, ignore_errors=True)
+    with isolated(f'{name}-{mode}', mode in SIGNED_IN) as (iso, config):
+        try:
+            if mode == 'refuseshot':
+                return refuse_shot(name, binary, a, iso)
+            if mode.startswith('expired-'):
+                for f in ('developer-token', 'music-user-token'):
+                    open(os.path.join(config, f), 'w').write(f'expired-{f}')
+                Refuse.paths, Refuse.status = [], int(mode.split('-')[1])
+                server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Refuse)
+                threading.Thread(target=server.serve_forever, daemon=True).start()
+            return run_app(name, binary, mode, a, sock, sink, iso, server)
+        finally:
+            if server:
+                server.shutdown()
 
-
-def run_app(name, binary, mode, a, sock, sink, config, server):
+def run_app(name, binary, mode, a, sock, sink, iso, server):
     out = os.path.join(a.out, name)
     st = out + '.status.json'
     for f in glob.glob(out + '.*'):
         os.remove(f)
-    env = dict(os.environ, WAYLAND_DISPLAY=sock, PULSE_SINK=sink, TMPDIR=os.path.join(ROOT, 'target', 'tmp'))
+    env = dict(os.environ, WAYLAND_DISPLAY=sock, PULSE_SINK=sink, TMPDIR=os.path.join(ROOT, 'target', 'tmp'), **iso)
     env.pop('DISPLAY', None)
-    if (mode == 'signedout' or mode.startswith('expired-')):
-        env['BRAMLEY_CONFIG_DIR'] = config
+    assert_isolated(env)
     rc = subprocess.run([binary, 'now'], env=env, capture_output=True).returncode
     if rc != 3:
         raise RuntimeError(f'{name}: slot held (now exit {rc})')

@@ -32,6 +32,8 @@ def write_valid(out, renderer=RADEONSI):
         w(f'{name}.r2.json', {'pid': 7, 'samples': rows(20, 72.0, 50.0, 98.0, renderer, playing=False)})
         w(f'{name}.r1.json', {'pid': 7, 'started': True, 'prePlay': {'default': 'iec958'}, 'ballastMiB': 67 if name == 'ballast' else None, 'samples': rows(60, *r1, renderer)})
         w(f'{name}.guard.json', {'pid': 7, 'killed': None, 'log': log})
+    real = {'tokenMtimeNs': 1, 'tokenSize': 300, 'keyringItems': []}
+    w('realstate.json', {'before': real, 'after': real})
 
 
 def edit(name, fn):
@@ -144,6 +146,27 @@ class Verdict(unittest.TestCase):
                 v = gate.verdict(SCRATCH)
                 self.assertEqual((v['ballast'][clause], v['ballast']['holds'], v['gate']), (False, False, gate_verdict))
 
+
+    def test_a_touched_real_token_or_keyring_or_a_missing_record_fails_the_gate(self):
+        for name, mutate in (('mtime', edit('realstate.json', lambda d: d['after'].__setitem__('tokenMtimeNs', 2))),
+                             ('keyring', edit('realstate.json', lambda d: d['after'].__setitem__('keyringItems', ['/item/1']))),
+                             ('unread keyring', edit('realstate.json', lambda d: [d[k].__setitem__('keyringItems', None) for k in d])),
+                             ('missing', remove('realstate.json'))):
+            with self.subTest(name):
+                write_valid(SCRATCH)
+                mutate(SCRATCH)
+                v = gate.verdict(SCRATCH)
+                self.assertEqual((v['realStateUnchanged'], v['gate']), (False, 'FAIL'))
+
+
+class Isolation(unittest.TestCase):
+    def test_a_launch_against_the_real_config_or_keyring_is_refused(self):
+        tmp = os.path.join(SCRATCH, 'config')
+        for env in ({}, {'BRAMLEY_CONFIG_DIR': gate.cs.REAL_CONFIG, 'BRAMLEY_KEYRING_SERVICE': 'bramley-gate-x'},
+                    {'BRAMLEY_CONFIG_DIR': tmp}, {'BRAMLEY_CONFIG_DIR': tmp, 'BRAMLEY_KEYRING_SERVICE': 'bramley'}):
+            with self.subTest(env):
+                self.assertRaises(RuntimeError, gate.cs.assert_isolated, env)
+        gate.cs.assert_isolated({'BRAMLEY_CONFIG_DIR': tmp, 'BRAMLEY_KEYRING_SERVICE': 'bramley-gate-x'})
 
 if __name__ == '__main__':
     unittest.main()

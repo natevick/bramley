@@ -85,6 +85,7 @@ def env_for(sock, sink, llvmpipe=False, **extra):
 
 
 def launch(binary, env, log_path):
+    cs.assert_isolated(env)
     rc = subprocess.run([binary, 'now'], env=env, capture_output=True).returncode
     if rc != 3:
         raise RuntimeError(f'slot held before launch (now exit {rc}); refusing')
@@ -104,7 +105,11 @@ def stop(p, log):
 
 
 def reference(out, sock, sink, name):
-    env = env_for(sock, sink)
+    with cs.isolated(f'{os.path.basename(out)}-{name}', True) as (iso, _):
+        reference_in(out, sock, sink, name, env_for(sock, sink, **iso))
+
+
+def reference_in(out, sock, sink, name, env):
     binary = REFERENCE['binary']
     ev = {'binary': os.path.basename(binary), 'sha256': sha(binary)}
     p, log = launch(binary, env, os.path.join(out, f'{name}.log'))
@@ -119,8 +124,13 @@ def reference(out, sock, sink, name):
 
 
 def app_run(out, name, binary, sock, sink, llvmpipe, ballast_mib=None):
+    with cs.isolated(f'{os.path.basename(out)}-{name}', True) as (iso, _):
+        app_run_in(out, name, binary, sock, sink, llvmpipe, ballast_mib, iso)
+
+
+def app_run_in(out, name, binary, sock, sink, llvmpipe, ballast_mib, iso):
     extra = {} if ballast_mib is None else {'BRAMLEY_GATE_BALLAST_MIB': str(ballast_mib)}
-    env = env_for(sock, sink, llvmpipe, **extra)
+    env = env_for(sock, sink, llvmpipe, **extra, **iso)
     p, log = launch(binary, env, os.path.join(out, f'{name}.log'))
     guard = cs.Guard(p.pid, sink)
     guard.start()
@@ -302,8 +312,10 @@ def verdict(out):
     if build.get('llvmpipe'):
         renderers = {str(r.get('glRenderer')) for r in (load(out, 'shipped.r2.json') or {}).get('samples', [])}
         v['llvmpipeControl'] = {'holds': all(v[c]['verdict'] == 'VOID' and any('renderer' in r for r in v[c]['reasons']) for c in ('R1', 'R2')) and any('llvmpipe' in g for g in renderers), 'renderers': sorted(renderers)}
+    real = load(out, 'realstate.json') or {}
+    v['realStateUnchanged'] = bool(real) and real.get('before', {}).get('keyringItems') is not None and real.get('before') == real.get('after')
     checks = (v['R1']['verdict'], v['R2']['verdict'])
-    v['gate'] = ('VOID' if 'VOID' in checks else 'FAIL' if 'FAIL' in checks else 'PASS' if v['ballast']['holds']
+    v['gate'] = 'FAIL' if not v['realStateUnchanged'] else ('VOID' if 'VOID' in checks else 'FAIL' if 'FAIL' in checks else 'PASS' if v['ballast']['holds']
                  else 'VOID' if v['ballast']['verdict'] == 'VOID' else 'FAIL')
     return v
 
@@ -324,8 +336,15 @@ def guard_fired(out):
     return [n for n in ('shipped', 'ballast') if (load(out, f'{n}.guard.json') or {}).get('killed')]
 
 
+def real_state():
+    token = os.path.join(cs.REAL_CONFIG, 'music-user-token')
+    st = os.stat(token) if os.path.exists(token) else None
+    return {'tokenMtimeNs': st and st.st_mtime_ns, 'tokenSize': st and st.st_size, 'keyringItems': cs.keyring_items('bramley')}
+
+
 def run(out, llvmpipe):
     os.makedirs(os.path.join(ROOT, 'target', 'tmp'), exist_ok=True)
+    before = real_state()
     bins = os.path.join(out, 'bin')
     build = load(out, 'build.json') or {}
     build['sha256'] = {b: sha(os.path.join(bins, b)) for b in sorted(os.listdir(bins))}
@@ -344,6 +363,7 @@ def run(out, llvmpipe):
             except Exception as e:
                 errors[phase] = f'{type(e).__name__}: {e}'.replace(ROOT, '.').replace(os.path.expanduser('~'), '~')[:300]
             save(out, 'errors.json', errors)
+    save(out, 'realstate.json', {'before': before, 'after': real_state()})
 
 
 def main():
@@ -362,7 +382,7 @@ def main():
     v = verdict(a.out)
     save(a.out, 'verdict.json', v)
     brief = lambda c: {k: c.get(k) for k in ('verdict', 'zone', 'pss', 'uss', 'rss', 'referenceDrift', 'reasons', 'ballastMiB', 'ussRise', 'holds') if k in c}
-    print(json.dumps(dict(gate=v['gate'], R1=brief(v['R1']), R2=brief(v['R2']), ballast=brief(v['ballast']), reference=v['reference'], llvmpipeControl=v.get('llvmpipeControl'), errors=v['errors']), indent=1))
+    print(json.dumps(dict(gate=v['gate'], realStateUnchanged=v['realStateUnchanged'], R1=brief(v['R1']), R2=brief(v['R2']), ballast=brief(v['ballast']), reference=v['reference'], llvmpipeControl=v.get('llvmpipeControl'), errors=v['errors']), indent=1))
     sys.exit(0 if v['gate'] == 'PASS' else 1)
 
 
