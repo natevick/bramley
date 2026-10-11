@@ -32,6 +32,9 @@ pub enum Action {
     Previous,
     Volume(f32),
     QueueAdd(String),
+    PlayNext(String),
+    JumpTo(usize, String),
+    TopUp(Vec<String>),
 }
 
 pub fn play_or_pause(state: PlayState) -> Action {
@@ -84,6 +87,11 @@ impl Playback {
         }
     }
 
+    #[cfg(feature = "dev")]
+    pub fn fixture(&mut self, snap: Snapshot) {
+        self.snap = snap;
+    }
+
     pub fn seq(&self) -> u64 {
         self.seq
     }
@@ -109,6 +117,9 @@ impl Playback {
             Action::Previous => (Command::Previous, None, Some(0.0)),
             Action::Volume(v) => (Command::Volume(v), None, None),
             Action::QueueAdd(id) => (Command::PlayLater(Queue::Songs(vec![id])), None, None),
+            Action::PlayNext(id) => (Command::PlayNext(Queue::Songs(vec![id])), None, None),
+            Action::JumpTo(index, id) => (Command::JumpTo { index, id }, None, Some(0.0)),
+            Action::TopUp(ids) => (Command::PlayLater(Queue::Songs(ids)), None, None),
         };
         self.send(command, state, position);
         true

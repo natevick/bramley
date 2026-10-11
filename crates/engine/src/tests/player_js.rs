@@ -34,7 +34,7 @@ fn player(wait_ms: u32) -> (Engine, FakeSink) {
     let (e, sink) = engine();
     e.eval_script("fake.js", FAKE_MK).unwrap();
     let config = format!(
-        "globalThis.__bramley_player = {{ developerToken: 'x.' + btoa('{{\"iss\":\"T\"}}') + '.y', userToken: 'u', musickitUrl: 'http://127.0.0.1:9/none.js', build: '0', commandWaitMs: {wait_ms} }};"
+        "globalThis.__bramley_player = {{ developerToken: 'x.' + btoa('{{\"iss\":\"T\"}}') + '.y', userToken: 'u', musickitUrl: 'http://127.0.0.1:9/none.js', build: '0', commandWaitMs: {wait_ms}, queueShown: 4 }};"
     );
     e.eval_script("config.js", &config).unwrap();
     e.eval_script("player.js", PLAYER).unwrap();
@@ -201,4 +201,56 @@ fn play_later_appends_after_the_queue_and_is_skipped_once_the_queue_failed() {
     );
     send(&mut e, &[songs("BAD"), later], 300);
     assert_eq!(log(&e), json!(["setQueue-start BAD"]));
+}
+
+const FAKE_QUEUE: &str = r#"
+const item = id => ({ id, title: "T" + id, attributes: { durationInMillis: 1000 } });
+fakeM.queue = { position: 0, list: [item("A")], get length() { return this.list.length; }, item(i) { return this.list[i]; } };
+fakeM.playLater = async o => { fakeM.queue.list.push(...o.songs.map(item)); };
+fakeM.playNext = async o => { fakeM.queue.list.splice(fakeM.queue.position + 1, 0, ...o.songs.map(item)); };
+fakeM.changeToMediaAtIndex = async i => { mklog.push("change " + i); fakeM.queue.position = i; };
+"#;
+
+#[test]
+fn the_queue_window_reads_the_public_queue_and_jumps_only_to_the_item_shown() {
+    let (mut e, _sink) = player(1000);
+    ready(&mut e);
+    e.eval_script("queue.js", FAKE_QUEUE).unwrap();
+    let one = |id: &str| Queue::Songs(vec![id.into()]);
+    let (later, next) = (Command::PlayLater, Command::PlayNext);
+    send(
+        &mut e,
+        &[
+            later(one("B")),
+            later(one("C")),
+            next(one("X")),
+            later(one("D")),
+        ],
+        300,
+    );
+    let queue = |e: &Engine| e.eval_json("__player.state().queue").unwrap();
+    let ids = |e: &Engine| {
+        queue(e)["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["id"].clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&e), ["A", "X", "B", "C"]);
+    assert_eq!(
+        (queue(&e)["position"].clone(), queue(&e)["length"].clone()),
+        (json!(0), json!(5))
+    );
+    assert_eq!(
+        queue(&e)["items"][1],
+        json!({"id": "X", "title": "TX", "durationInMillis": 1000})
+    );
+    let jump = |index, id: &str| Command::JumpTo {
+        index,
+        id: id.into(),
+    };
+    send(&mut e, &[jump(3, "B"), jump(3, "C")], 300);
+    assert_eq!(log(&e), json!(["change 3"]));
+    assert_eq!(ids(&e), ["C", "D"]);
 }

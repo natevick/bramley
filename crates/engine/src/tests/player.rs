@@ -8,7 +8,8 @@ use serde_json::{Value as J, json};
 
 use super::element::engine;
 use crate::player::{
-    Backend, Command, PlayState, PlayerError, Queue, Snapshot, command_js, spawn_with,
+    Backend, Command, PlayState, PlayerError, QUEUE_SHOWN, Queue, QueueItem, Snapshot, command_js,
+    spawn_with,
 };
 
 const SECRET: &str = "sekrit-token-value-123456";
@@ -143,6 +144,16 @@ fn ids_are_passed_as_json_so_they_cannot_run_script() {
     e.eval_script("command", &command_js(&later)).unwrap();
     e.eval_script("command", &command_js(&Command::Shuffle(true)))
         .unwrap();
+    for command in [
+        Command::PlayLater(Queue::Songs(vec![evil.into()])),
+        Command::PlayNext(Queue::Songs(vec![evil.into()])),
+        Command::JumpTo {
+            index: 4,
+            id: evil.into(),
+        },
+    ] {
+        e.eval_script("command", &command_js(&command)).unwrap();
+    }
     assert_eq!(e.eval_json("typeof globalThis.pwned").unwrap(), "undefined");
     assert_eq!(
         e.eval_json("calls").unwrap(),
@@ -153,6 +164,8 @@ fn ids_are_passed_as_json_so_they_cannot_run_script() {
             ["seek", [30.5]],
             ["playLater", [{"songs": [evil]}]],
             ["shuffle", [true]],
+            ["playNext", [{"songs": [evil]}]],
+            ["jumpTo", [[4, evil]]],
         ])
     );
 }
@@ -257,6 +270,36 @@ fn snapshots_use_native_time_and_map_errors_redacted() {
     fake.set(json!({"playbackState": 2}), Some(1.0));
     let output = PlayerError::Playback(crate::player::OUTPUT_FAILED.into());
     wait_for(&rx, |s| s.error.as_ref() == Some(&output));
+    tx.send(Command::Shutdown).unwrap();
+}
+
+#[test]
+fn the_snapshot_carries_the_queue_window_from_the_current_item() {
+    let fake = FakeEngine::default();
+    let f = fake.clone();
+    let (tx, rx, _) = spawn_fake(move || Ok(f), SNAPSHOT_EVERY);
+    let items: Vec<J> = (0..QUEUE_SHOWN + 5)
+        .map(|i| json!({"id": format!("i.{i}"), "title": format!("T {SECRET}"), "durationInMillis": 1500}))
+        .collect();
+    fake.set(
+        json!({"queue": {"position": 7, "length": 300, "items": items}}),
+        None,
+    );
+    let s = wait_for(&rx, |s| s.queue_length > 0);
+    assert_eq!((s.queue_position, s.queue_length), (Some(7), 300));
+    assert_eq!(s.queue.len(), QUEUE_SHOWN);
+    let first = QueueItem {
+        id: "i.0".into(),
+        title: Some("T <redacted>".into()),
+        duration: Some(1.5),
+    };
+    assert_eq!(s.queue[0], first);
+    fake.set(
+        json!({"queue": {"position": -1, "length": 0, "items": []}}),
+        None,
+    );
+    let s = wait_for(&rx, |s| s.queue_length == 0);
+    assert_eq!((s.queue_position, s.queue.len()), (None, 0));
     tx.send(Command::Shutdown).unwrap();
 }
 

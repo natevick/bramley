@@ -5,10 +5,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use bramley_api::{Call, Error, Item, Kind, Page, Reply, Shelf};
-use bramley_engine::Queue;
+use bramley_engine::{Queue, QueueItem, Snapshot};
 use egui::{Event, PointerButton, Pos2, RawInput, Rect, vec2};
 
-use super::{ART_CAP, DEADLINE, Library, List, RETRY, ROW_PT, show};
+use super::{ART_CAP, DEADLINE, Library, List, QUEUE_CAP, RETRY, ROW_PT, show};
 use crate::playback::Action;
 use crate::ui::nav::{Nav, Route};
 
@@ -442,4 +442,87 @@ fn library_status_and_source_carry_no_names_or_log_calls() {
     for logger in ["println!", "eprintln!", "log::", "dbg!"] {
         assert!(!source.contains(logger), "library.rs uses {logger}");
     }
+}
+
+fn window(at: usize, length: usize, ids: std::ops::Range<usize>) -> Snapshot {
+    let mut snap = Snapshot::default();
+    let item = |i| QueueItem {
+        id: format!("i.{i}"),
+        title: None,
+        duration: None,
+    };
+    (snap.queue_position, snap.queue_length) = (Some(at), length);
+    snap.queue = ids.map(item).collect();
+    snap
+}
+
+#[test]
+fn a_songs_window_tops_up_once_near_its_end_paging_in_what_it_needs() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+    let next = "/v1/me/library/songs?offset=150";
+    answer(&mut lib, &ctx, now, page(0..150, Some(next)));
+    let ids = |r: std::ops::Range<usize>| r.map(|i| format!("i.{i}")).collect::<Vec<_>>();
+    let clicked = lib.play_from(List::Songs, 0);
+    assert_eq!(clicked, Some(Action::PlayIn(Queue::Songs(ids(0..100)), 0)));
+    assert_eq!(
+        lib.top_up(&window(88, 100, 88..100)),
+        None,
+        "11 ahead is not near the end"
+    );
+    let near = window(89, 100, 89..100);
+    assert_eq!(lib.top_up(&near), Some(Action::TopUp(ids(100..150))));
+    assert_eq!(lib.top_up(&window(140, 150, 140..150)), None);
+    let more = answer(&mut lib, &ctx, now, page(150..300, None));
+    assert_eq!(more, Call::Next(next.into()));
+    let topped = lib.top_up(&window(140, 150, 140..150));
+    assert_eq!(topped, Some(Action::TopUp(ids(150..250))));
+    let early = window(140, 150, 140..150);
+    assert_eq!(
+        lib.top_up(&early),
+        None,
+        "no second batch before the first lands"
+    );
+    assert_eq!(
+        lib.top_up(&window(0, 1, 7..8)),
+        None,
+        "a replaced queue is not topped up"
+    );
+    let full = window(QUEUE_CAP - 5, QUEUE_CAP, 245..250);
+    assert_eq!(
+        lib.top_up(&full),
+        None,
+        "the queue stops growing at its cap"
+    );
+}
+
+#[test]
+fn a_window_stops_following_a_list_that_was_replaced() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    let near = window(95, 100, 95..100);
+    for (playlist, ids) in [("p.1", 0..150), ("p.2", 0..150)] {
+        frame(
+            &ctx,
+            &mut lib,
+            &Route::Playlist(playlist.into()),
+            600.0,
+            vec![],
+        );
+        answer(&mut lib, &ctx, now, page(ids, None));
+        if playlist == "p.1" {
+            lib.play_from(List::Tracks, 0);
+        }
+    }
+    assert_eq!(
+        lib.top_up(&near),
+        None,
+        "another playlist's tracks are not appended"
+    );
+    lib.play_from(List::Tracks, 0);
+    lib.reset();
+    assert_eq!(
+        lib.top_up(&near),
+        None,
+        "a reset library is not read past its end"
+    );
 }

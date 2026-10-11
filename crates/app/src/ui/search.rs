@@ -389,4 +389,7 @@ fn row(ui: &mut egui::Ui, item: &Item, art: &mut Art, emit: (&mut Vec<Action>, &
     if response.clicked() {
         clicked(item, emit.0, emit.1);
     }
+    if item.kind == Kind::Songs {
+        super::track_menu(&response, &item.id, emit.0);
+    }
 }

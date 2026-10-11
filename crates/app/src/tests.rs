@@ -122,6 +122,38 @@ fn actions_map_to_commands() {
 }
 
 #[test]
+fn queue_actions_send_play_next_play_later_and_jump_in_order_once_playing() {
+    let (mut p, ends) = fake(false);
+    assert!(
+        !p.apply(Action::PlayNext("x".into())),
+        "no queue before a play"
+    );
+    p.apply(Action::PlaySong("a".into()));
+    p.receive();
+    let songs = |ids: &[&str]| Queue::Songs(ids.iter().map(|id| id.to_string()).collect());
+    for action in [
+        Action::QueueAdd("b".into()),
+        Action::PlayNext("x".into()),
+        Action::JumpTo(2, "b".into()),
+        Action::TopUp(vec!["c".into(), "d".into()]),
+    ] {
+        assert!(p.apply(action));
+    }
+    let sent: Vec<Command> = ends.borrow()[0].0.try_iter().skip(2).collect();
+    let jump = Command::JumpTo {
+        index: 2,
+        id: "b".into(),
+    };
+    let expected = [
+        Command::PlayLater(songs(&["b"])),
+        Command::PlayNext(songs(&["x"])),
+        jump,
+    ];
+    assert_eq!(sent[..3], expected);
+    assert_eq!(sent[3], Command::PlayLater(songs(&["c", "d"])));
+}
+
+#[test]
 fn play_in_starts_the_engine_on_its_queue_at_the_start_index_unless_signed_out() {
     let queue = Queue::Playlist("p.LIST".into());
     let (mut out, never) = fake(true);
@@ -2045,6 +2077,12 @@ fn the_status_file_never_holds_the_title_or_artist_but_now_still_answers_with_th
     cover_meshes(&ctx, &mut app);
     let mut playing = snap(PlayState::Playing, 3.0, 2, None);
     (playing.title, playing.artist) = (Some("Secret Title".into()), Some("Secret Artist".into()));
+    playing.queue = vec![bramley_engine::QueueItem {
+        id: "i.7".into(),
+        title: Some("Secret Queued".into()),
+        duration: Some(200.0),
+    }];
+    (playing.queue_position, playing.queue_length) = (Some(0), 1);
     ends.borrow()[0].1.send(playing).unwrap();
     let (reply, answered) = channel();
     inbox
@@ -2062,6 +2100,17 @@ fn the_status_file_never_holds_the_title_or_artist_but_now_still_answers_with_th
     assert!(
         written.contains("\"Playing\"") && !written.contains("Secret"),
         "{written}"
+    );
+    assert!(
+        !written.contains("i.7")
+            && !written.contains("\"queue\"")
+            && !written.contains("queueLength"),
+        "{written}"
+    );
+    assert_eq!(now["queue"], json!([{"id": "i.7", "duration": 200.0}]));
+    assert_eq!(
+        (now["queuePosition"].clone(), now["queueLength"].clone()),
+        (json!(0), json!(1))
     );
 }
 

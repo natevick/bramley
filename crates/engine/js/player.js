@@ -96,6 +96,14 @@
     r.currentPlaybackTime = g(() => m.currentPlaybackTime);
     r.currentPlaybackDuration = g(() => m.currentPlaybackDuration);
     r.queuePosition = g(() => m.queue.position);
+    r.queue = g(() => {
+      const q = m.queue, at = Math.max(q.position, 0), items = [];
+      for (let i = at; i < Math.min(q.length, at + C.queueShown); i++) {
+        const it = q.item(i);
+        items.push({ id: it.id, title: it.title, durationInMillis: it.attributes && it.attributes.durationInMillis });
+      }
+      return { position: q.position, length: q.length, items };
+    });
     r.item = g(() => m.nowPlayingItem && { id: m.nowPlayingItem.id, title: m.nowPlayingItem.title, artistName: m.nowPlayingItem.artistName, durationInMillis: m.nowPlayingItem.attributes && m.nowPlayingItem.attributes.durationInMillis });
     return r;
   };
@@ -114,6 +122,8 @@
       volume: v => enqueue("volume", () => { m.volume = v; }, false),
       playLater: options => enqueue("playLater", () => m.playLater(options), true),
       shuffle: on => enqueue("shuffle", () => { m.shuffleMode = on ? 1 : 0; }, true),
+      playNext: options => enqueue("playNext", () => m.playNext(options), true),
+      jumpTo: ([index, id]) => enqueue("jumpTo", () => (m.queue.item(index) || {}).id === id ? m.changeToMediaAtIndex(index) : false, true),
     },
   });
 })();

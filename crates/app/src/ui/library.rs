@@ -4,7 +4,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use bramley_api::{Call, Error, Item, Job, Reply, Shelf};
-use bramley_engine::Queue;
+use bramley_engine::{Queue, Snapshot};
 use egui::{ColorImage, TextureHandle, WidgetType};
 use serde_json::{Value, json};
 
@@ -21,6 +21,8 @@ const CELL_PT: f32 = 140.0;
 pub const MARGIN: usize = 20;
 pub const ART_CAP: usize = 96;
 pub const QUEUE_AHEAD: usize = 100;
+pub const TOP_UP_AT: usize = 10;
+pub const QUEUE_CAP: usize = 1000;
 pub const DEADLINE: Duration = Duration::from_secs(15);
 pub const RETRY: Duration = Duration::from_secs(5);
 pub const ART_RETRY: Duration = Duration::from_secs(60);
@@ -70,9 +72,17 @@ impl Default for Mailbox {
     }
 }
 
+struct Follow {
+    list: List,
+    playlist: String,
+    next: usize,
+    batch: Vec<String>,
+}
+
 #[derive(Default)]
 pub struct Library {
     lists: [Paged; 4],
+    follow: Option<Follow>,
     playlist: String,
     sent: u64,
     mail: Mailbox,
@@ -83,6 +93,8 @@ pub struct Library {
     pub scroll_end: Option<Instant>,
     #[cfg(feature = "dev")]
     pub click_last: bool,
+    #[cfg(feature = "dev")]
+    pub click_row: Option<usize>,
 }
 
 impl Library {
@@ -184,6 +196,51 @@ impl Library {
         json!({ "playlists": playlists, "albums": albums, "songs": songs, "tracks": tracks,
                 "rowsBuilt": built, "rowsBuiltMax": built_max, "shownTo": shown_to,
                 "artTextures": self.art.textures.len(), "artDecoded": self.art.decoded })
+    }
+}
+
+impl Library {
+    pub(crate) fn play_from(&mut self, list: List, index: usize) -> Option<Action> {
+        let action = play(list, &self.list(list).items, index);
+        if let Some(Action::PlayIn(Queue::Songs(ids), _)) = &action {
+            let (playlist, next) = (self.playlist.clone(), index + ids.len());
+            let batch = ids.clone();
+            self.follow = Some(Follow {
+                list,
+                playlist,
+                next,
+                batch,
+            });
+        }
+        action
+    }
+
+    pub fn top_up(&mut self, snap: &Snapshot) -> Option<Action> {
+        let follow = self.follow.as_mut()?;
+        let at = snap.queue_position?;
+        let (length, tail) = (snap.queue_length, &snap.queue.last()?.id);
+        let ends = at + snap.queue.len() == length && length <= at + 1 + TOP_UP_AT;
+        if !ends || !follow.batch.contains(tail) {
+            return None;
+        }
+        let paged = &mut self.lists[follow.list as usize];
+        let cursor = paged.items.get(follow.next - 1).map(|item| &item.id);
+        let moved = follow.list == List::Tracks && follow.playlist != self.playlist;
+        let end = paged.items.len().min(follow.next + QUEUE_AHEAD);
+        if moved || cursor != follow.batch.last() || length >= QUEUE_CAP {
+            self.follow = None;
+            return None;
+        }
+        if end == follow.next {
+            paged.wanted = true;
+            return None;
+        }
+        follow.batch = paged.items[follow.next..end]
+            .iter()
+            .map(|item| item.id.clone())
+            .collect();
+        follow.next = end;
+        Some(Action::TopUp(follow.batch.clone()))
     }
 }
 
@@ -334,7 +391,7 @@ fn tile(
     item: &Item,
     (cell, width): (bool, f32),
     verb: &str,
-) -> bool {
+) -> egui::Response {
     let pt = if cell { CELL_PT } else { ROW_PT };
     let size = egui::vec2(pt, pt);
     let blank = egui::Rect::from_min_max(egui::epaint::WHITE_UV, egui::epaint::WHITE_UV);
@@ -367,7 +424,7 @@ fn tile(
             .truncate();
         ui.add_sized([width, pt + 4.0], button)
     };
-    labeled(response, WidgetType::Button, &format!("{verb} {text}")).clicked()
+    labeled(response, WidgetType::Button, &format!("{verb} {text}"))
 }
 
 pub fn show(
@@ -422,8 +479,12 @@ pub fn show(
                 for index in (row * columns..(row + 1) * columns).filter(|i| *i < loaded) {
                     let item = &lib.lists[list as usize].items[index];
                     built += 1;
-                    if tile(ui, &mut lib.art, item, (albums, width), verb) {
+                    let response = tile(ui, &mut lib.art, item, (albums, width), verb);
+                    if response.clicked() {
                         hit = Some(index);
+                    }
+                    if matches!(list, List::Songs | List::Tracks) {
+                        super::track_menu(&response, &item.id, actions);
                     }
                 }
             });
@@ -434,12 +495,16 @@ pub fn show(
     if lib.click_last && lib.list(list).next.is_none() && lib.built.2 == loaded && loaded > 0 {
         (lib.click_last, hit) = (false, Some(loaded - 1));
     }
+    #[cfg(feature = "dev")]
+    if let Some(row) = lib.click_row.filter(|row| *row < loaded) {
+        (lib.click_row, hit) = (None, Some(row));
+    }
     let items = &lib.list(list).items;
     match hit {
         Some(index) if list == List::Playlists => {
             navs.push(Nav::Go(Route::Playlist(items[index].id.clone())))
         }
-        Some(index) => actions.extend(play(list, items, index)),
+        Some(index) => actions.extend(lib.play_from(list, index)),
         None => {}
     }
 }

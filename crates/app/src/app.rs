@@ -23,7 +23,8 @@ use crate::ui::search::Search;
 use crate::{signin, ui};
 
 const REPAINT_EVERY: Duration = Duration::from_secs(1);
-const MEMORY_ONLY: [&str; 2] = ["title", "artist"];
+const MEMORY_ONLY: [&str; 5] = ["title", "artist", "queue", "queuePosition", "queueLength"];
+const QUEUE_FIRST: &str = "Play something first; the queue starts with it.";
 const STILL_CLEARING: &str =
     "signed out here, but the stored sign-in is still being removed; run sign-out again to check";
 
@@ -111,6 +112,8 @@ pub struct App {
     status: Option<StatusWriter>,
     #[cfg(feature = "dev")]
     shot: Option<Shot>,
+    #[cfg(feature = "dev")]
+    jump_to: Option<usize>,
     frames: u64,
     renderer: Option<String>,
     #[cfg(feature = "dev")]
@@ -158,12 +161,19 @@ impl App {
         {
             detail.clicks = args.click_track;
             search.click_first_playlist = args.click_first_playlist;
+            library.click_row = args.click_row;
             (shell.route, shell.queue_open) = (args.route.unwrap_or_default(), args.queue_open);
             if let Some(term) = &args.search {
                 shell.query.clone_from(term);
                 search.typed_once_signed_in = Some(term.clone());
             }
             search.click_first_song = args.click_first_song;
+        }
+        #[allow(unused_mut)]
+        let mut playback = Playback::new(spawn, signed_out);
+        #[cfg(feature = "dev")]
+        if args.queue_fixture {
+            playback.fixture(queue_fixture());
         }
         App {
             api: None,
@@ -174,7 +184,7 @@ impl App {
             detail,
             #[cfg(feature = "dev")]
             click_cover: args.click_cover,
-            playback: Playback::new(spawn, signed_out),
+            playback,
             user,
             sign_in: None,
             notice: None,
@@ -195,6 +205,8 @@ impl App {
                 after: args.after,
                 asked: false,
             }),
+            #[cfg(feature = "dev")]
+            jump_to: args.jump_to,
             frames: 0,
             renderer: None,
             #[cfg(feature = "dev")]
@@ -219,6 +231,9 @@ impl App {
             "artist": shown.artist,
             "position": shown.position,
             "duration": shown.duration,
+            "queue": shown.queue.iter().map(|item| json!({"id": item.id, "duration": item.duration})).collect::<Vec<_>>(),
+            "queuePosition": shown.queue_position,
+            "queueLength": shown.queue_length,
             "applied": shown.applied,
             "drainsAcked": shown.drains_acked,
             "drainTimeouts": shown.drain_timeouts,
@@ -510,6 +525,9 @@ impl App {
                 .push(Nav::Go(ui::nav::Route::Album(id.to_owned())));
             self.click_cover = None;
         }
+        if let Some(more) = self.library.top_up(&self.playback.shown()) {
+            self.playback.apply(more);
+        }
         if changed
             || self
                 .status_at
@@ -519,6 +537,8 @@ impl App {
         }
         #[cfg(feature = "dev")]
         self.drive_shot(ctx);
+        #[cfg(feature = "dev")]
+        self.drive_jump();
         ctx.request_repaint_after(REPAINT_EVERY);
     }
 
@@ -544,7 +564,10 @@ impl App {
         if self.shell.queue_open {
             egui::Panel::right("queue")
                 .default_size(260.0)
-                .show(ui, |ui| ui::queue_panel::show(ui, &mut self.navs));
+                .show(ui, |ui| {
+                    let emit = (&mut self.actions, &mut self.navs);
+                    ui::queue_panel::show(ui, &shown, emit)
+                });
         }
         egui::CentralPanel::default().show(ui, |ui| {
             if let Some(banner) = self.banner() {
@@ -583,9 +606,31 @@ impl App {
         for nav in self.navs.drain(..) {
             self.shell.apply(nav);
         }
-        for action in self.actions.drain(..) {
-            self.playback.apply(action);
+        if started && self.notice == Some(QUEUE_FIRST) {
+            self.notice = None;
         }
+        for action in self.actions.drain(..) {
+            let queues = matches!(action, Action::PlayNext(_) | Action::QueueAdd(_));
+            if !self.playback.apply(action) && queues {
+                self.notice = Some(QUEUE_FIRST);
+            }
+        }
+    }
+
+    #[cfg(feature = "dev")]
+    fn drive_jump(&mut self) {
+        let Some(target) = self.jump_to else { return };
+        let shown = self.playback.shown();
+        let settled = shown.applied >= self.playback.seq() && shown.queue_length > target;
+        let Some(at) = shown.queue_position.filter(|_| settled) else {
+            return;
+        };
+        if target <= at {
+            self.jump_to = None;
+            return;
+        }
+        let row = (target - at).min(shown.queue.len().saturating_sub(1));
+        self.actions.extend(ui::queue_panel::jump(&shown, row));
     }
 
     #[cfg(feature = "dev")]
@@ -645,6 +690,22 @@ fn loopback_port(base: Option<&str>) -> Option<u16> {
 
 pub fn covers_allowed(playback: &Playback) -> bool {
     playback.banner() != Some(Banner::SignInNeeded)
+}
+
+#[cfg(feature = "dev")]
+fn queue_fixture() -> bramley_engine::Snapshot {
+    let mut snap = bramley_engine::Snapshot::default();
+    snap.queue = (1..=14)
+        .map(|n| bramley_engine::QueueItem {
+            id: format!("i.{n}"),
+            title: Some(format!("Synthetic Song {n}")),
+            duration: Some(150.0 + 17.0 * n as f64),
+        })
+        .collect();
+    (snap.title, snap.artist) = (snap.queue[0].title.clone(), Some("Fixture Artist".into()));
+    (snap.item_id, snap.duration) = (Some("i.1".into()), snap.queue[0].duration);
+    (snap.queue_position, snap.queue_length, snap.position) = (Some(0), 120, Some(42.0));
+    snap
 }
 
 #[cfg(feature = "dev")]

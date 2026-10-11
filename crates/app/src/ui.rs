@@ -58,6 +58,17 @@ pub fn notice(ui: &mut egui::Ui, notice: &str) {
     ui.label(RichText::new(notice).color(color).strong());
 }
 
+pub fn track_menu(response: &egui::Response, id: &str, actions: &mut Vec<Action>) {
+    response.context_menu(|ui| {
+        if ui.button("Play next").clicked() {
+            actions.push(Action::PlayNext(id.to_owned()));
+        }
+        if ui.button("Add to queue").clicked() {
+            actions.push(Action::QueueAdd(id.to_owned()));
+        }
+    });
+}
+
 pub fn labeled(response: egui::Response, kind: WidgetType, label: &str) -> egui::Response {
     let enabled = response.enabled();
     response.widget_info(|| WidgetInfo::labeled(kind, enabled, label));

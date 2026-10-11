@@ -590,3 +590,18 @@ mod search {
         );
     }
 }
+
+#[test]
+fn a_queue_row_jumps_to_its_absolute_index_and_the_current_row_does_nothing() {
+    let mut shown = bramley_engine::Snapshot::default();
+    let item = |id: &str| bramley_engine::QueueItem {
+        id: id.into(),
+        title: None,
+        duration: None,
+    };
+    (shown.queue, shown.queue_position, shown.queue_length) =
+        (vec![item("a"), item("b"), item("c")], Some(40), 43);
+    let jump = super::queue_panel::jump;
+    assert_eq!(jump(&shown, 2), Some(Action::JumpTo(42, "c".into())));
+    assert_eq!((jump(&shown, 0), jump(&shown, 3)), (None, None));
+}

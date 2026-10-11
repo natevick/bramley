@@ -10,6 +10,7 @@ pub(crate) const PLAYER: &str = include_str!("../js/player.js");
 const MUSICKIT_URL: &str = "https://js-cdn.music.apple.com/musickit/v3/musickit.js";
 const PLAYER_STACK: usize = 8 * 1024 * 1024;
 const COMMAND_WAIT_MS: u64 = 5000;
+pub const QUEUE_SHOWN: usize = 50;
 pub const COMMAND_WAIT: Duration = Duration::from_millis(COMMAND_WAIT_MS);
 const HEARTBEAT: Duration = Duration::from_secs(1);
 #[cfg(feature = "diagnostics")]
@@ -67,6 +68,8 @@ pub enum Command {
     Volume(f32),
     PlayLater(Queue),
     Shuffle(bool),
+    PlayNext(Queue),
+    JumpTo { index: usize, id: String },
     Shutdown,
 }
 
@@ -94,6 +97,13 @@ pub struct Diagnostics {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct QueueItem {
+    pub id: String,
+    pub title: Option<String>,
+    pub duration: Option<f64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 #[non_exhaustive]
 pub struct Snapshot {
     pub item_id: Option<String>,
@@ -109,6 +119,9 @@ pub struct Snapshot {
     pub drain_timeouts: u64,
     pub sent_us: u64,
     pub skipped_us: u64,
+    pub queue: Vec<QueueItem>,
+    pub queue_position: Option<usize>,
+    pub queue_length: usize,
     #[cfg(feature = "diagnostics")]
     pub diagnostics: Option<Diagnostics>,
 }
@@ -162,7 +175,7 @@ impl Player {
             .extend([tokens.developer.clone(), tokens.user.clone()]);
         let secrets = cfg.engine.redact.clone();
         let every = cfg.snapshot_interval;
-        let setup = json!({"developerToken": tokens.developer, "userToken": tokens.user, "musickitUrl": MUSICKIT_URL, "build": env!("CARGO_PKG_VERSION"), "commandWaitMs": COMMAND_WAIT_MS});
+        let setup = json!({"developerToken": tokens.developer, "userToken": tokens.user, "musickitUrl": MUSICKIT_URL, "build": env!("CARGO_PKG_VERSION"), "commandWaitMs": COMMAND_WAIT_MS, "queueShown": QUEUE_SHOWN});
         spawn_with(
             move || {
                 let engine = Engine::new(cfg.engine)?;
@@ -310,6 +323,8 @@ pub(crate) fn command_js(command: &Command) -> String {
         Command::Volume(v) => ("volume", json!(v)),
         Command::PlayLater(queue) => ("playLater", queue_options(queue)),
         Command::Shuffle(on) => ("shuffle", json!(on)),
+        Command::PlayNext(queue) => ("playNext", queue_options(queue)),
+        Command::JumpTo { index, id } => ("jumpTo", json!([index, id])),
         Command::Shutdown => return String::new(),
     };
     format!("__player.{method}({arg});")
@@ -334,6 +349,16 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
         }
     };
     let text = |v: &J| v.as_str().map(|s| redact(s, secrets));
+    let seconds = |v: &J| v.as_f64().map(|ms| ms / 1000.0);
+    let queue = &js["queue"];
+    let shown = queue["items"].as_array().map_or(&[][..], Vec::as_slice);
+    let shown = shown.iter().take(QUEUE_SHOWN).filter_map(|item| {
+        Some(QueueItem {
+            id: text(&item["id"])?,
+            title: text(&item["title"]),
+            duration: seconds(&item["durationInMillis"]),
+        })
+    });
     let error = if let Some(reason) = text(&js["signInNeeded"]) {
         Some(PlayerError::SignInNeeded(reason))
     } else if let Some(phase @ ("musickit-load-failed" | "configure-failed")) = js["phase"].as_str()
@@ -350,9 +375,7 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
         title: text(&js["item"]["title"]),
         artist: text(&js["item"]["artistName"]),
         position: b.current_time(),
-        duration: js["item"]["durationInMillis"]
-            .as_f64()
-            .map(|ms| ms / 1000.0),
+        duration: seconds(&js["item"]["durationInMillis"]),
         state: match js["playbackState"].as_u64() {
             Some(1 | 6 | 8 | 9) => PlayState::Loading,
             Some(2) => PlayState::Playing,
@@ -366,10 +389,22 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
         drain_timeouts,
         sent_us,
         skipped_us,
+        queue: shown.collect(),
+        queue_position: queue["position"].as_u64().map(|at| at as usize),
+        queue_length: queue["length"].as_u64().unwrap_or(0) as usize,
         #[cfg(feature = "diagnostics")]
         diagnostics: Some(Diagnostics {
-            js: serde_json::from_str(&redact(&js.to_string(), secrets)).unwrap_or(J::Null),
+            js: serde_json::from_str(&redact(&without_queue(&js), secrets)).unwrap_or(J::Null),
             engine: None,
         }),
     }
+}
+
+#[cfg(feature = "diagnostics")]
+fn without_queue(js: &J) -> String {
+    let mut js = js.clone();
+    if let Some(state) = js.as_object_mut() {
+        state.remove("queue");
+    }
+    js.to_string()
 }

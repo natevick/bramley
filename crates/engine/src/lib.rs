@@ -13,7 +13,8 @@ use std::path::PathBuf;
 #[cfg(feature = "diagnostics")]
 pub use player::Diagnostics;
 pub use player::{
-    COMMAND_WAIT, Command, PlayState, Player, PlayerConfig, PlayerError, Queue, Snapshot, Tokens,
+    COMMAND_WAIT, Command, PlayState, Player, PlayerConfig, PlayerError, QUEUE_SHOWN, Queue,
+    QueueItem, Snapshot, Tokens,
 };
 pub use runtime::Engine;
 
