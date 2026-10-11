@@ -61,5 +61,5 @@ Gate runs s9-1 and s9-2 FAILed only on the ballast control: R1 and R2 PASSed, an
 RISE_TOLERANCE is not changed here; a change would be Nate's call.
 
 **Checks added after live-2:**
-- The live check of L2 waits up to 10 s for a now-playing item before comparing it. This is a procedure fix; live-1 sampled too early.
+- The live check of L2 waits up to 10 s for a now-playing item before comparing it. This is a procedure fix: one diagnostic run read the status before MusicKit had set an item.
 - A separate click check, labelled post-registration, covers the Songs and Albums click paths. Bar: Playing with the position advancing, no banner, null sink only, and the clicked song (or one of the clicked album's tracks) playing.
