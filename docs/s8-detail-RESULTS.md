@@ -12,26 +12,29 @@ This section supersedes the round-1 results below wherever they differ. Inputs w
 - Its F6-S sent `next` at `duration − 4 s`, not the registered 3 s, and that deviation was not disclosed.
 - Its continuity rule compared only the two samples at the flip.
 
-### Live, final: live-7 (harness 4693324, dev build of cf7838e), PASS
+### Live, final: live-8 plus an F6-S re-run (dev build of eef8d07), PASS
 
 | Check | Result |
 |---|---|
 | L1 Home cover → track 1 | Track 1 plays, art shown, null sink only. **PASS** |
-| L2 plan AC: start at track 3 | Track 3 in 1.05 s. **PASS** |
-| L2 F6, 3 transitions | T1 mode B: drain acked 1, 0 timeouts. T2 and T3 mode A: skipped 0.0 s, sent ≥ 24.2 s (bar 17 s), stall ≤ 0.25 s. Seeks landed within 0.4 s. **PASS** |
-| F6-S, `next` 3 s before the end (registered) | T3: **skipped 18.7 s** (bar 0.1), tail 2.89 s short. F6 **FAILs**, as required |
+| L2 plan AC: start at track 3 | Track 3 in 1.07 s. **PASS** |
+| L2 F6, 3 transitions | T1 mode B: drain acked 1, 0 timeouts. T2 and T3 mode A: skipped 0.0 s, sent ≥ 24.5 s (bar 17 s), stall ≤ 0.28 s. Seeks landed within 0.41 s. **PASS** |
+| F6-S, `next` 3 s before the end (registered) | Re-run, see below. T1 and T2 pass. T3: **skipped 1.5 s** (bar 0.1), tail 2.85 s short. F6 **FAILs**, as required |
 | L3 catalog playlist from search → track 5 | **PASS** |
 | L5 row 105 of a 111-track catalog playlist | Row 105 plays, through the window fallback. **PASS** |
 
+**Why F6-S was re-run.** In live-8 the sink guard killed the app during F6-S's transition 2 (`pw-dump` timed out), before the sabotage could run. That is the guard failing safe, and not a valid F6-S. F6-S was re-run on its own at the same build.
+
 **Earlier runs in this round.**
-- **live-6:** F6-S **passed** amendment 4, so F6 counted for nothing in that run. Skipped media was read at the id flip, and the cut's discard is counted after the flip: 22.8 s total, against L2's 4.1 s. Amendment 5 moved the reading to the end of the 5 s post-flip window. No threshold changed.
-- **Not explained:** the 18.7 s magnitude. A discard alone should be about 1.5 s of queued audio. The rest is most likely the new item's first chunk landing as a sent-timeline gap before any re-anchor. The 0.1 s bar needs only a nonzero count, and natural transitions read exactly 0.0 in every run.
+- **live-6** (cf7838e): F6-S **passed** amendment 4, so F6 counted for nothing in that run. Skipped media was read at the id flip, and the cut's discard is counted just after it. Amendment 5 moved the reading to flip + 5 s, and acceptance.md says the same.
+- **live-7** (cf7838e): all PASS, and F6-S FAILed with skipped 18.7 s. That magnitude was a bug: `detach` paused before `discard_output`, so the "queued" span ran from the stale seek anchor. Fixed in 6168ee1; the test read 4.02 s before the fix. With the fix, F6-S reads 1.5 s, about one decode-ahead.
+- **The definition's weak point:** only the skipped count catches a cut. A 3 s cut still read 17.8 s sent at the flip, against a 17 s bar. acceptance.md says this.
 
 ### `startWith` (review #4, #5)
 
 - MusicKit drops songs without `playParams` before it applies `startWith`. Queue positions now count only what it keeps: playable songs, plus music videos. Unplayable rows are greyed out and can't be clicked.
 - I could not cite a documented string-id `startWith`, so it is not used.
-- **Container queues hold only page 1.** At round 1's mapping, clicking row 105 of a 111-track playlist played row 1. Rows past MusicKit's first page now queue the clicked song plus up to 99 playable songs after it (S9's window).
+- **Container queues hold only page 1.** At round 1's mapping, clicking row 105 of a 111-track playlist played row 1. At HEAD, clicking row 100 (the last row of page 1, through the container) plays row 100, so the switch at Bramley's first page matches MusicKit's. Rows past MusicKit's first page now queue the clicked song plus up to 99 playable songs after it (S9's window).
 - Row 150 was asked for, but the longest of the 12 catalog playlists searched had 111 tracks.
 
 ### Shuffle (review #6)
@@ -61,14 +64,15 @@ Mutants E1–E4 are each killed, and a no-change control passes. My first mutant
   - **N1–N7:** unplayable counted, no window fallback, the cap reading as complete, `l.` routed, an unplayable row clickable, unshuffle after SetQueue, `playParams` ignored.
 - The no-change control passes.
 
-### Gate s8-3 (e956bff, clean): PASS in zone 3
+### Gate s8-4 (eef8d07, clean): PASS in zone 3
 
-- R1: **173.1** PSS / 146.2 USS / 205.7 RSS.
-- R2: **75.5** / 48.6 / 108.0.
-- Reference: 90.2 / 90.1.
-- Ballast control holds: 69 MiB, rise 70.3.
+- R1: **172.3** PSS / 145.5 USS / 204.9 RSS.
+- R2: **75.4** / 48.5 / 108.0.
+- Reference: 89.7 / 89.6.
+- Ballast control holds: 70 MiB, rise 71.0.
 - The shipped guard exits 0, and the ballast build's exits 1.
-- On the lead over the reference, against s9-4: R1 **−1.3**, R2 **−0.4** MiB. That is noise.
+- On the lead over the reference, against s9-4: R1 **−1.6**, R2 **0.0** MiB. That is noise.
+- s8-3 (e956bff) also PASSed, before the detach fix.
 
 ### Names (review #2)
 
@@ -87,8 +91,7 @@ Mutants E1–E4 are each killed, and a no-change control passes. My first mutant
 
 - **#11:** music videos are queued (MusicKit keeps them) but not listed. Auto-advance can reach a video the list doesn't show, and v1 fails it loudly.
 - Shuffle order beyond the 2 rows observed per sequence.
-- The 18.7 s skipped magnitude (above).
-- Rows past 111 in a real playlist. The window path past page 1 was proven live only at row 105.
+- Rows past 111 in a real playlist. The window path past page 1 was proven live only at row 105, and L5 would also pass on a one-song queue. That the window queued the songs after row 105 is unit-tested only, the same caveat S9 recorded.
 
 ## Round 1 live checks: live-5, dev build of 5d6ae45 (F6-gapless PASS withdrawn, see above)
 
