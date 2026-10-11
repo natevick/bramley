@@ -29,7 +29,8 @@
   - [ ] WORKFLOW: do NOT dispatch until Nate says "moved" (secrets into the github-pages environment, repo copies deleted). Then dispatch, check the published token, run the sabotage dispatch, and curl the URL. Follow-up: an iat-age alert cron.
   - DRIFT RULE MERGED. One-direction rule plus reference re-recorded at 88.6 (3 sessions: 88.7/88.6/88.6). Gate PASS ×2 in a row (drift-1 by the developer, norm-drift by Norm): R1 ~170.4–171.0 PSS (zone 3), R2 ~73.4–73.7 (zone 3). Both-ways drift voids either verdict (Norm's stricter call). 6 pre-existing gate mutants survive (llvmpipe alongside radeonsi, no weston renderer line, a stream with an extra target, an unbounded guard window, ballast reason order, R1 VOID with R2 FAIL); handle them in S13.
   - S6 DONE and merged (b16bd6a). Norm's gate run: PASS (R1 171.3, R2 74.0, zone 3). 3 synthetic PNGs (155 KB) are committed.
-  - S12 MCP: review fixes done; Norm verified 192 tests, guard CLEAN, live MCP PASS. NOW rebasing onto S6, then a gate run (rmcp binary growth), then merge. F9 gate wiring goes to S13.
+  - S12 DONE and merged. Norm re-ran it after the rebase: 200 tests, gate PASS (R1 171.8, R2 74.2), live MCP PASS. The in-app agent notice is in (dismissal writes the marker). F9 gate wiring goes to S13.
+  - S7 search UI RUNNING (natevick/s7-search, ../bramley-wt-s7).
   - [ ] Then: S7 search UI, S8 album/playlist detail, S9 library, S10 queue, S13 full harness (F1–F10, R3–R6), then two consecutive full acceptance PASSes = v1 done.
   - Merge gate for each: Norm re-runs the measurements (S1: measure-musickit.sh ≤ 112 plus sabotages; S0: the positive control), then reviewer, then fast-forward.
   - Norm's calls (Nate may override): `--play` is a dev-only flag, kept out of release builds; artwork is memory-only (no disk cache), which is the conservative reading of section D's "download".
