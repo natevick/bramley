@@ -43,7 +43,7 @@ struct Native {
     http_bytes: u64,
     redact: Vec<String>,
     truncate_scripts: bool,
-    retired_drains: [u64; 2],
+    retired_output: [u64; 4],
 }
 
 impl Native {
@@ -379,8 +379,8 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
             }
             "media" => {
                 if let Some(m) = st.medias.remove(&id) {
-                    st.retired_drains[0] += m.counters.drains_acked;
-                    st.retired_drains[1] += m.counters.drain_timeouts;
+                    let counts = output_counts(&m.counters);
+                    st.retired_output = add(st.retired_output, counts);
                 }
             }
             "cdm" => drop(st.cdms.remove(&id)),
@@ -628,7 +628,7 @@ impl Engine {
             http_bytes: 0,
             redact: Vec::new(),
             truncate_scripts: false,
-            retired_drains: [0; 2],
+            retired_output: [0; 4],
         }));
         let rt = Runtime::new()?;
         rt.set_max_stack_size(4 * 1024 * 1024);
@@ -782,16 +782,10 @@ impl Engine {
         self.n.borrow().medias.values().any(|m| m.output_failed())
     }
 
-    pub fn drains(&self) -> [u64; 2] {
+    pub fn output_counts(&self) -> [u64; 4] {
         let st = self.n.borrow();
-        st.medias
-            .values()
-            .fold(st.retired_drains, |[acked, timeouts], m| {
-                [
-                    acked + m.counters.drains_acked,
-                    timeouts + m.counters.drain_timeouts,
-                ]
-            })
+        let live = st.medias.values().map(|m| output_counts(&m.counters));
+        live.fold(st.retired_output, add)
     }
 
     pub fn status(&self) -> J {
@@ -844,4 +838,12 @@ impl Engine {
             "platform": platform,
         })
     }
+}
+
+fn output_counts(c: &crate::media::Counters) -> [u64; 4] {
+    [c.drains_acked, c.drain_timeouts, c.sent_us, c.skipped_us]
+}
+
+fn add(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
+    std::array::from_fn(|i| a[i] + b[i])
 }

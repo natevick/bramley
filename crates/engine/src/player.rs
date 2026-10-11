@@ -107,6 +107,8 @@ pub struct Snapshot {
     pub applied: u64,
     pub drains_acked: u64,
     pub drain_timeouts: u64,
+    pub sent_us: u64,
+    pub skipped_us: u64,
     #[cfg(feature = "diagnostics")]
     pub diagnostics: Option<Diagnostics>,
 }
@@ -117,7 +119,7 @@ pub(crate) trait Backend {
     fn eval_json(&self, expression: &str) -> Result<J>;
     fn current_time(&self) -> Option<f64>;
     fn output_failed(&self) -> bool;
-    fn drains(&self) -> [u64; 2];
+    fn output_counts(&self) -> [u64; 4];
     #[cfg(feature = "diagnostics")]
     fn status(&self) -> J;
 }
@@ -138,8 +140,8 @@ impl Backend for Engine {
     fn output_failed(&self) -> bool {
         Engine::output_failed(self)
     }
-    fn drains(&self) -> [u64; 2] {
-        Engine::drains(self)
+    fn output_counts(&self) -> [u64; 4] {
+        Engine::output_counts(self)
     }
     #[cfg(feature = "diagnostics")]
     fn status(&self) -> J {
@@ -342,7 +344,7 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
     } else {
         text(&js["playbackError"]).map(PlayerError::Playback)
     };
-    let [drains_acked, drain_timeouts] = b.drains();
+    let [drains_acked, drain_timeouts, sent_us, skipped_us] = b.output_counts();
     Snapshot {
         item_id: text(&js["item"]["id"]),
         title: text(&js["item"]["title"]),
@@ -362,6 +364,8 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
         applied: js["applied"].as_u64().unwrap_or(0),
         drains_acked,
         drain_timeouts,
+        sent_us,
+        skipped_us,
         #[cfg(feature = "diagnostics")]
         diagnostics: Some(Diagnostics {
             js: serde_json::from_str(&redact(&js.to_string(), secrets)).unwrap_or(J::Null),

@@ -27,6 +27,7 @@ const GAP_US: i64 = 50_000;
 const END_SLACK_US: i64 = 250_000;
 const TIMEUPDATE_INTERVAL: Duration = Duration::from_millis(250);
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+const ROUNDING_US: i64 = 2;
 
 struct Chunk {
     pts_us: i64,
@@ -52,6 +53,8 @@ pub struct Counters {
     pub loops: u64,
     pub drains_acked: u64,
     pub drain_timeouts: u64,
+    pub sent_us: u64,
+    pub skipped_us: u64,
     pub sink_restarts: u64,
 }
 
@@ -172,6 +175,8 @@ impl MediaEngine {
     }
 
     fn discard_output(&mut self) {
+        let queued = self.sent_end_us - self.current_time_us();
+        self.counters.skipped_us += queued.max(0) as u64;
         self.held = None;
         self.drain_started = None;
         if let Some(s) = self.sink.as_mut() {
@@ -638,6 +643,11 @@ impl MediaEngine {
             self.base_us = start_us;
             self.position_us = start_us;
         }
+        let gap = start_us - self.sent_end_us;
+        if self.sent_since_anchor && gap > ROUNDING_US {
+            self.counters.skipped_us += gap as u64;
+        }
+        self.counters.sent_us += frames_to_us(kept, rate).max(0) as u64;
         self.sent_since_anchor = true;
         self.sent_end_us = end_us;
         samples.drain(..skip * channels as usize);

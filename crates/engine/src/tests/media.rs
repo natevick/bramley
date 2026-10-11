@@ -478,6 +478,35 @@ fn a_gapless_append_starting_inside_the_short_frame_plays_every_frame_once() {
     }
 }
 
+#[test]
+fn media_time_that_never_reaches_the_output_is_counted_as_skipped() {
+    let mut r = Rig::new(5, true);
+    let sb = r.sbs.get_mut(&SB).unwrap();
+    let total = sb.end_us().unwrap() - sb.frames.values().next().unwrap().pts_us;
+    let lost = sb.frames.keys().nth(sb.frames.len() / 2).copied().unwrap();
+    let lost = sb.frames.remove(&lost).unwrap().dur_us;
+    r.m.play();
+    r.play_for(8.0);
+    let c = &r.m.counters;
+    assert!(
+        (c.skipped_us as i64 - lost).abs() <= 1_000,
+        "{} vs {lost}",
+        c.skipped_us
+    );
+    assert!(
+        (c.sent_us as i64 - (total - lost)).abs() <= 1_000,
+        "{}",
+        c.sent_us
+    );
+    let mut r = Rig::new(5, true);
+    r.m.play();
+    r.play_for(1.0);
+    assert_eq!(r.m.counters.skipped_us, 0);
+    r.m.seek(0);
+    let flushed = r.m.counters.skipped_us;
+    assert!(flushed > 0 && flushed <= 1_600_000, "{flushed}");
+}
+
 type Sinks = Rc<std::cell::RefCell<Vec<FakeSink>>>;
 
 fn engine_with_fresh_sinks() -> (MediaEngine, Sinks) {

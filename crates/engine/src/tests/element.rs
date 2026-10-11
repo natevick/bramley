@@ -596,9 +596,9 @@ fn drain_acks_count_across_tracks_and_outlive_the_element_that_played_them() {
         ),
     );
     assert!(has(&log, "ev:ended"), "{log:?}");
-    assert_eq!(e.drains(), [1, 0]);
+    assert_eq!(e.output_counts()[..2], [1, 0]);
     e.run_gc();
     e.tick();
     assert_eq!(e.status()["live"]["medias"], 0);
-    assert_eq!(e.drains(), [1, 0]);
+    assert_eq!(e.output_counts()[..2], [1, 0]);
 }
