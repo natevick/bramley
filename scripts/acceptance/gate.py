@@ -5,7 +5,7 @@ _spec = importlib.util.spec_from_file_location('covers_session', os.path.join(RO
 cs = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cs)
 
-REFERENCE = {'binary': os.path.join(ROOT, 'target', 'reference', 'bramley-main-4961e27'), 'sha256': '1a72eb4b2880ac5a', 'pss': 83.3}
+REFERENCE = {'binary': os.path.join(ROOT, 'target', 'reference', 'bramley-main-4961e27'), 'sha256': '1a72eb4b2880ac5a', 'pss': 88.6}
 R1_BAR, R2_BAR, DRIFT_BAR, BALLAST_OVER, LANDING_BAND = 200.0, 100.0, 5.0, 15.0, 5.0
 COVERS, ADVANCE_S, PLAY_WARM_S, LINK_CONFIRM_S, MIN_WINDOW_POLLS, RISE_TOLERANCE = 50, 50.0, 15, 2, 30, 3.0
 REFERENCE_RUNS = ('reference', 'reference-after')

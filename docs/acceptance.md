@@ -23,6 +23,15 @@ Nate delegated the definition of "done" to Norm on 2026-10-10. Bramley v1 on Lin
        - **5 MiB or less:** judged on PSS alone.
        - A VOID run gets re-run.
   - **Amendment: one-direction drift rule (2026-10-10, approved by Nate; applies to runs after this commit; earlier VOIDs stay VOID).** Zone 3 used to VOID on drift over 5 MiB in either direction. The reference binary never changes, yet its PSS climbed 9 MiB across one quiet day while the app's lead over it held at 80.0–83.1 MiB (`docs/drift-rule-proposal.md`). Drift now voids only the verdict it could have produced. Zones 1 and 2, the 200/100 MiB bars and the 5 MiB drift bar are unchanged. If one reading drifts up and the other down, both by more than 5 MiB, either verdict is VOID.
+  - **Recorded reference value: 88.6 MiB PSS** (re-recorded 2026-10-10 evening under the same amendment; the old value was 83.3, recorded 2026-10-10 morning). Binary `target/reference/bramley-main-4961e27`, sha256 prefix `1a72eb4b2880ac5a`, measured with the gate's own `reference()` path (isolated config, first frame, 12 s settle, 20 samples at 1 s) in 3 separate weston sessions under `sg render`. Pre-flight passed before each. The value is the median of the three PSS medians.
+
+    | Session (2026-10-10, -07:00) | PSS | USS | RSS |
+    |---|---|---|---|
+    | 1 (20:16) | 88.7 | 61.7 | 121.2 |
+    | 2 (20:17) | 88.6 | 61.6 | 121.1 |
+    | 3 (20:17) | 88.6 | 61.6 | 121.0 |
+
+    Every session read radeonsi in weston's log and in all 20 samples, kept one pid, removed its null sink and left the default sink unchanged. dpkg log: the last entries are 2026-10-10 06:28 (bluez 5.85-4ubuntu0.3, dbus, libc-bin trigger), with no mesa, llvm, libdrm, glibc or weston change; nothing since.
   - A counted run refuses to start while another weston, another Bramley, or any non-standing process mapping the radeonsi/LLVM libraries is running.
 
 ## Functional checks (end to end)

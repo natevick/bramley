@@ -140,3 +140,4 @@ Procedure only. The 200/100 bars and the 5 MiB drift bar are unchanged. Zones 1 
   - The rule is applied to the check's verdict after every other rule. If the readings drift both ways past the bar, either verdict is VOID.
 - **Why:** the reference's PSS climbed 9 MiB across one quiet day with its USS flat, while the app's lead over it held at 80.0–83.1 MiB. Upward drift can only inflate the app's PSS, and downward drift can only flatter it (`docs/drift-rule-proposal.md`).
 - **Self-test:** `test_gate.py` covers each direction against each verdict, the ±5.0 boundary (stands) and ±5.1 (flips), a drifted first reading, and readings drifting both ways.
+- **Reference re-recorded:** 88.6 MiB PSS, the median of three separate quiet-box sessions on 2026-10-10 evening (PSS 88.7 / 88.6 / 88.6). The old value was 83.3, recorded 2026-10-10 morning. Readings, USS, RSS and the dpkg state are in acceptance.md.
