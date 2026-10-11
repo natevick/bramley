@@ -91,3 +91,15 @@ rmcp 3.5.1 (the official SDK) with default features off, `server` and `transport
 - **L7 (open):** seeking past the end while Paused hasn't been probed live.
 - **Minimized window (open; S13 measures it):** the inbox drains only inside `App::logic`. If a minimized or occluded window gets no frames, every CLI and MCP call would come back "not applied". Every run so far had a visible headless surface.
 - **F9 by proxy:** check 4 uses MusicKit's `position` > 35 plus the routing guard, not a native decrypt counter. No status field reports one.
+
+## After rebasing onto S6 (b16bd6a): gate PASS with rmcp in
+
+- **Rebase:** the agent notice now draws in S6's CentralPanel, above `content::show`. S6's sidebar account footer replaces the old inline header. The click test and its mutations (raise, library raise, click wiring) still pass and are still caught.
+- **r8, signed in, rebased release:** PASS 10/10. Audio started 1.79 s after `play`, reached 35.70 s, and was linked only to the null sink. `agentNotice` was raised and the marker was not written. Library total 34.
+- **Acceptance gate:** `scripts/acceptance.sh s12-rebased` at c4133f6 (clean tree, radeonsi), on a quiet box: gate **PASS**.
+  - **R1:** PASS, zone 3. PSS 172.3, USS 145.4, RSS 204.9 MiB.
+  - **R2:** PASS, zone 3. PSS 74.6, USS 47.7 MiB.
+  - **Reference drift:** 2.8 MiB (reference 90.9 / 91.4 against the recorded 88.6).
+  - **Ballast control:** FAIL as designed (USS 216.8 > 200; rise 71.4 for 70 MiB of ballast).
+  - Real state unchanged.
+- **Release binary:** 22,578,688 bytes.
