@@ -84,7 +84,8 @@ struct Shot {
 
 pub struct App {
     pub(crate) api: Option<Sender<bramley_api::Job>>,
-    api_base: String,
+    #[cfg(feature = "dev")]
+    api_port: Option<u16>,
     search: Search,
     playback: Playback,
     user: Credentials,
@@ -135,10 +136,6 @@ impl App {
         let actions = Vec::new();
         #[allow(unused_mut)]
         let mut shell = Shell::default();
-        let api_base = source
-            .as_ref()
-            .map_or(bramley_api::API_BASE, |s| &s.api)
-            .to_owned();
         #[allow(unused_mut)]
         let mut search = Search::new(source.as_ref().and_then(|s| s.art_prefix.clone()));
         #[cfg(feature = "dev")]
@@ -152,7 +149,8 @@ impl App {
         }
         App {
             api: None,
-            api_base,
+            #[cfg(feature = "dev")]
+            api_port: loopback_port(args.api_base.as_deref()),
             search,
             playback: Playback::new(spawn, signed_out),
             user,
@@ -339,12 +337,15 @@ impl App {
             Some(api) => Ok(api),
             None => {
                 let (user, developer) = (self.user.clone(), self.user.developer().clone());
-                let client =
-                    bramley_api::Client::at(&self.api_base, move || crate::api_tokens(&user));
-                let renewing = client.map(|c| c.renewing(move |old| developer.refetch(old)));
-                renewing
-                    .map_err(drop)
-                    .and_then(|c| bramley_api::worker(c).map_err(drop))
+                let tokens = move || crate::api_tokens(&user);
+                #[cfg(feature = "dev")]
+                let client = match self.api_port {
+                    Some(port) => bramley_api::Client::loopback(port, tokens),
+                    None => bramley_api::Client::new(tokens),
+                };
+                #[cfg(not(feature = "dev"))]
+                let client = bramley_api::Client::new(tokens);
+                bramley_api::worker(client.renewing(move |old| developer.refetch(old)))
             }
         };
         let unsent = match worker {
@@ -570,6 +571,14 @@ impl eframe::App for App {
         self.playback.shutdown();
         self.status = None;
     }
+}
+
+#[cfg(feature = "dev")]
+fn loopback_port(base: Option<&str>) -> Option<u16> {
+    let port = base?.strip_prefix("http://127.0.0.1:")?;
+    port.bytes()
+        .all(|b| b.is_ascii_digit())
+        .then(|| port.parse().ok())?
 }
 
 pub fn covers_allowed(playback: &Playback) -> bool {

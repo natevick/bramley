@@ -717,9 +717,16 @@ fn the_api_base_override_and_screenshots_are_refused_outside_dev() {
         "--queue-open",
         "--theme",
         "--size",
+        "--search",
     ] {
         let args = [flag, "1"].map(String::from);
         assert!(crate::parse_args(args.into_iter()).is_err(), "{flag}");
+    }
+    for flag in ["--queue-open", "--click-first-song"] {
+        assert!(
+            crate::parse_args([flag.to_owned()].into_iter()).is_err(),
+            "{flag}"
+        );
     }
 }
 

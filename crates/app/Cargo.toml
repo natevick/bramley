@@ -39,6 +39,6 @@ apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 windows-native-keyring-store = { version = "1.1", default-features = false }
 
 [features]
-dev = ["dep:png"]
+dev = ["dep:png", "bramley-api/loopback"]
 gate-sabotage = []
 

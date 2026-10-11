@@ -106,7 +106,6 @@ fn raw(base: &str, user: Option<&str>) -> Client {
             user: user.clone(),
         })
     })
-    .unwrap()
 }
 
 fn client(server: &Server, user: Option<&str>) -> Session<'static> {
@@ -468,8 +467,7 @@ fn the_storefront_is_cached_per_user_and_dropped_on_sign_out_401_and_403() {
             developer: DEVELOPER.into(),
             user,
         })
-    })
-    .unwrap();
+    });
     let fronts = || {
         server
             .targets()
@@ -592,7 +590,6 @@ fn a_developer_token_401_renews_once_and_retries_only_with_a_new_token() {
                 user: Some(USER.into()),
             })
         })
-        .unwrap()
         .renewing(move |rejected| {
             seen.lock().unwrap().push(rejected.to_owned());
             *current.lock().unwrap() = "renewed-token";
@@ -611,19 +608,79 @@ fn a_developer_token_401_renews_once_and_retries_only_with_a_new_token() {
 }
 
 #[test]
-fn a_client_only_talks_to_apple_music_or_loopback() {
-    let tokens = || Err::<Tokens, _>("unused".to_owned());
-    assert!(Client::at(crate::API_BASE, tokens).is_ok());
-    assert!(Client::at("http://127.0.0.1:8080", tokens).is_ok());
-    for base in [
-        "https://api.music.apple.com.evil",
-        "http://127.0.0.1:80@evil",
-        "https://evil",
-        "http://127.0.0.1:",
+fn a_search_only_returns_results_after_the_storefront_accepted_the_user_token() {
+    let server = serve(vec![
+        (
+            "/v1/me/storefront",
+            vec![(403, String::new(), b"{}".to_vec())],
+        ),
+        ("/v1/catalog/us/search", vec![ok(SEARCH)]),
+    ]);
+    let got = raw(&server.base, Some(USER)).run(Call::Search("a".into()));
+    assert_eq!(got, Err(Error::SignInNeeded));
+    assert_eq!(server.targets(), ["/v1/me/storefront"]);
+}
+
+#[test]
+fn newer_ui_searches_supersede_queued_ones_but_cli_jobs_always_run() {
+    let server = searchable(vec![ok(SEARCH)]);
+    let jobs = worker(raw(&server.base, Some(USER))).unwrap();
+    let (later, (release, hold), (tx, rx)) = (
+        Instant::now() + Duration::from_secs(10),
+        channel(),
+        channel(),
+    );
+    jobs.send(Job::new(Call::Storefront, later, move |_| {
+        hold.recv().unwrap()
+    }))
+    .unwrap();
+    for (name, ui) in [
+        ("ui-a", true),
+        ("cli", false),
+        ("ui-ab", true),
+        ("cli-2", false),
     ] {
+        let tx = tx.clone();
+        let job = Job::new(Call::Search(name.into()), later, move |r| {
+            tx.send((name, r.err())).unwrap()
+        });
+        jobs.send(if ui { job.superseding() } else { job }).unwrap();
+    }
+    release.send(()).unwrap();
+    let got: Vec<_> = rx.iter().take(4).collect();
+    let want = [
+        ("ui-a", Some(Error::Superseded)),
+        ("cli", None),
+        ("ui-ab", None),
+        ("cli-2", None),
+    ];
+    assert_eq!(got, want);
+    assert!(!server.targets().iter().any(|t| t.contains("ui-a&")));
+}
+
+#[test]
+fn every_api_feature_carries_an_unshipped_marker() {
+    let dir = env!("CARGO_MANIFEST_DIR");
+    let manifest = std::fs::read_to_string(format!("{dir}/Cargo.toml")).unwrap();
+    let lib = std::fs::read_to_string(format!("{dir}/src/lib.rs")).unwrap();
+    let section = manifest
+        .split("\n[features]\n")
+        .nth(1)
+        .unwrap()
+        .split("\n[")
+        .next()
+        .unwrap();
+    let features: Vec<_> = section
+        .lines()
+        .filter_map(|l| l.split_once('='))
+        .map(|(f, _)| f.trim())
+        .collect();
+    assert_eq!(features, ["loopback"]);
+    for f in features {
+        let marker = format!("\"bramley-unshipped-feature:api/{f}\\0\"");
         assert!(
-            matches!(Client::at(base, tokens), Err(Error::Refused(_))),
-            "{base}"
+            lib.contains(&marker),
+            "feature {f} has no {marker} in lib.rs"
         );
     }
 }

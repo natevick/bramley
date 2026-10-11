@@ -28,7 +28,7 @@ pub enum State {
     Loading(Instant),
     Empty,
     Results(SearchResults),
-    Failed(String),
+    Failed(String, String),
 }
 
 pub struct Search {
@@ -81,13 +81,17 @@ impl Search {
         wake: impl Fn() + Send + 'static,
     ) -> Option<Job> {
         if !signed_in {
+            self.pending = None;
             if self.state != State::Idle {
                 self.replace(State::Idle);
             }
             return None;
         }
         if matches!(self.state, State::Loading(deadline) if now > deadline) {
-            self.state = State::Failed("the search timed out".into());
+            self.replace(State::Failed(
+                "the search timed out".into(),
+                "Timeout".into(),
+            ));
         }
         let (term, _) = self.pending.take_if(|(_, due)| *due <= now)?;
         if term.is_empty() {
@@ -97,10 +101,11 @@ impl Search {
         self.replace(State::Loading(now + DEADLINE));
         (self.asked, self.took) = (Some(now), None);
         let (tx, seq) = (self.tx.clone(), self.seq);
-        Some(Job::new(Call::Search(term), now + DEADLINE, move |found| {
+        let job = Job::new(Call::Search(term), now + DEADLINE, move |found| {
             let _ = tx.send((seq, found));
             wake();
-        }))
+        });
+        Some(job.superseding())
     }
 
     fn replace(&mut self, state: State) {
@@ -120,24 +125,33 @@ impl Search {
             self.state = match found {
                 Ok(Reply::Search(r)) if sections(&r).is_empty() => State::Empty,
                 Ok(Reply::Search(r)) => State::Results(r),
-                Ok(_) => State::Failed("the search could not run".into()),
-                Err(e) => State::Failed(cause(&e)),
+                Ok(_) => State::Failed("the search could not run".into(), "Reply".into()),
+                Err(e) => State::Failed(cause(&e), variant(&e)),
             };
         }
         self.art.receive(ctx) | any
     }
 
     pub fn status(&self) -> Value {
-        let (state, results) = match &self.state {
-            State::Idle => ("idle", 0),
-            State::Loading(_) => ("loading", 0),
-            State::Empty => ("empty", 0),
-            State::Results(r) => ("results", sections(r).iter().map(|(_, s)| s.len()).sum()),
-            State::Failed(_) => ("error", 0),
+        let (state, error, found) = match &self.state {
+            State::Idle => ("idle", None, None),
+            State::Loading(_) => ("loading", None, None),
+            State::Empty => ("empty", None, None),
+            State::Results(r) => ("results", None, Some(r)),
+            State::Failed(_, kind) => ("error", Some(kind), None),
         };
+        let count = |page: fn(&SearchResults) -> &bramley_api::Page| {
+            found.map_or(0, |r| page(r).items.len())
+        };
+        let (songs, albums, playlists) = (
+            count(|r| &r.songs),
+            count(|r| &r.albums),
+            count(|r| &r.playlists),
+        );
         let ms = self.took.map(|t| t.as_millis() as u64);
         let art = self.art.textures.values().flatten().count();
-        json!({ "state": state, "results": results, "ms": ms, "art": art })
+        json!({ "state": state, "error": error, "results": songs + albums + playlists,
+            "songs": songs, "albums": albums, "playlists": playlists, "ms": ms, "art": art })
     }
 }
 
@@ -146,15 +160,23 @@ pub fn cause(e: &Error) -> String {
         Error::DeveloperToken | Error::SignInNeeded | Error::RateLimited(_) => e.to_string(),
         Error::Http(status, _) => format!("Apple Music answered HTTP {status}"),
         Error::Network(_) => "Apple Music could not be reached".into(),
+        Error::Config(why) => why.clone(),
         _ => "the search could not run".into(),
     }
+}
+
+pub fn variant(e: &Error) -> String {
+    format!("{e:?}")
+        .split('(')
+        .next()
+        .unwrap_or_default()
+        .to_owned()
 }
 
 pub fn sections(r: &SearchResults) -> Vec<(&'static str, &[Item])> {
     let all = [
         ("Songs", &r.songs),
         ("Albums", &r.albums),
-        ("Artists", &r.artists),
         ("Playlists", &r.playlists),
     ];
     let shown = all.into_iter().filter(|(_, page)| !page.items.is_empty());
@@ -199,6 +221,11 @@ impl Art {
         }
     }
 
+    #[cfg(test)]
+    pub(super) fn wanted(&self) -> usize {
+        self.textures.len()
+    }
+
     pub(super) fn set(&self) -> u64 {
         self.current.load(Ordering::SeqCst)
     }
@@ -221,10 +248,7 @@ impl Art {
     }
 
     fn want(&mut self, ctx: &egui::Context, item: &Item) {
-        let template = item
-            .artwork
-            .as_deref()
-            .filter(|_| item.kind != Kind::Artists);
+        let template = item.artwork.as_deref();
         let key = art_key(item);
         let fresh = !self.textures.contains_key(&key);
         let Some(template) = template.filter(|_| fresh) else {
@@ -294,7 +318,7 @@ pub fn show(
         State::Idle => return,
         State::Loading(_) => return drop(ui.spinner()),
         State::Empty => return drop(ui.label(RichText::new("No results.").weak())),
-        State::Failed(why) => return super::notice(ui, &format!("Search failed: {why}")),
+        State::Failed(why, _) => return super::notice(ui, &format!("Search failed: {why}")),
         State::Results(results) => results,
     };
     #[cfg(feature = "dev")]
@@ -333,8 +357,7 @@ fn row(ui: &mut egui::Ui, item: &Item, art: &mut Art, emit: (&mut Vec<Action>, &
         _ => egui::Image::new((egui::TextureId::default(), size)).tint(Color32::TRANSPARENT),
     };
     let button = egui::Button::image_and_text(image.fit_to_exact_size(size), text).frame(false);
-    let enabled = item.kind != Kind::Artists;
-    let response = labeled(ui.add_enabled(enabled, button), WidgetType::Button, &label);
+    let response = labeled(ui.add(button), WidgetType::Button, &label);
     if ui.is_rect_visible(response.rect) {
         art.want(ui.ctx(), item);
     }

@@ -3,9 +3,14 @@ mod models;
 #[cfg(test)]
 mod tests;
 
+use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::mpsc::{Sender, channel};
 use std::time::Instant;
+
+#[cfg(feature = "loopback")]
+#[used]
+static LOOPBACK_MARKER: &str = "bramley-unshipped-feature:api/loopback\0";
 
 pub use client::{API_BASE, Client, Error, Result, Session, Shelf, Tokens};
 pub use models::{Detail, Item, Kind, Page, SearchResults, art_url};
@@ -35,6 +40,7 @@ pub struct Job {
     pub call: Call,
     pub deadline: Instant,
     pub done: Done,
+    pub supersedable: bool,
 }
 
 impl Job {
@@ -47,6 +53,14 @@ impl Job {
             call,
             deadline,
             done: Box::new(done),
+            supersedable: false,
+        }
+    }
+
+    pub fn superseding(self) -> Self {
+        Job {
+            supersedable: true,
+            ..self
         }
     }
 }
@@ -82,7 +96,16 @@ pub fn worker(client: Client) -> std::io::Result<Sender<Job>> {
     std::thread::Builder::new()
         .name("apple-api".into())
         .spawn(move || {
-            for job in rx.into_iter().filter(|job| Instant::now() < job.deadline) {
+            let mut queue = VecDeque::new();
+            while let Some(job) = queue.pop_front().or_else(|| rx.recv().ok()) {
+                queue.extend(rx.try_iter());
+                if job.supersedable && queue.iter().any(|newer| newer.supersedable) {
+                    (job.done)(Err(Error::Superseded));
+                    continue;
+                }
+                if Instant::now() >= job.deadline {
+                    continue;
+                }
                 let ran = catch_unwind(AssertUnwindSafe(|| client.run(job.call)));
                 let panicked = || Err(Error::Decode("the API call panicked".into()));
                 (job.done)(ran.unwrap_or_else(|_| panicked()));

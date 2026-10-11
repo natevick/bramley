@@ -227,7 +227,40 @@ fn typing_then_enter_reaches_the_api_worker_only_when_signed_in() {
     }
 }
 
+#[test]
+fn typing_while_signed_out_never_spins_the_repaint_loop() {
+    let ctx = egui::Context::default();
+    let mut app = app(&ctx, true);
+    frame(&ctx, &mut app, press(Key::L, Modifiers::COMMAND));
+    let typed = vec![Event::Text("a".into())];
+    frame(
+        &ctx,
+        &mut app,
+        RawInput {
+            events: typed,
+            ..RawInput::default()
+        },
+    );
+    std::thread::sleep(super::search::DEBOUNCE + std::time::Duration::from_millis(50));
+    let delays: Vec<_> = (0..4)
+        .map(|_| {
+            let mut out = ctx.run_ui(RawInput::default(), |ui| {
+                app.tick(ui.ctx());
+                app.draw(ui);
+            });
+            out.textures_delta.clear();
+            out.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+        })
+        .collect();
+    let floor = std::time::Duration::from_millis(100);
+    assert!(delays[1..].iter().all(|d| *d >= floor), "{delays:?}");
+}
+
 mod search {
+    use std::io::{BufRead, BufReader};
+    use std::net::TcpListener;
+    use std::sync::mpsc::{Sender, channel};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     use bramley_api::{Call, Error, Item, Job, Page, Reply, SearchResults};
@@ -327,16 +360,25 @@ mod search {
     }
 
     #[test]
-    fn results_group_by_kind_in_order_and_nothing_found_is_empty() {
+    fn results_group_songs_albums_playlists_in_order_without_artists() {
         let ctx = egui::Context::default();
         let mut r = found(&["1", "2"]);
         (r.albums, r.artists) = (page("albums", &["3"]), page("artists", &["4"]));
-        let titles: Vec<_> = sections(&r).iter().map(|(t, s)| (*t, s.len())).collect();
-        assert_eq!(titles, [("Songs", 2), ("Albums", 1), ("Artists", 1)]);
         r.playlists = page("playlists", &["pl.5"]);
-        assert_eq!(sections(&r).last().map(|(t, _)| *t), Some("Playlists"));
+        let titles: Vec<_> = sections(&r).iter().map(|(t, s)| (*t, s.len())).collect();
+        assert_eq!(titles, [("Songs", 2), ("Albums", 1), ("Playlists", 1)]);
         let mut search = Search::new(None);
-        answer(&ctx, &mut search, "zzz", &[]);
+        (ask(&mut search, "a", Instant::now()).done)(Ok(Reply::Search(r)));
+        search.receive(&ctx);
+        let counts =
+            ["songs", "albums", "playlists", "results"].map(|k| search.status()[k].clone());
+        assert_eq!(counts, [2, 1, 1, 4].map(serde_json::Value::from));
+        r = SearchResults {
+            artists: page("artists", &["4"]),
+            ..SearchResults::default()
+        };
+        (ask(&mut search, "b", Instant::now()).done)(Ok(Reply::Search(r)));
+        search.receive(&ctx);
         assert_eq!(search.state, State::Empty);
     }
 
@@ -380,6 +422,76 @@ mod search {
         assert_eq!(search.status()["art"], 0);
     }
 
+    fn gated_art_server() -> (String, Arc<Mutex<Vec<String>>>, Sender<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let (log, (open, gate)) = (Arc::new(Mutex::new(Vec::new())), channel());
+        let seen_by_server = log.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut line = String::new();
+                let _ = BufReader::new(&stream).read_line(&mut line);
+                let path = line.split(' ').nth(1).unwrap_or_default().to_owned();
+                let first = seen_by_server.lock().unwrap().is_empty();
+                seen_by_server.lock().unwrap().push(path);
+                if first {
+                    let _ = gate.recv();
+                }
+            }
+        });
+        (base, log, open)
+    }
+
+    fn results_at(base: &str, n: usize) -> SearchResults {
+        let art = |i: usize| json!({ "url": format!("{base}/{i}/{{w}}x{{h}}bb.jpg") });
+        let song = |i: usize| json!({ "id": i.to_string(), "type": "songs", "attributes": { "name": "s", "artwork": art(i) } });
+        let data: Vec<_> = (0..n).map(song).collect();
+        serde_json::from_value(json!({ "songs": { "data": data } })).unwrap()
+    }
+
+    fn draw_at(ctx: &egui::Context, search: &mut Search, height: f32) {
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(500.0, height));
+        let input = RawInput {
+            screen_rect: Some(rect),
+            ..RawInput::default()
+        };
+        let (mut shell, mut actions, mut navs) = (Shell::default(), Vec::new(), Vec::new());
+        let mut out = ctx.run_ui(input, |ui| {
+            show(
+                ui,
+                (&mut shell, search),
+                egui::Id::NULL,
+                (&mut actions, &mut navs),
+            );
+        });
+        out.textures_delta.clear();
+    }
+
+    #[test]
+    fn art_is_fetched_only_for_visible_rows_of_the_current_results() {
+        let (base, seen, open) = gated_art_server();
+        let ctx = egui::Context::default();
+        let mut search = Search::new(Some(base.clone()));
+        (ask(&mut search, "a", Instant::now()).done)(Ok(Reply::Search(results_at(&base, 30))));
+        search.receive(&ctx);
+        draw_at(&ctx, &mut search, 300.0);
+        let visible = search.art.wanted();
+        assert!((1..30).contains(&visible), "{visible}");
+        draw_at(&ctx, &mut search, 4000.0);
+        assert_eq!(search.art.wanted(), 30);
+        let replaced = results_at(&format!("{base}/new"), 1);
+        (ask(&mut search, "b", Instant::now()).done)(Ok(Reply::Search(replaced)));
+        search.receive(&ctx);
+        draw_at(&ctx, &mut search, 300.0);
+        open.send(()).unwrap();
+        let end = Instant::now() + Duration::from_secs(10);
+        let done = || seen.lock().unwrap().iter().any(|p| p.starts_with("/new/"));
+        while !done() && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(seen.lock().unwrap().len(), 2, "{:?}", seen.lock().unwrap());
+    }
+
     #[test]
     fn signed_out_never_searches_and_clears_what_was_shown() {
         let ctx = egui::Context::default();
@@ -387,8 +499,11 @@ mod search {
         answer(&ctx, &mut search, "a", &["1"]);
         search.enter("b", t0);
         assert!(search.tick(ms(t0, 1), false, || {}).is_none());
-        assert_eq!(search.state, State::Idle);
-        assert!(search.tick(ms(t0, 2), true, || {}).is_some());
+        assert_eq!(
+            (&search.state, search.wait(ms(t0, 1))),
+            (&State::Idle, None)
+        );
+        assert!(search.tick(ms(t0, 2), true, || {}).is_none());
     }
 
     #[test]
@@ -398,7 +513,10 @@ mod search {
         search.tick(job.deadline, true, || {});
         assert!(matches!(search.state, State::Loading(_)));
         search.tick(job.deadline + Duration::from_millis(1), true, || {});
-        assert!(matches!(search.state, State::Failed(_)));
+        (job.done)(Ok(Reply::Search(found(&["1"]))));
+        search.receive(&egui::Context::default());
+        assert!(matches!(search.state, State::Failed(..)));
+        assert_eq!(search.status()["error"], "Timeout");
     }
 
     #[test]
@@ -406,6 +524,13 @@ mod search {
         let wire = Error::Network("GET https://x/search?term=bohemian: refused".into());
         assert_eq!(cause(&wire), "Apple Music could not be reached");
         assert!(!cause(&Error::Http(500, "term bohemian".into())).contains("bohemian"));
+        let ctx = egui::Context::default();
+        let mut search = Search::new(None);
+        let keyring = "the system keyring did not answer; unlock it";
+        (ask(&mut search, "bohemian", Instant::now()).done)(Err(Error::Config(keyring.into())));
+        search.receive(&ctx);
+        assert_eq!(search.state, State::Failed(keyring.into(), "Config".into()));
+        assert!(!search.status().to_string().contains("bohemian"));
     }
 
     #[test]

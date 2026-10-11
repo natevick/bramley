@@ -11,6 +11,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ureq = "3"
 
+[features]
+loopback = []
+
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(bramley_tokens)"] }
 

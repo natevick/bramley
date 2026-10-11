@@ -9,7 +9,6 @@ use serde::de::DeserializeOwned;
 use crate::models::{Detail, Envelope, Item, Page, SearchResults, Searched, WithTracks};
 
 pub const API_BASE: &str = "https://api.music.apple.com";
-const LOOPBACK: &str = "http://127.0.0.1:";
 const MAX_BODY_BYTES: u64 = 2 << 20;
 const MAX_PAGES: usize = 200;
 const RETRY_BUDGET: Duration = Duration::from_secs(1);
@@ -31,6 +30,7 @@ pub enum Error {
     Network(String),
     Decode(String),
     Config(String),
+    Superseded,
 }
 
 impl std::fmt::Display for Error {
@@ -38,6 +38,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::DeveloperToken => f.write_str("Bramley's developer token was rejected"),
             Error::SignInNeeded => f.write_str("sign in needed"),
+            Error::Superseded => f.write_str("superseded by a newer search"),
             Error::RateLimited(s) => write!(f, "Apple Music is rate limiting; retry in {s} s"),
             Error::Refused(why) => write!(f, "request refused: {why}"),
             Error::TooLarge => write!(f, "response over {MAX_BODY_BYTES} bytes"),
@@ -88,23 +89,18 @@ impl Client {
     pub fn new(
         tokens: impl Fn() -> std::result::Result<Tokens, String> + Send + Sync + 'static,
     ) -> Self {
-        Self::build(API_BASE, tokens)
+        Self::at(API_BASE, tokens)
     }
 
-    pub fn at(
-        base: &str,
+    #[cfg(feature = "loopback")]
+    pub fn loopback(
+        port: u16,
         tokens: impl Fn() -> std::result::Result<Tokens, String> + Send + Sync + 'static,
-    ) -> Result<Self> {
-        let port = base.strip_prefix(LOOPBACK);
-        if base != API_BASE && !port.is_some_and(|p| p.parse::<u16>().is_ok()) {
-            return Err(Error::Refused(format!(
-                "{base:?} is not Apple Music or loopback"
-            )));
-        }
-        Ok(Self::build(base, tokens))
+    ) -> Self {
+        Self::at(&format!("http://127.0.0.1:{port}"), tokens)
     }
 
-    fn build(
+    pub(crate) fn at(
         base: &str,
         tokens: impl Fn() -> std::result::Result<Tokens, String> + Send + Sync + 'static,
     ) -> Self {
