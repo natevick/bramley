@@ -11,8 +11,10 @@ pub struct HttpRequest {
     pub headers: Vec<(String, String)>,
     pub body: Option<Vec<u8>>,
     pub timeout_ms: u64,
+    pub use_cache: bool,
 }
 
+#[derive(Clone)]
 pub struct HttpResponse {
     pub id: u32,
     pub status: u16,
@@ -69,7 +71,7 @@ pub fn spawn(req: HttpRequest, done: Sender<Completion>) {
     std::thread::Builder::new()
         .name("http".into())
         .spawn(move || {
-            let resp = perform(&req);
+            let resp = CACHE.fetch(&req, perform);
             let _ = done.send(Completion::Http(resp));
         })
         .expect("spawn http thread");
@@ -86,6 +88,7 @@ pub fn spawn_script(id: u32, url: String, done: Sender<Completion>) {
                 headers: Vec::new(),
                 body: None,
                 timeout_ms: 30_000,
+                use_cache: false,
             });
             let result = if r.error.is_none() && (200..300).contains(&r.status) {
                 Ok(r.body)
@@ -105,6 +108,8 @@ pub enum Completion {
         result: Result<Vec<u8>, String>,
     },
 }
+
+static CACHE: LazyLock<crate::http_cache::HttpCache> = LazyLock::new(Default::default);
 
 static AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
     ureq::Agent::config_builder()

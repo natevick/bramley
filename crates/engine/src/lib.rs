@@ -2,6 +2,7 @@ mod audio;
 mod buffer;
 mod cdm;
 mod eme;
+mod http_cache;
 mod media;
 mod mp4;
 mod net;

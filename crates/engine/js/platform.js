@@ -1227,7 +1227,7 @@
       noteEndpoint(req.method, req.url);
       const d = dataUrl(req.url);
       if (d) { hc("fetch:data-url"); queueTask(() => dispatchHttp(id, JSON.stringify(d.meta), d.body)); return; }
-      OP.http(id, req.method, req.url, JSON.stringify(headers), req._body == null ? undefined : toAB(req._body), 0);
+      OP.http(id, req.method, req.url, JSON.stringify(headers), req._body == null ? undefined : toAB(req._body), 0, req.cache);
     });
   };
 
@@ -1254,7 +1254,7 @@
       if (this.timeout > 0) this._timer = setTimeoutImpl(() => { if (httpPending.has(id)) { httpPending.delete(id); OP.http_abort(id); this.readyState = 4; fire(this, "readystatechange"); dispatch(this, new ProgressEvent("timeout")); dispatch(this, new ProgressEvent("loadend")); } }, this.timeout, [], false);
       const d = dataUrl(this._url);
       if (d) { hc("XMLHttpRequest:data-url"); queueTask(() => dispatchHttp(id, JSON.stringify(d.meta), d.body)); }
-      else OP.http(id, this._method, this._url, JSON.stringify(this._headers), body == null ? undefined : toAB(body), this.timeout);
+      else OP.http(id, this._method, this._url, JSON.stringify(this._headers), body == null ? undefined : toAB(body), this.timeout, "default");
       dispatch(this, new ProgressEvent("loadstart"));
     }
     abort() {

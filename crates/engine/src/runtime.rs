@@ -159,7 +159,8 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
                            url: String,
                            headers: String,
                            body: Value<'js>,
-                           timeout: f64| {
+                           timeout: f64,
+                           cache: String| {
         let mut st = s.borrow_mut();
         st.count("http");
         st.http_count += 1;
@@ -176,6 +177,7 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
             } else {
                 60_000
             },
+            use_cache: cache == "default",
         };
         net::spawn(req, st.net_tx.clone());
     });
