@@ -380,6 +380,9 @@ def controls(out, build):
     c['noUserToken'] = dict({n: v['verdict'] for n, v in nouser.items()}, holds=nouser['F2']['verdict'] == 'PASS' and all(real_fail(v) for n, v in nouser.items() if n != 'F2'))
     c['badDeveloperToken'] = dict({n: v['verdict'] for n, v in badtoken.items()}, holds=all(real_fail(v) for v in badtoken.values()))
     c['noStream'] = {'F4': nostream['F4']['verdict'], 'holds': real_fail(nostream['F4']) and 'playback never started' in nostream['F4']['reasons']}
+    cut, moves = check(out, 'F6', 'cut.'), (load(out, 'cut.f6.json') or {}).get('transitions') or []
+    caught = [t for t in moves if t.get('cut') and not t.get('pass') and not t.get('drained') and t.get('skippedS', 0) > 0.1 and abs(t.get('landedOff', 99)) <= 1]
+    c['cutTail'] = {'F6': cut['verdict'], 'holds': real_fail(cut) and len(caught) == 1}
     c['leak'] = {'R3': leak['verdict'], 'zone': leak.get('zone'), 'uss': leak.get('uss'), 'changesAfter5': leak.get('changesAfter5'),
                  'holds': real_fail(leak) and leak.get('zone') == 1 and (leak.get('changesAfter5') or 0) >= 4 and flagged}
     c['missingArtifact'] = dict(found := {n: v['verdict'] for n, v in checks(empty).items()}, holds=all(v == 'FAIL' for v in found.values()))
@@ -392,11 +395,13 @@ def verdict(out):
     v = {'commit': build.get('commit'), 'dirty': build.get('dirty'), 'mode': build.get('mode'), 'binaries': build.get('sha256'),
          'reference': dict({n: medians((load(out, f'{n}.json') or {}).get('samples')) for n in REFERENCE_RUNS}, recordedPss=REFERENCE['pss']),
          'weston': weston_renderer(out), 'errors': load(out, 'errors.json') or {}, 'screenshots': (load(out, 'screenshots.json') or {})}
-    real = load(out, 'realstate.json') or {}
+    real, leaks = load(out, 'realstate.json') or {}, load(out, 'leakgrep.json') or {}
     v['realStateUnchanged'] = bool(real) and real.get('before', {}).get('keyringItems') is not None and real.get('before') == real.get('after')
+    v['leakGrep'] = dict(leaks, clean=leaks.get('hits') == {'repo': 0, 'run': 0} and leaks.get('plantedCaught') is True)
+    safe = v['realStateUnchanged'] and v['leakGrep']['clean']
     if build.get('mode') == 'controls':
         v['controls'] = controls(out, build)
-        v['gate'] = 'PASS' if v['realStateUnchanged'] and v['controls']['holds'] else 'FAIL'
+        v['gate'] = 'PASS' if safe and v['controls']['holds'] else 'FAIL'
         return v
     v['checks'] = checks(out)
     if build.get('mode') == 'llvmpipe':
@@ -404,18 +409,18 @@ def verdict(out):
         named = ('F1', 'F4', 'R1', 'R2')
         holds = all(v['checks'][c]['verdict'] == 'VOID' and any('renderer' in r for r in v['checks'][c]['reasons']) for c in named)
         v['llvmpipeControl'] = {'holds': holds and any('llvmpipe' in g for g in renderers), 'renderers': sorted(renderers)}
-        v['gate'] = 'PASS' if v['realStateUnchanged'] and v['llvmpipeControl']['holds'] else 'FAIL'
+        v['gate'] = 'PASS' if safe and v['llvmpipeControl']['holds'] else 'FAIL'
         return v
     v['ballast'] = ballast(out, build)
     seen = [c['verdict'] for c in v['checks'].values()]
-    v['gate'] = 'FAIL' if not v['realStateUnchanged'] else ('VOID' if 'VOID' in seen else 'FAIL' if 'FAIL' in seen else 'PASS' if v['ballast']['holds']
+    v['gate'] = 'FAIL' if not safe else ('VOID' if 'VOID' in seen else 'FAIL' if 'FAIL' in seen else 'PASS' if v['ballast']['holds']
                  else 'VOID' if v['ballast']['verdict'] == 'VOID' else 'FAIL')
     return v
 
 
 def brief(v):
     keep = lambda c: {k: x for k, x in c.items() if k not in ('reasons',) or x}
-    return dict(gate=v['gate'], realStateUnchanged=v['realStateUnchanged'], checks={n: keep(c) for n, c in (v.get('checks') or {}).items()},
+    return dict(gate=v['gate'], realStateUnchanged=v['realStateUnchanged'], leakGrep=v['leakGrep'], checks={n: keep(c) for n, c in (v.get('checks') or {}).items()},
                 ballast=v.get('ballast') and keep(v['ballast']), reference=v['reference'], controls=v.get('controls'), llvmpipeControl=v.get('llvmpipeControl'), errors=v['errors'])
 
 

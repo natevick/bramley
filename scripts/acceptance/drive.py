@@ -16,11 +16,42 @@ SONG, SECOND = '6781024437', '6781079518'
 ALBUM = ['6781024028', '6781024424', '6781024426', '6781024428', '6781024429', '6781024431', '6781024433', '6781024434', '6781024435',
          '6781024436', '6781024437', '6781024440', '6781024441', '6781024442', '6781024443', '6781024444', '6781024445', '6781024448']
 F8_ORDER, TERM, BAD_ID = [ALBUM[9], ALBUM[0], ALBUM[6], ALBUM[3]], 'bohemian rhapsody', '1'
-SOAK_S, SOAK_EVERY_S, SOAK_TRACK_S, F6_WINDOW_S, RECOVER_S = 1800, 10, 150, 5, 90
+SOAK_S, SOAK_EVERY_S, SOAK_TRACK_S, F6_WINDOW_S, RECOVER_S, CUT_BEFORE_END_S = 1800, 10, 150, 5, 90, 3
+NAMES = {'library': set(), 'catalog': set()}
 SNAP_KEYS = ('pid', 'state', 'position', 'duration', 'itemId', 'banner', 'engineStarted', 'texturesUploaded', 'coversFailed', 'framesPainted',
              'glRenderer', 'applied', 'seq', 'engine', 'sentMs', 'decodedBytesKept')
 STANDING_GPU_CLIENTS, GPU_LIBS = ('gnome-shell', 'Xvfb', 'grok-bot'), ('libgallium', 'radeonsi', 'libLLVM')
 TICK, RUNTIME, CPU_EVERY_S = os.sysconf('SC_CLK_TCK'), os.path.join(ROOT, 'target', 'x'), 2
+
+
+def note_names(found, kind='catalog'):
+    if isinstance(found, dict):
+        NAMES[kind].update(v for k, v in found.items() if k in ('name', 'title', 'artist', 'album') and isinstance(v, str) and len(v) >= 4)
+        [note_names(v, kind) for v in found.values()]
+    elif isinstance(found, list):
+        [note_names(v, kind) for v in found]
+
+
+def leak_grep(out):
+    tokens = [open(os.path.join(cs.REAL_CONFIG, f)).read().strip() for f in ('developer-token', 'music-user-token') if os.path.exists(os.path.join(cs.REAL_CONFIG, f))]
+    fragments = [t[i:i + 24] for t in tokens for i in (0, len(t) // 2, len(t) - 24)]
+    private, every = sorted(NAMES['library']) + fragments, sorted(NAMES['library'] | NAMES['catalog']) + fragments
+    git = lambda *args: subprocess.run(['git', *args], cwd=ROOT, capture_output=True, text=True).stdout
+    repo = '\n'.join([line for line in git('diff', 'main..HEAD').splitlines() if line.startswith('+')] + [git('log', 'main..HEAD', '--format=%B')]).lower()
+    files = []
+    for d, dirs, names in os.walk(out):
+        dirs[:] = [x for x in dirs if x not in ('bin', 'empty')]
+        files += [open(os.path.join(d, f), errors='replace').read() for f in names if not f.endswith('.png')]
+    run = '\n'.join(files).lower()
+    count = lambda body, needles: sum(body.count(n.lower()) for n in needles)
+    hits = {'repo': count(repo, private), 'run': count(run, every)}
+    planted = bool(NAMES['library']) and count(run + every[0].lower(), every) > hits['run'] and count(repo + private[0].lower(), private) > hits['repo']
+    gate.save(out, 'leakgrep.json', {'libraryNames': len(NAMES['library']), 'catalogNames': len(NAMES['catalog']), 'tokenFragments': len(fragments),
+                                     'runFiles': len(files), 'hits': hits, 'plantedCaught': planted})
+
+
+def guard_fired(out):
+    return sorted(f for f in os.listdir(out) if f.endswith('.guard.json') and (gate.load(out, f) or {}).get('killed'))
 
 
 def preflight():
@@ -160,6 +191,7 @@ def play_song(a, song, reps, ev):
             a.until(lambda s: (s.get('position') or 0) > 3, 10)
     s, _ = a.until(lambda s: s.get('itemId') == song and (s.get('position') or 0) > gate.F4_PLAYED_S + 2, 60, 0.5) if ev['started'] else (a.snap(), None)
     ev['final'] = {k: s.get(k) for k in ('itemId', 'state', 'position', 'duration', 'sentMs', 'banner')}
+    note_names(a.cli('now')[1])
 
 
 def f4(a, pre):
@@ -194,13 +226,13 @@ def f5(a, pre):
     evidence(a.out, f'{pre}f5.json', ev, a)
 
 
-def transition(a, ids, at, start):
+def transition(a, ids, at, start, cut=False):
     s, ok = a.until(lambda s: s.get('itemId') == ids[at] and s.get('state') == 'Playing' and (s.get('duration') or 0) > 30 and (s.get('position') or 0) > start + 1, 40)
     if not ok:
         return {'reached': False, 'pass': False}
     duration, target = s['duration'], round(s['duration'] - 20, 1)
     reply = a.cli('seek', str(target))[1]
-    base, land, flip, samples, end = None, None, None, [], time.time() + 45
+    base, land, flip, samples, end, cut_sent = None, None, None, [], time.time() + 45, False
     while time.time() < end and (flip is None or time.time() < flip[0] + F6_WINDOW_S):
         s, now = a.snap(), time.time()
         pos = s.get('position') or 0
@@ -211,6 +243,9 @@ def transition(a, ids, at, start):
             flip = (now, {k: (s.get(k) or 0) - base[k] for k in base}, pos)
         if flip and base:
             after = {k: (s.get(k) or 0) - base[k] for k in base}
+        if cut and base and not flip and not cut_sent and s.get('itemId') == ids[at] and pos - start >= duration - CUT_BEFORE_END_S:
+            a.cli('next')
+            cut_sent = True
         time.sleep(0.02)
     if flip is None or land is None:
         return {'advanced': False, 'pass': False}
@@ -221,7 +256,7 @@ def transition(a, ids, at, start):
         stall = max(stall, t1 - moved)
     d = flip[1]
     res = {'acked': d['drainsAcked'], 'timeouts': d['drainTimeouts'], 'sentS': after['sentMs'] / 1000, 'skippedS': after['skippedMs'] / 1000,
-           'stallS': round(stall, 2), 'landedOff': round(land - start - target, 2), 'nextStart': flip[2]}
+           'stallS': round(stall, 2), 'landedOff': round(land - start - target, 2), 'nextStart': flip[2], 'cut': cut_sent}
     res['drained'] = res['acked'] >= 1 and res['timeouts'] == 0
     res['gapless'] = res['sentS'] >= (duration - target) - 3 and res['skippedS'] <= 0.1 and stall <= 1
     res['pass'] = abs(res['landedOff']) <= 1 and (res['drained'] or res['gapless'])
@@ -236,12 +271,12 @@ def queue_up(a, ids, ev):
     return ev['started']
 
 
-def f6(a, pre):
+def f6(a, pre, cut=False):
     ids, ev = ALBUM[2:6], {'t0': time.time()}
     queue_up(a, ids, ev)
     ev['transitions'], start = [], 0.0
     for i in range(3):
-        ev['transitions'].append(transition(a, ids, i, start))
+        ev['transitions'].append(transition(a, ids, i, start, cut and i == 2))
         start = ev['transitions'][-1].get('nextStart', start)
     evidence(a.out, f'{pre}f6.json', ev, a)
 
@@ -327,6 +362,7 @@ def main_session(out, binary, env, sink, pre, steps, extra=None):
             if a.guard.killed:
                 raise RuntimeError(f'{name}: the guard fired: {a.guard.killed}')
             {'f4': f4, 'f5': f5, 'f6': f6, 'f8': f8, 'r3': r3, 'r2': lambda a, p: None, 'r1': lambda a, p: memory(a, name, extra or {}),
+             'cut': lambda a, p: f6(a, p, cut=True),
              }[step](a, pre)
 
 
@@ -385,6 +421,7 @@ def f9(a, pre, mcp):
     ev = {'t0': time.time(), 'song': SONG, 'reps': [], 'started': False}
     ev['tools'] = sorted(t['name'] for t in mcp.send('tools/list')['result']['tools'])
     err, found = mcp.tool('search', {'term': TERM})
+    note_names(found)
     ev['searchHasSong'] = not err and any(x.get('id') == SONG for x in (found or {}).get('songs', []))
     a.safe_to_play()
     for _ in range(gate.REPS):
@@ -432,6 +469,7 @@ def browse_session(out, binary, env, sink, config):
             mcp.send('notifications/initialized', notify=True)
             f9(a, '', mcp)
             err, listed = mcp.tool('library_playlists')
+            note_names(listed, 'library')
             gate.save(out, 'f7.mcp.json', {'error': err, 'total': (listed or {}).get('total'), 'largestTracks': tracks})
         finally:
             mcp.close()
@@ -568,12 +606,13 @@ def phases(out, mode, bins, sock, sink):
         yield 'nouser', lambda: signed_out('nouser', lambda e: (f2(out, shipped, e, sink, 'nouser.'), main_session(out, shipped, e, sink, 'nouser.', ('f4', 'r1', 'f5', 'f6')),
                                                                  browse_nouser(out, shipped, e, sink)))
         yield 'badtoken', lambda: signed_in('badtoken', lambda e, c: bad_token(out, dev, e, sink, c))
+        yield 'cut', lambda: signed_in('cut', lambda e, c: main_session(out, shipped, e, sink, 'cut.', ('cut',)))
         yield 'nostream', lambda: signed_in('nostream', lambda e, c: main_session(out, shipped, dict(e, PULSE_SINK=sink + '-missing'), sink, 'nostream.', ('f4',)))
         yield 'leak', lambda: signed_in('leak', lambda e, c: main_session(out, sabotage, e, sink, 'leak.', ('r3',)), BRAMLEY_GATE_LEAK_MIB='3')
     else:
         yield 'f1', lambda: signed_in('f1', lambda e, c: f1(out, shipped, e, sink))
         yield 'f2', lambda: signed_out('f2', lambda e: f2(out, shipped, e, sink))
-        yield 'shipped', lambda: signed_in('shipped', lambda e, c: main_session(out, shipped, e, sink, '', ('r2', 'f4', 'r1', 'f5', 'f6', 'f8', 'r3')))
+        yield 'shipped', lambda: signed_in('shipped', lambda e, c: main_session(out, shipped, e, sink, '', ('r2', 'r1', 'f4', 'f5', 'f6', 'f8', 'r3')))
         yield 'cpu', lambda: signed_in('cpu', lambda e, c: cpu_session(out, shipped, e, sink))
         yield 'ballast', lambda: ballast_run(out, sabotage, sink, signed_in)
         yield 'browse', lambda: signed_in('browse', lambda e, c: found.update(playlist=browse_session(out, shipped, e, sink, c)))
@@ -621,12 +660,15 @@ def run(out, mode):
         for phase, go in phases(out, mode, bins, sock, sink):
             try:
                 print(f'{time.strftime("%H:%M:%S")} {phase}', file=sys.stderr, flush=True)
+                if not phase.startswith('reference') and guard_fired(out):
+                    raise RuntimeError(f'skipped: the guard fired in {guard_fired(out)}')
                 go()
             except Exception as e:
                 errors[phase] = f'{type(e).__name__}: {e}'.replace(ROOT, '.').replace(os.path.expanduser('~'), '~')[:300]
             gate.save(out, 'errors.json', errors)
     gate.save(out, 'realstate.json', {'before': before, 'after': real_state()})
     shutil.rmtree(RUNTIME, ignore_errors=True)
+    leak_grep(out)
 
 
 def main():

@@ -62,6 +62,7 @@ def write_valid(out, renderer=RADEONSI, mode='counted'):
     w('r5.json', s('cpu', t0=1000.0, t1=1060.0, before='Paused', after='Paused', cpu=[0.5] * 30))
     real = {'tokenMtimeNs': 1, 'tokenSize': 300, 'keyringItems': [], 'cache': None}
     w('realstate.json', {'before': real, 'after': real})
+    w('leakgrep.json', {'libraryNames': 34, 'catalogNames': 40, 'tokenFragments': 6, 'runFiles': 90, 'hits': {'repo': 0, 'run': 0}, 'plantedCaught': True})
 
 
 def edit(name, fn):
@@ -323,12 +324,14 @@ class Verdict(unittest.TestCase):
                              ('keyring', edit('realstate.json', lambda d: d['after'].__setitem__('keyringItems', ['/item/1']))),
                              ('cache', edit('realstate.json', lambda d: d['after'].__setitem__('cache', {'developer-token.json': [2, 300]}))),
                              ('unread keyring', edit('realstate.json', lambda d: [d[k].__setitem__('keyringItems', None) for k in d])),
-                             ('missing', remove('realstate.json'))):
+                             ('missing', remove('realstate.json')), ('a name in the run', put('leakgrep.json', hits={'repo': 0, 'run': 1})),
+                             ('a name in the repo', put('leakgrep.json', hits={'repo': 2, 'run': 0})), ('a grep that cannot fail', put('leakgrep.json', plantedCaught=False)),
+                             ('no grep', remove('leakgrep.json'))):
             with self.subTest(name):
                 write_valid(SCRATCH)
                 mutate(SCRATCH)
                 v = gate.verdict(SCRATCH)
-                self.assertEqual((v['realStateUnchanged'], v['gate']), (False, 'FAIL'))
+                self.assertEqual((v['realStateUnchanged'] and v['leakGrep']['clean'], v['gate']), (False, 'FAIL'))
 
     def test_llvmpipe_voids_the_named_checks_and_the_control_needs_llvmpipe_seen(self):
         write_valid(SCRATCH, renderer=LLVMPIPE, mode='llvmpipe')
@@ -347,6 +350,8 @@ class Verdict(unittest.TestCase):
 
 def write_controls(out):
     write_valid(out, mode='controls')
+    shutil.copy(os.path.join(out, 'f6.json'), os.path.join(out, 'cut.f6.json'))
+    edit('cut.f6.json', lambda d: d['transitions'].__setitem__(2, {'cut': True, 'pass': False, 'drained': False, 'skippedS': 2.9, 'landedOff': 0.2}))(out)
     for f in os.listdir(out):
         if f.split('.')[0] in ('f2', 'f3', 'f4', 'f5', 'f6', 'f9', 'r3', 'shipped'):
             shutil.copy(os.path.join(out, f), os.path.join(out, ('leak.' if f.startswith('r3') else 'nouser.') + f))
@@ -374,7 +379,7 @@ class Controls(unittest.TestCase):
         write_controls(SCRATCH)
         v = gate.verdict(SCRATCH)
         self.assertEqual(({k: c['holds'] for k, c in v['controls'].items() if k != 'holds'}, v['gate']),
-                         ({'noUserToken': True, 'badDeveloperToken': True, 'noStream': True, 'leak': True, 'missingArtifact': True}, 'PASS'))
+                         ({'noUserToken': True, 'badDeveloperToken': True, 'noStream': True, 'cutTail': True, 'leak': True, 'missingArtifact': True}, 'PASS'))
 
     def test_each_control_breaks_when_its_check_passes_or_fails_vacuously(self):
         for name, mutate, control in (('signed-out F2 fails', put('nouser.f2.json', banner=None), 'noUserToken'),
@@ -383,6 +388,12 @@ class Controls(unittest.TestCase):
                                       ('signed-out F9 passes', put('nouser.f9.json', started=True, reps=[{'audioMs': 800}] * 5), 'noUserToken'),
                                       ('bad token F3 passes', put('badtoken.f3.json', reps=[{'exit': 0, 'wallMs': 300, 'songs': 3, 'uiMs': 400}] * 5), 'badDeveloperToken'),
                                       ('bad token F4 missing', remove('badtoken.f4.json'), 'badDeveloperToken'),
+                                      ('cut passes', edit('cut.f6.json', lambda d: d['transitions'][2].__setitem__('pass', True)), 'cutTail'),
+                                      ('cut caught by a drain', edit('cut.f6.json', lambda d: d['transitions'][2].__setitem__('drained', True)), 'cutTail'),
+                                      ('cut not skipped', edit('cut.f6.json', lambda d: d['transitions'][2].__setitem__('skippedS', 0.1)), 'cutTail'),
+                                      ('cut mislanded', edit('cut.f6.json', lambda d: d['transitions'][2].__setitem__('landedOff', 1.5)), 'cutTail'),
+                                      ('cut never sent', edit('cut.f6.json', lambda d: d['transitions'][2].__setitem__('cut', False)), 'cutTail'),
+                                      ('cut evidence missing', remove('cut.f6.json'), 'cutTail'),
                                       ('no stream F4 started', put('nostream.f4.json', started=True, reps=[{'audioMs': None}] * 5), 'noStream'),
                                       ('leak too small', edit('leak.r3.json', lambda d: [r.__setitem__('uss', 148.0) for r in d['samples']]), 'leak'),
                                       ('leak with too few changes', edit('leak.r3.json', lambda d: [r.update(itemId=f'i{min(int(r["m"] // 3.6), 99) if r["m"] < 5 else 1 + int((r["m"] - 5) // 7)}') for r in d['samples']]), 'leak'),
