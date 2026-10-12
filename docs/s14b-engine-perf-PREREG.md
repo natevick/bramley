@@ -46,3 +46,16 @@ S13 found two engine-side FAILs: R5 (paused CPU 1.8–2.0 %, bar 1 %) and F5 (se
 - **Decision data for Nate:**
   - F5 interleaved: after4 (pooled), then after4-nopool, then after4 again, 10 reps each.
   - One 13 min after4-nopool soak, as the control.
+
+## Amendment 3 (2026-10-12, race 3 is a release blocker; written before any counted soak)
+Race 3 is the permanent Loading stall at a preload with pooled connections. It is treated as ours until a spec-conformant platform is shown to stall too.
+- **Trace:** a non-shipped `trace` feature, carrying the `bramley-unshipped-feature` marker. It logs every MSE, media, fetch and XHR call, getter, event and completion, with a monotonic timestamp and object identity. It logs hosts only: no URLs and no titles. The traces stay under the gitignored `target/`.
+- **Diagnosis:** capture ≥ 2 stalls with the 4.5 min soak (`SOAK_S=270`). Diff each against a passing trace at the same preload (`ts_off 290.4168`), and name the spec step we deviate from.
+- **Pass condition:** 0 stalls in ≥ 12 pooled 4.5 min soaks on the fix commit, using the shipped (non-trace) binary.
+  - A stall is either of these:
+    - the item stuck at Loading with position frozen for ≥ 20 s before the soak ends;
+    - any position stall > 2 s (the R3 proxy) that is not explained by a seek.
+  - VOID runs, where playback never started, are reported and not counted. Replacements are added until there are 12 valid runs.
+  - At the observed ~2/7 rate, a no-op fix shows 0 in 12 with probability ≈ 1.6 %.
+- **Confound:** report pooled soaks without f8916d5, that is abf2b62 with e11055a's readiness fix applied, at the same 4.5 min.
+- **Box:** each soak holds the shared GPU-session flock (`/run/user/$UID/bramley-gpu-session.lock`), the same one S13's `acceptance.sh` takes. Each also gets a unique null sink and the routing guard.
