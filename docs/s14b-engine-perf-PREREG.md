@@ -33,3 +33,16 @@ S13 found two engine-side FAILs: R5 (paused CPU 1.8–2.0 %, bar 1 %) and F5 (se
 - **Phase control:** a 13 min soak on the shipped fix binary. PASS when it reads Playing at every sample. The window that matters is minutes 8.5–8.9 on track 4, where after3-2 hit three times.
 - **Guard:** a genuine run-out still fires `waiting` (`running_out_of_data_mid_stream_fires_timeupdate_then_waiting`).
 - **Counted run:** F5 (10 reps) and R5 are re-measured on the final commit, then the full acceptance runs as `s14b-2`.
+
+## Amendment 2 (2026-10-12, before s14b-2)
+- **Correcting Amendment 1's direct measure:** probeD's "0 blips" covers only ~3.8 min of normal playback before probeD stalled, not 10 min.
+- **A second race:** probeD stalled for good at a preload, the track 2→3 transition.
+  - Probe E (every SourceBuffer and MediaSource call, a rejection tracker, our queue traffic) reproduced it on hunt attempt 4 of 4. Attempt 3 is VOID: playback never started.
+  - **Trace:** MusicKit starts two loaders for the next item, as base also does. Loader 1's init is appended. Loader 2's playlist response lands after that append, and from then on neither loader calls a SourceBuffer method.
+  - **Not us:** no host-object exception, no unhandled rejection, and no queue call of ours inside that window.
+  - **Classification:** a MusicKit-internal race. Pooled connections expose it because they let the init arrive ~17 ms after the request.
+  - No workaround is added: no delays and no fetch serialization.
+- **R3 in s14b-2:** if this race causes an R3 failure, it is reported as such. The run is not repeated until it goes green.
+- **Decision data for Nate:**
+  - F5 interleaved: after4 (pooled), then after4-nopool, then after4 again, 10 reps each.
+  - One 13 min after4-nopool soak, as the control.
