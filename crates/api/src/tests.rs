@@ -781,3 +781,22 @@ fn a_pooled_connection_the_peer_reset_is_reopened_once_and_the_request_succeeds(
     assert!(matches!(again, Ok(n) if n > 0), "{again:?}");
     assert_eq!(*served.lock().unwrap(), [(0, true), (0, false), (1, false)]);
 }
+
+#[test]
+fn a_peer_that_resets_every_connection_is_retried_once_then_the_error_returns() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let conns = Arc::new(Mutex::new(0));
+    let seen = conns.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let stream = stream.unwrap();
+            let _ = stream.peek(&mut [0]);
+            *seen.lock().unwrap() += 1;
+        }
+    });
+    let client = raw(&base, Some(USER));
+    let got = client.session().unwrap().storefront();
+    assert!(matches!(got, Err(Error::Network(_))), "{got:?}");
+    assert_eq!(*conns.lock().unwrap(), 2);
+}
