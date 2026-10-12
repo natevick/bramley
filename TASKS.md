@@ -33,8 +33,8 @@
   - S7 DONE and merged (11f6300). Norm verified: 215 tests, gate PASS (R1 172.1, R2 74.6), live F3 PASS (median 444 ms, click plays; sabotage gives a Network error). Open: F3 via the CLI doesn't fill the Search view (S13).
   - S9 DONE and merged. Norm's gate run: PASS (R1 173.1 PSS / 146.1 USS, R2 75.2), 230 tests. The status file now never carries titles. Headroom on R1 PSS is ~27 MiB.
   - S8 DONE and merged (98db09a). Norm's gate run: PASS (R1 173.0, R2 75.9), 243 tests. F6 amendment approved by Nate is in acceptance.md (drain OR measured gapless).
-  - S10: review fixes DONE on the branch (gate s10-3 PASS per the developer). NOW rebasing onto S8, then Norm's gate run, then merge.
-  - [ ] S9b library Artists at the TOP of Your Library (Nate 2026-10-11). Starts after S10 merges (both touch library.rs).
+  - S10 DONE and merged. Norm verified: 252 tests, gate PASS (R1 173.0, R2 75.7), live F8 PASS.
+  - [ ] S9b library Artists at the TOP of Your Library (Nate 2026-10-11). RUNNING next.
   - [ ] Next: S13 full harness (F1–F10, R3–R6, the 6 surviving gate mutants, ballast tolerance noise, F3 via the CLI into the UI, F9 wiring), then two consecutive full PASSes = v1 done.
   - [ ] Then: S7 search UI, S8 album/playlist detail, S9 library, S10 queue, S13 full harness (F1–F10, R3–R6), then two consecutive full acceptance PASSes = v1 done.
   - Merge gate for each: Norm re-runs the measurements (S1: measure-musickit.sh ≤ 112 plus sabotages; S0: the positive control), then reviewer, then fast-forward.
