@@ -19,3 +19,17 @@ S13 found two engine-side FAILs: R5 (paused CPU 1.8–2.0 %, bar 1 %) and F5 (se
 - **A dirty tree.** `build.json` records it, and a dirty run doesn't count.
 - **A harness that ran nothing.** The baseline FAILs above show both drivers can fail.
 - **R5 measured while not Paused.** The gate requires Paused before and after the window.
+
+## Amendment 1 (2026-10-12, before any run of the readiness fix)
+`s14b-1` (abf2b62) FAILed R3. Two engine causes were found. No bar changes.
+- **Init-append race:** fixed in f8916d5, which runs queued tasks before the next network event.
+- **Spurious `waiting` blips:** MusicKit trims `[0, X)` with X 0.06–0.34 s past `currentTime` whenever the SourceBuffer is at quota. Our readiness looked only at SourceBuffer ranges, so it reported `waiting` and counted an underrun while ~1.5 s of decoded audio was still queued in the sink.
+  - Base has them too: 30 blips in 10 min, median 208 ms.
+  - The harness samples every 10 s, and the blips repeat every 10 s, so whether a sample lands in one depends on phase.
+  - The fix counts queued output toward readiness.
+
+**Measures:**
+- **Direct:** a probe build of the fix counts non-seek `["timeupdate","waiting"]` media events over a 10 min soak. PASS at ≤ 2, against 30 on base.
+- **Phase control:** a 13 min soak on the shipped fix binary. PASS when it reads Playing at every sample. The window that matters is minutes 8.5–8.9 on track 4, where after3-2 hit three times.
+- **Guard:** a genuine run-out still fires `waiting` (`running_out_of_data_mid_stream_fires_timeupdate_then_waiting`).
+- **Counted run:** F5 (10 reps) and R5 are re-measured on the final commit, then the full acceptance runs as `s14b-2`.

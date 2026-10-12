@@ -372,17 +372,21 @@ impl MediaEngine {
         } else {
             i64::MAX
         };
+        let queued = self.sent_end_us - t;
         let mut ahead = i64::MAX;
         for sb in ms.sbs.iter().filter_map(|id| sbs.get(id)) {
-            let Some((_, end)) = sb
+            let buffered = sb
                 .buffered_us()
                 .into_iter()
                 .find(|(s, e)| t >= s - GAP_US && t <= *e)
-            else {
+                .map(|(_, end)| {
+                    let reaches_end = ms.ended && end >= duration_us.saturating_sub(END_SLACK_US);
+                    if reaches_end { i64::MAX } else { end - t }
+                });
+            let Some(a) = buffered.or((queued > FUTURE_AHEAD_US).then_some(queued)) else {
                 return HAVE_METADATA;
             };
-            let reaches_end = ms.ended && end >= duration_us.saturating_sub(END_SLACK_US);
-            ahead = ahead.min(if reaches_end { i64::MAX } else { end - t });
+            ahead = ahead.min(a.max(queued));
         }
         match ahead {
             a if a >= ENOUGH_AHEAD_US => HAVE_ENOUGH_DATA,

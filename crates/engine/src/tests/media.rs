@@ -263,6 +263,19 @@ fn running_out_of_data_mid_stream_fires_timeupdate_then_waiting() {
 }
 
 #[test]
+fn removing_the_range_under_the_playhead_is_not_an_underrun_while_queued_output_covers_it() {
+    let mut r = Rig::new(3, false);
+    r.m.play();
+    r.play_for(0.5);
+    r.take();
+    let t = r.m.current_time();
+    r.sb().remove(0.0, t + 0.3);
+    let events = r.play_for(0.2);
+    assert!(!events.contains(&"waiting"), "{events:?}");
+    assert_eq!(r.m.counters.underruns, 0);
+}
+
+#[test]
 fn timeupdate_fires_at_most_every_250ms_while_playing() {
     let mut r = Rig::new(5, false);
     r.pump();
