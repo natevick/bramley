@@ -2625,3 +2625,62 @@ fn covers_wait_for_a_developer_token_that_arrives_after_a_failed_fetch() {
         (50, None, 2)
     );
 }
+
+#[test]
+fn a_cli_search_fills_the_search_view_but_an_agent_search_leaves_the_window_alone() {
+    let dir = std::path::PathBuf::from(format!("../../target/c/show-search{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let shown = |agent: bool| {
+        let (inbox_tx, inbox) = channel();
+        let ctx = egui::Context::default();
+        let spawn = spawning(|| Err(anyhow!("no engine in this test")));
+        let user = (mock_user(&dir), false);
+        let mut app = crate::app::App::new(
+            &ctx,
+            crate::Args::default(),
+            spawn,
+            user,
+            (inbox, true),
+            None,
+        );
+        let deadline = Instant::now() + Duration::from_secs(5);
+        if agent {
+            inbox_tx
+                .send((crate::cli::Request::Agent, deadline, channel().0))
+                .unwrap();
+        }
+        let search = crate::cli::Request::Search("bohemian rhapsody".into());
+        inbox_tx.send((search, deadline, channel().0)).unwrap();
+        let s = frames(&ctx, &mut app, 3);
+        (s["route"].clone(), s["search"]["state"].clone())
+    };
+    let (cli, agent) = (shown(false), shown(true));
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(cli.0, "Search");
+    assert_ne!(cli.1, "idle", "the view never ran the CLI's search");
+    assert_eq!(agent, (json!("Home"), json!("idle")));
+}
+
+#[cfg(feature = "gate-sabotage")]
+#[test]
+fn the_leak_sabotage_keeps_its_size_once_per_new_track_and_only_when_asked() {
+    let mut leak = crate::Leak {
+        mib: 1,
+        item: None,
+        kept: Vec::new(),
+    };
+    for item in [None, Some("a"), Some("a"), Some("b"), None, Some("a")] {
+        leak.follow(item);
+    }
+    assert_eq!(
+        leak.kept.iter().map(Vec::len).collect::<Vec<_>>(),
+        [1 << 20; 3]
+    );
+    let mut off = crate::Leak {
+        mib: 0,
+        item: None,
+        kept: Vec::new(),
+    };
+    off.follow(Some("a"));
+    assert!(off.kept.is_empty());
+}

@@ -101,6 +101,7 @@ pub struct App {
     sign_in: Option<(signin::Server, bool)>,
     notice: Option<&'static str>,
     agent_notice: bool,
+    agent_asking: bool,
     generation: Arc<AtomicU64>,
     checking: Option<Job>,
     clearing: Option<(Job, Waiting)>,
@@ -122,6 +123,8 @@ pub struct App {
     #[cfg(feature = "dev")]
     born: Instant,
     status_at: Option<Instant>,
+    #[cfg(feature = "gate-sabotage")]
+    leak: crate::Leak,
 }
 
 impl App {
@@ -186,6 +189,7 @@ impl App {
             sign_in: None,
             notice: None,
             agent_notice: false,
+            agent_asking: false,
             generation: Arc::default(),
             checking: None,
             clearing: None,
@@ -211,6 +215,8 @@ impl App {
             #[cfg(feature = "dev")]
             born: Instant::now(),
             status_at: None,
+            #[cfg(feature = "gate-sabotage")]
+            leak: crate::Leak::from_env(),
         }
     }
 
@@ -345,7 +351,15 @@ impl App {
                 self.agent_notice |= !self.user.dir().join(crate::mcp::DISCLOSED).exists();
             }
             if request == Request::Agent {
+                self.agent_asking = true;
                 continue;
+            }
+            if let (Request::Search(term), false) =
+                (&request, std::mem::take(&mut self.agent_asking))
+            {
+                self.shell.apply(Nav::Go(ui::nav::Route::Search));
+                self.shell.query.clone_from(term);
+                self.search.enter(term, Instant::now());
             }
             if let Some(call) = cli::api_call(&request)
                 && Instant::now() <= deadline
@@ -500,6 +514,8 @@ impl App {
 
     pub fn tick(&mut self, ctx: &egui::Context) {
         let changed = self.pump(ctx);
+        #[cfg(feature = "gate-sabotage")]
+        self.leak.follow(self.playback.shown().item_id.as_deref());
         if self.covers.rejected() || self.library.denied {
             self.playback.mark_signed_out();
         }

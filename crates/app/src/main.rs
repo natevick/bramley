@@ -47,6 +47,44 @@ fn touched_ballast() -> Result<Vec<u8>> {
     Ok(std::hint::black_box(ballast))
 }
 
+#[cfg(feature = "gate-sabotage")]
+pub struct Leak {
+    mib: usize,
+    item: Option<String>,
+    kept: Vec<Vec<u8>>,
+}
+
+#[cfg(feature = "gate-sabotage")]
+impl Leak {
+    pub fn from_env() -> Self {
+        let mib = std::env::var("BRAMLEY_GATE_LEAK_MIB").map_or(0, |v| {
+            v.parse()
+                .expect("BRAMLEY_GATE_LEAK_MIB is not a whole number")
+        });
+        Leak {
+            mib,
+            item: None,
+            kept: Vec::new(),
+        }
+    }
+
+    pub fn follow(&mut self, item: Option<&str>) {
+        if self.mib == 0 || item.is_none() || item == self.item.as_deref() {
+            return;
+        }
+        self.item = item.map(str::to_owned);
+        let mut block = vec![0u8; self.mib << 20];
+        for page in block.chunks_mut(4096) {
+            page[0] = 1;
+        }
+        self.kept.push(std::hint::black_box(block));
+        eprintln!(
+            "bramley: gate-sabotage leaked {} MiB",
+            self.kept.len() * self.mib
+        );
+    }
+}
+
 #[derive(Default)]
 pub struct Args {
     #[cfg(feature = "dev")]
