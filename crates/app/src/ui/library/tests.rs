@@ -615,11 +615,11 @@ fn a_rate_limit_waits_its_retry_after_but_never_less_than_the_retry() {
             fail(&mut lib, &ctx, now, Error::RateLimited(seconds)).len(),
             1
         );
+        lib.lists[List::Songs as usize].wanted = true;
         assert!(
             lib.tick(now + wait - Duration::from_millis(50), true, || {})
                 .is_empty()
         );
-        lib.lists[List::Songs as usize].wanted = true;
         assert_eq!(
             lib.tick(now + wait + Duration::from_millis(50), true, || {})
                 .len(),
