@@ -147,3 +147,9 @@ Procedure only; no bar moves. The four runs at e13ba5b are reported and scored u
 3. **`gate.py --preflight` is the pre-flight entry point again.** Other worktrees' scripts call it.
 
 Re-run plan unchanged: two consecutive counted runs, then `--controls` and `--llvmpipe`, all at the commit that adds this amendment.
+
+## Amendment 2 (2026-10-11 late, coordinator's instruction; no rule changes)
+The branch is rebased onto main at 8c6e77a, where S8, S9b and S10 are merged, so the counted runs exercise the final feature set.
+- s13-1 to s13-4, s13-controls and s13-llvmpipe ran on the pre-S9b base. They are reported but do not count.
+- The counted set is `final-1` and `final-2` (consecutive), `final-controls` and `final-llvmpipe`, all at the commit that adds this amendment.
+- The coordinator confirmed no other worktree will use weston or the GPU during these runs. The co-tenant watch still applies.
