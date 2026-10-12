@@ -41,4 +41,5 @@ windows-native-keyring-store = { version = "1.1", default-features = false }
 [features]
 dev = ["dep:png", "bramley-api/loopback"]
 gate-sabotage = []
+trace = ["bramley-engine/trace"]
 

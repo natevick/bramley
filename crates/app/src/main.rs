@@ -26,6 +26,9 @@ use crate::playback::{Link, SignedOut, Spawn};
 #[cfg(feature = "dev")]
 #[used]
 static DEV_MARKER: &str = "bramley-unshipped-feature:app/dev\0";
+#[cfg(feature = "trace")]
+#[used]
+static TRACE_MARKER: &str = "bramley-unshipped-feature:app/trace\0";
 #[cfg(feature = "gate-sabotage")]
 #[used]
 static GATE_SABOTAGE_MARKER: &str = "bramley-unshipped-feature:app/gate-sabotage\0";

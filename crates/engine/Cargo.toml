@@ -18,6 +18,7 @@ ureq = "3"
 [features]
 sabotage = []
 diagnostics = []
+trace = []
 
 [[bin]]
 name = "bramley-musickit"

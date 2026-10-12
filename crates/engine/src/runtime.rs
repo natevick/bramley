@@ -650,6 +650,8 @@ impl Engine {
             last_gc: Instant::now(),
         };
         engine.eval_script("platform.js", PLATFORM)?;
+        #[cfg(feature = "trace")]
+        engine.eval_script("trace.js", include_str!("../js/trace.js"))?;
         Ok(engine)
     }
 
