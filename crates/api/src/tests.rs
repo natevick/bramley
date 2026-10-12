@@ -742,3 +742,42 @@ fn every_api_feature_carries_an_unshipped_marker() {
         );
     }
 }
+
+#[test]
+fn a_pooled_connection_the_peer_reset_is_reopened_once_and_the_request_succeeds() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let served = Arc::new(Mutex::new(Vec::new()));
+    let seen = served.clone();
+    std::thread::spawn(move || {
+        for (conn, stream) in listener.incoming().enumerate() {
+            let mut stream = stream.unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            while reader.get_ref().peek(&mut [0]).unwrap_or(0) > 0 {
+                if conn == 0 && seen.lock().unwrap().len() == 2 {
+                    break;
+                }
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                while reader.read_line(&mut String::new()).unwrap() > 2 {}
+                let body = if line.contains("storefront") {
+                    STOREFRONT
+                } else {
+                    SEARCH
+                };
+                seen.lock()
+                    .unwrap()
+                    .push((conn, line.contains("storefront")));
+                let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+                stream.write_all(head.as_bytes()).unwrap();
+                stream.write_all(body.as_bytes()).unwrap();
+            }
+        }
+    });
+    let client = raw(&base, Some(USER));
+    let session = client.session().unwrap();
+    session.search("queen").unwrap();
+    let again = session.search("queen").map(|found| found.songs.items.len());
+    assert!(matches!(again, Ok(n) if n > 0), "{again:?}");
+    assert_eq!(*served.lock().unwrap(), [(0, true), (0, false), (1, false)]);
+}

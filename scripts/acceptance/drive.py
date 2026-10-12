@@ -629,9 +629,9 @@ def offline_session(out, binary, env, sink):
         attach = lambda: subprocess.Popen(['slirp4netns', '--configure', '--mtu=65520', '--disable-host-loopback', str(a.pid), 'tap0'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         def search(key, mark, want):
-            code, _, _ = a.cli('search', TERM)
+            code, reply, ms = a.cli('search', TERM)
             ui, _ = a.until(lambda s: (s.get('search') or {}).get('state') == want and ((s.get('search') or {}).get('seq') or 0) > mark, 10)
-            ev[key] = {'exit': code, 'ui': (ui.get('search') or {}).get('state')}
+            ev[key] = {'exit': code, 'ui': (ui.get('search') or {}).get('state'), 'error': reply.get('error'), 'wallMs': ms}
             return (ui.get('search') or {}).get('seq') or 0
         try:
             a.until(lambda s: s.get('framesPainted', 0) > 0, 30)

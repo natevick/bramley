@@ -272,7 +272,7 @@ impl Session<'_> {
             ureq::Error::BodyExceedsLimit(_) => Error::TooLarge,
             e => Error::Network(redact(&e.to_string(), &secrets)),
         };
-        let (mut budget, mut retries) = (RETRY_BUDGET, 0);
+        let (mut budget, mut retries, mut reconnected) = (RETRY_BUDGET, 0, false);
         loop {
             let bearer = format!("Bearer {}", tokens.developer);
             let mut request = self
@@ -286,7 +286,13 @@ impl Session<'_> {
             for (key, value) in query {
                 request = request.query(*key, *value);
             }
-            let mut response = request.call().map_err(hide)?;
+            let mut response = match request.call() {
+                Err(ureq::Error::Io(e)) if stale(&e) && !reconnected => {
+                    reconnected = true;
+                    continue;
+                }
+                called => called.map_err(hide)?,
+            };
             let status = response.status().as_u16();
             let wait = retry_after(response.headers());
             let mut body = Vec::new();
@@ -324,6 +330,14 @@ impl Session<'_> {
             }
         }
     }
+}
+
+fn stale(e: &std::io::Error) -> bool {
+    use std::io::ErrorKind::{BrokenPipe, ConnectionAborted, ConnectionReset, UnexpectedEof};
+    matches!(
+        e.kind(),
+        ConnectionReset | ConnectionAborted | BrokenPipe | UnexpectedEof
+    )
 }
 
 pub fn retry_after(headers: &ureq::http::HeaderMap) -> Duration {
