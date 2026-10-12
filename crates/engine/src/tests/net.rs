@@ -591,3 +591,42 @@ fn a_transport_error_drops_the_pool_so_sibling_stale_connections_are_not_reused(
         started.elapsed()
     );
 }
+
+#[test]
+fn a_new_engine_starts_with_an_empty_http_cache() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let requests = Arc::new(AtomicUsize::new(0));
+    let seen = requests.clone();
+    std::thread::spawn(move || {
+        for sock in listener.incoming() {
+            let mut sock = sock.unwrap();
+            let mut head = String::new();
+            let mut r = BufReader::new(sock.try_clone().unwrap());
+            while r.read_line(&mut head).unwrap_or(0) > 2 && !head.ends_with("\r\n\r\n") {}
+            seen.fetch_add(1, Ordering::SeqCst);
+            let _ = sock.write_all(b"HTTP/1.1 200 OK\r\nCache-Control: public, max-age=600\r\nConnection: close\r\nContent-Length: 2\r\n\r\nok");
+        }
+    });
+    let fetch_once = || {
+        let mut e = crate::Engine::new(crate::EngineConfig::default()).unwrap();
+        e.eval_script("f.js", &format!("fetch('http://127.0.0.1:{port}/fresh').then(r => r.text()).then(t => {{ globalThis.got = t; }});")).unwrap();
+        for _ in 0..2000 {
+            e.tick();
+            if e.eval_json("globalThis.got").unwrap() == "ok" {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        panic!("fetch never completed");
+    };
+    fetch_once();
+    fetch_once();
+    assert_eq!(
+        requests.load(Ordering::SeqCst),
+        2,
+        "the second engine was served the first engine's cached response"
+    );
+}
