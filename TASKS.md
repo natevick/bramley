@@ -34,7 +34,7 @@
   - S9 DONE and merged. Norm's gate run: PASS (R1 173.1 PSS / 146.1 USS, R2 75.2), 230 tests. The status file now never carries titles. Headroom on R1 PSS is ~27 MiB.
   - S8 DONE and merged (98db09a). Norm's gate run: PASS (R1 173.0, R2 75.9), 243 tests. F6 amendment approved by Nate is in acceptance.md (drain OR measured gapless).
   - S10 DONE and merged. Norm verified: 252 tests, gate PASS (R1 173.0, R2 75.7), live F8 PASS.
-  - S9b library Artists RUNNING (natevick/s9b-artists, ../bramley-wt-s9b).
+  - S9b Artists DONE and merged (2026-10-11). Norm's gate run: PASS (R1 174.5 PSS / 146.6 USS, R2 76.1), 261 tests. Headroom ~25 MiB.
   - S13 full acceptance harness RUNNING (natevick/s13-harness, ../bramley-wt-s13). App bugs it finds get routed to separate fixes. v1 = two consecutive full PASSes.
   - [ ] Next: S13 full harness (F1–F10, R3–R6, the 6 surviving gate mutants, ballast tolerance noise, F3 via the CLI into the UI, F9 wiring), then two consecutive full PASSes = v1 done.
   - [ ] Then: S7 search UI, S8 album/playlist detail, S9 library, S10 queue, S13 full harness (F1–F10, R3–R6), then two consecutive full acceptance PASSes = v1 done.
