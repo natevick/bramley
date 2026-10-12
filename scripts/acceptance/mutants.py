@@ -46,6 +46,8 @@ MUTANTS = [
     ('controls accept vacuous FAILs', "return c['verdict'] == 'FAIL' and not any(r.startswith('missing evidence') for r in c['reasons'])", "return c['verdict'] == 'FAIL'"),
     ('leak changes', "and (leak.get('changesAfter5') or 0) >= 4", ""),
     ('realstate', "real.get('before') == real.get('after')", "True"),
+    ('co-tenant VOID', "    elif cotenants.get('seen'):", "    elif False:"),
+    ('co-tenant watch polled', " or not cotenants.get('polls')", ""),
     ('leak grep hits', "leaks.get('hits') == {'repo': 0, 'run': 0} and ", ""),
     ('leak grep self-check', " and leaks.get('plantedCaught') is True", ""),
     ('cut-tail skipped', "and t.get('skippedS', 0) > 0.1 ", ""),

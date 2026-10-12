@@ -6,7 +6,7 @@ case "${2:-}" in "") MODE=counted ;; --llvmpipe) MODE=llvmpipe ;; --controls) MO
 OUT="$ROOT/target/acceptance/$RUN"
 BIN="$OUT/bin"
 [ -e "$OUT" ] && { echo "refusing: $OUT already exists" >&2; exit 2; }
-python3 -I "$ROOT/scripts/acceptance/drive.py" --preflight >&2 || exit 2
+python3 -I "$ROOT/scripts/acceptance/gate.py" --preflight >&2 || exit 2
 mkdir -p "$BIN" "$ROOT/target/tmp"
 export TMPDIR="$ROOT/target/tmp"
 cd "$ROOT"

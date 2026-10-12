@@ -1,4 +1,4 @@
-import json, math, os, statistics
+import glob, json, math, os, statistics
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 REFERENCE = {'binary': os.path.join(ROOT, 'target', 'reference', 'bramley-main-4961e27'), 'sha256': '1a72eb4b2880ac5a', 'pss': 88.6}
@@ -12,6 +12,22 @@ TOOLS = sorted('search play pause resume next previous seek queue_add now_playin
 CHECKS = ('F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6')
 EVIDENCE = {'F1': ('f1',), 'F2': ('f2',), 'F3': ('f3',), 'F4': ('f4',), 'F5': ('f5',), 'F6': ('f6',), 'F7': ('f7',), 'F8': ('f8',), 'F9': ('f9',),
             'F10': ('f10-badid', 'f10-net'), 'R3': ('r3',), 'R4': ('r4',), 'R5': ('r5',)}
+
+
+STANDING_GPU_CLIENTS, GPU_LIBS = ('gnome-shell', 'Xvfb', 'grok-bot'), ('libgallium', 'radeonsi', 'libLLVM')
+
+
+def preflight(exclude=lambda pid: False):
+    found = []
+    for d in glob.glob('/proc/[0-9]*'):
+        try:
+            comm = open(f'{d}/comm').read().strip()
+            libs = sorted({line.split()[-1].rsplit('/', 1)[-1] for line in open(f'{d}/maps') if any(lib in line for lib in GPU_LIBS)})
+        except OSError:
+            libs = []
+        if int(d[6:]) != os.getpid() and not exclude(int(d[6:])) and (comm in ('weston', 'bramley') or (libs and comm not in STANDING_GPU_CLIENTS)):
+            found.append(f'{d[6:]} {comm} {libs}')
+    return found
 
 
 def load(out, name):
@@ -70,6 +86,11 @@ def session_problems(out):
         missing.append('missing evidence: weston.log')
     else:
         voids += renderer_voids(weston, 'weston')
+    cotenants = load(out, 'cotenants.json')
+    if not cotenants or not cotenants.get('polls'):
+        missing.append('missing evidence: cotenants.json')
+    elif cotenants.get('seen'):
+        voids.append(f'another weston, bramley or GPU client ran during the run: {len(cotenants["seen"])} polls, first {cotenants["seen"][0]}')
     return missing, fails, voids
 
 
@@ -426,6 +447,10 @@ def brief(v):
 
 if __name__ == '__main__':
     import sys
+    if sys.argv[1] == '--preflight':
+        found = preflight()
+        print('\n'.join(['refusing: other GPU clients are running:'] + found) if found else 'preflight: no other weston, bramley or GPU client')
+        sys.exit(2 if found else 0)
     result = verdict(sys.argv[1])
     save(sys.argv[1], 'verdict.json', result)
     print(json.dumps(brief(result), indent=1))

@@ -125,3 +125,25 @@ Written down now so a counted result can't be retro-fitted:
 - Then `s13-controls` (`--controls`) and `s13-llvmpipe` (`--llvmpipe`).
 - A VOID run is re-run and reported, never dropped.
 - Real-art screenshots from the dev build go to `target/screens/PRIVATE-real-art/acceptance/<run>/`, never into the repo.
+
+## Amendment 1 (2026-10-11, after s13-1, s13-2, s13-controls and s13-llvmpipe; before any further counted run)
+Procedure only; no bar moves. The four runs at e13ba5b are reported and scored under the rules above. None of them is re-scored.
+
+1. **Co-tenant watch.**
+   - **Evidence:** S9b's own gate started at 19:47:3x, while my s13-2 was passing its pre-flight. Its builds run before its weston appears, so the start-only check missed it, and s13-2's reference read −13.8 MiB with shipped USS 26 MiB low. A non-gated S9b live session also ended at 19:37, inside s13-1's soak.
+   - **Change:** the pre-flight condition is now polled every 5 s for the whole run, excluding the harness's own process tree.
+   - **Rules:**
+     - any sighting VOIDs every check of that run;
+     - a missing record, or one with zero polls, is FAIL.
+2. **Leak grep.**
+   - **Evidence:**
+     - in s13-1 and s13-2, the 4 repo "hits" were one library playlist name that is an ordinary English word, found in prose and code;
+     - `main..HEAD` also counted main's newer TASKS.md commit as added lines;
+     - in the controls and llvmpipe runs, the grep had no library names, so its plant could not fire.
+   - **Change:**
+     - the repo side now uses the merge-base (`main...HEAD`);
+     - library names are fetched by the grep itself through the documented API, in memory, in every mode;
+     - library names that already occur in main's tracked text are not counted in the repo grep, because such a name can't be told from prose. They still count in the run-file grep.
+3. **`gate.py --preflight` is the pre-flight entry point again.** Other worktrees' scripts call it.
+
+Re-run plan unchanged: two consecutive counted runs, then `--controls` and `--llvmpipe`, all at the commit that adds this amendment.

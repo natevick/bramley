@@ -62,6 +62,7 @@ def write_valid(out, renderer=RADEONSI, mode='counted'):
     w('r5.json', s('cpu', t0=1000.0, t1=1060.0, before='Paused', after='Paused', cpu=[0.5] * 30))
     real = {'tokenMtimeNs': 1, 'tokenSize': 300, 'keyringItems': [], 'cache': None}
     w('realstate.json', {'before': real, 'after': real})
+    w('cotenants.json', {'polls': 600, 'seen': []})
     w('leakgrep.json', {'libraryNames': 34, 'catalogNames': 40, 'tokenFragments': 6, 'runFiles': 90, 'hits': {'repo': 0, 'run': 0}, 'plantedCaught': True})
 
 
@@ -156,6 +157,9 @@ MEMORY = [
     ('missing session', remove('session.verdict.json'), 'R2', 'FAIL', 'session.verdict.json'),
     ('missing reference after', remove('reference-after.json'), 'R1', 'FAIL', 'reference-after.json'),
     ('missing weston log', remove('weston.log'), 'R1', 'FAIL', 'weston.log'),
+    ('a co-tenant during the run', put('cotenants.json', seen=[[1500.0, ['123 weston []']]]), 'R1', 'VOID', 'another weston'),
+    ('co-tenant watch never polled', put('cotenants.json', polls=0), 'R2', 'FAIL', 'cotenants.json'),
+    ('co-tenant record missing', remove('cotenants.json'), 'R1', 'FAIL', 'cotenants.json'),
     ('missing guard', remove('shipped.guard.json'), 'R2', 'FAIL', 'shipped.guard.json'),
     ('missing r1 in a void session', both(remove('shipped.r1.json'), put('session.verdict.json', sinkGone=False)), 'R1', 'FAIL', 'shipped.r1.json'),
 ]
@@ -250,7 +254,8 @@ FUNCTIONAL = [
     ('R5 is judged against its own bar', put('r5.json', cpu=[4.0] * 30), 'R5', 'FAIL', 'CPU median 4.0'),
     ('R6 unrecorded', edit('build.json', lambda d: d.pop('shippedBytes')), 'R6', 'FAIL', 'shippedBytes'),
 ] + [(f'{c} missing evidence', remove(f'{f}.json'), c, 'FAIL', f'{f}.json') for c, files in gate.EVIDENCE.items() for f in files] + [
-    (f'{c} default sink changed', put('session.verdict.json', defaultAtEnd='hdmi'), c, 'VOID', 'default sink') for c in gate.CHECKS if c != 'R6']
+    (f'{c} default sink changed', put('session.verdict.json', defaultAtEnd='hdmi'), c, 'VOID', 'default sink') for c in gate.CHECKS if c != 'R6'] + [
+    (f'{c} co-tenant', put('cotenants.json', seen=[[1500.0, ['123 bramley []']]]), c, 'VOID', 'another weston') for c in gate.CHECKS if c != 'R6']
 BALLAST = [
     ('ballast passes the shipped check', put('build.json', ballastFeaturesExit=2), 'failsShippedCheck', 'FAIL'),
     ('ballast fails for another reason', edit('ballast.r1.json', lambda d: d['samples'][2].__setitem__('texturesUploaded', 0)), 'thresholdOnly', 'FAIL'),

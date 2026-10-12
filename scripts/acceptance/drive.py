@@ -20,8 +20,7 @@ SOAK_S, SOAK_EVERY_S, SOAK_TRACK_S, F6_WINDOW_S, RECOVER_S, CUT_BEFORE_END_S = 1
 NAMES = {'library': set(), 'catalog': set()}
 SNAP_KEYS = ('pid', 'state', 'position', 'duration', 'itemId', 'banner', 'engineStarted', 'texturesUploaded', 'coversFailed', 'framesPainted',
              'glRenderer', 'applied', 'seq', 'engine', 'sentMs', 'decodedBytesKept')
-STANDING_GPU_CLIENTS, GPU_LIBS = ('gnome-shell', 'Xvfb', 'grok-bot'), ('libgallium', 'radeonsi', 'libLLVM')
-TICK, RUNTIME, CPU_EVERY_S = os.sysconf('SC_CLK_TCK'), os.path.join(ROOT, 'target', 'x'), 2
+TICK, RUNTIME, CPU_EVERY_S, COTENANT_EVERY_S = os.sysconf('SC_CLK_TCK'), os.path.join(ROOT, 'target', 'x'), 2, 5
 
 
 def note_names(found, kind='catalog'):
@@ -35,9 +34,12 @@ def note_names(found, kind='catalog'):
 def leak_grep(out):
     tokens = [open(os.path.join(cs.REAL_CONFIG, f)).read().strip() for f in ('developer-token', 'music-user-token') if os.path.exists(os.path.join(cs.REAL_CONFIG, f))]
     fragments = [t[i:i + 24] for t in tokens for i in (0, len(t) // 2, len(t) - 24)]
-    private, every = sorted(NAMES['library']) + fragments, sorted(NAMES['library'] | NAMES['catalog']) + fragments
+    with contextlib.suppress(Exception):
+        note_names(s9.every('/v1/me/library/playlists', tokens)[0], 'library')
+    in_base = {n for n in NAMES['library'] if subprocess.run(['git', 'grep', '-q', '-i', '-F', n, 'main', '--', '.'], cwd=ROOT).returncode == 0}
+    private, every = sorted(NAMES['library'] - in_base) + fragments, sorted(NAMES['library'] | NAMES['catalog']) + fragments
     git = lambda *args: subprocess.run(['git', *args], cwd=ROOT, capture_output=True, text=True).stdout
-    repo = '\n'.join([line for line in git('diff', 'main..HEAD').splitlines() if line.startswith('+')] + [git('log', 'main..HEAD', '--format=%B')]).lower()
+    repo = '\n'.join([line for line in git('diff', 'main...HEAD').splitlines() if line.startswith('+')] + [git('log', 'main..HEAD', '--format=%B')]).lower()
     files = []
     for d, dirs, names in os.walk(out):
         dirs[:] = [x for x in dirs if x not in ('bin', 'empty')]
@@ -45,26 +47,38 @@ def leak_grep(out):
     run = '\n'.join(files).lower()
     count = lambda body, needles: sum(body.count(n.lower()) for n in needles)
     hits = {'repo': count(repo, private), 'run': count(run, every)}
-    planted = bool(NAMES['library']) and count(run + every[0].lower(), every) > hits['run'] and count(repo + private[0].lower(), private) > hits['repo']
-    gate.save(out, 'leakgrep.json', {'libraryNames': len(NAMES['library']), 'catalogNames': len(NAMES['catalog']), 'tokenFragments': len(fragments),
+    planted = bool(NAMES['library'] - in_base) and count(run + every[0].lower(), every) > hits['run'] and count(repo + private[0].lower(), private) > hits['repo']
+    gate.save(out, 'leakgrep.json', {'libraryNames': len(NAMES['library']), 'libraryNamesInBase': len(in_base), 'catalogNames': len(NAMES['catalog']), 'tokenFragments': len(fragments),
                                      'runFiles': len(files), 'hits': hits, 'plantedCaught': planted})
+
+
+class Cotenants(threading.Thread):
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.stop, self.polls, self.seen = False, 0, []
+
+    def run(self):
+        while not self.stop:
+            found = gate.preflight(ours)
+            self.polls += 1
+            if found:
+                self.seen.append([round(time.time(), 1), found])
+            time.sleep(COTENANT_EVERY_S)
+
+
+def ours(pid):
+    while pid > 1:
+        if pid == os.getpid():
+            return True
+        try:
+            pid = int(open(f'/proc/{pid}/stat').read().rsplit(')', 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            return False
+    return False
 
 
 def guard_fired(out):
     return sorted(f for f in os.listdir(out) if f.endswith('.guard.json') and (gate.load(out, f) or {}).get('killed'))
-
-
-def preflight():
-    found = []
-    for d in glob.glob('/proc/[0-9]*'):
-        try:
-            comm = open(f'{d}/comm').read().strip()
-            libs = sorted({line.split()[-1].rsplit('/', 1)[-1] for line in open(f'{d}/maps') if any(lib in line for lib in GPU_LIBS)})
-        except OSError:
-            libs = []
-        if int(d[6:]) != os.getpid() and (comm in ('weston', 'bramley') or (libs and comm not in STANDING_GPU_CLIENTS)):
-            found.append(f'{d[6:]} {comm} {libs}')
-    return found
 
 
 def mem(pid):
@@ -655,7 +669,8 @@ def run(out, mode):
     build = gate.load(out, 'build.json') or {}
     build['sha256'] = {b: sha(os.path.join(bins, b)) for b in sorted(os.listdir(bins))}
     gate.save(out, 'build.json', build)
-    errors = {}
+    errors, watch = {}, Cotenants()
+    watch.start()
     with cs.session(out, 'bramley-gate') as (sock, sink, _):
         for phase, go in phases(out, mode, bins, sock, sink):
             try:
@@ -666,6 +681,8 @@ def run(out, mode):
             except Exception as e:
                 errors[phase] = f'{type(e).__name__}: {e}'.replace(ROOT, '.').replace(os.path.expanduser('~'), '~')[:300]
             gate.save(out, 'errors.json', errors)
+    watch.stop = True
+    gate.save(out, 'cotenants.json', {'polls': watch.polls, 'seen': watch.seen})
     gate.save(out, 'realstate.json', {'before': before, 'after': real_state()})
     shutil.rmtree(RUNTIME, ignore_errors=True)
     leak_grep(out)
@@ -675,12 +692,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out')
     ap.add_argument('--mode', choices=('counted', 'llvmpipe', 'controls'), default='counted')
-    ap.add_argument('--preflight', action='store_true')
     a = ap.parse_args()
-    if a.preflight:
-        found = preflight()
-        print('\n'.join(['refusing: other GPU clients are running:'] + found) if found else 'preflight: no other weston, bramley or GPU client')
-        sys.exit(2 if found else 0)
     run(a.out, a.mode)
 
 
