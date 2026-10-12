@@ -68,3 +68,10 @@ Names go only to the gitignored `target/tmp/s9b/names.txt`, mode 0600, and the f
 - A route flip to `Artist` without the end being reached would be a false A1. It can't come from `--click-last`, and S1 checks that it doesn't.
 - `Playing` with an id from another artist means the queue started elsewhere. A3 fails it.
 - `artTextures` > 0 cannot come from Home's covers: it counts only the library art cache, which the artist list never fills, since artists have no art.
+
+## Amendment 1 (after live-1, before live-2; no bar changed)
+
+- **R2-artists sampling:** live-1 sampled it in the scrolling run, which by then had played. From live-2 on, R2 is sampled only in the S1 run, which never plays. The S1 number in live-1 is the valid one.
+- **Report only, added after live-1:** the last artist had a single album, so the album-by-album read was never exercised live. A `most-albums` run opens the artist with the most albums among the first 40 and scrolls its songs to the end.
+  - `allAlbumsRead` means `artistAlbums.loaded` and `artistSongs.loaded` equal the harness's counts for that artist, and `artistSongs.more` is false within 120 s.
+  - No bar: it is labelled post-registration.

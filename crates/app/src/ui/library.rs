@@ -683,7 +683,7 @@ fn view(
 
 fn name_row(ui: &mut egui::Ui, item: &Item, width: f32, verb: &str) -> egui::Response {
     let name = item.name.as_deref().unwrap_or("Untitled");
-    let row = egui::Button::new(name).frame(false).truncate();
+    let row = egui::Button::new(name).right_text("").frame(false).truncate();
     let response = ui.add(row.min_size(egui::vec2(width, ROW_PT + 4.0)));
     labeled(response, WidgetType::Button, &format!("{verb} {name}"))
 }
