@@ -1,5 +1,5 @@
-use std::sync::LazyLock;
 use std::sync::mpsc::Sender;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
 use ureq::ResponseExt;
@@ -67,12 +67,30 @@ pub fn forbidden_request_header(name: &str, value: &str) -> bool {
         || overrides_to_forbidden_method
 }
 
+struct Landing {
+    done: Sender<Completion>,
+    completion: Option<Completion>,
+}
+
+impl Drop for Landing {
+    fn drop(&mut self) {
+        if let Some(c) = self.completion.take() {
+            let _ = self.done.send(c);
+        }
+    }
+}
+
+const PANICKED: &str = "the request thread panicked";
+
 pub fn spawn(req: HttpRequest, done: Sender<Completion>) {
     std::thread::Builder::new()
         .name("http".into())
         .spawn(move || {
-            let resp = CACHE.fetch(&req, perform);
-            let _ = done.send(Completion::Http(resp));
+            let mut landing = Landing {
+                done,
+                completion: Some(Completion::Http(failed(&req, PANICKED.into()))),
+            };
+            landing.completion = Some(Completion::Http(CACHE.fetch(&req, perform)));
         })
         .expect("spawn http thread");
 }
@@ -81,6 +99,14 @@ pub fn spawn_script(id: u32, url: String, done: Sender<Completion>) {
     std::thread::Builder::new()
         .name("script".into())
         .spawn(move || {
+            let mut landing = Landing {
+                done,
+                completion: Some(Completion::Script {
+                    id,
+                    url: url.clone(),
+                    result: Err(PANICKED.into()),
+                }),
+            };
             let r = perform(&HttpRequest {
                 id,
                 method: "GET".into(),
@@ -95,7 +121,7 @@ pub fn spawn_script(id: u32, url: String, done: Sender<Completion>) {
             } else {
                 Err(r.error.unwrap_or_else(|| format!("HTTP {}", r.status)))
             };
-            let _ = done.send(Completion::Script { id, url, result });
+            landing.completion = Some(Completion::Script { id, url, result });
         })
         .expect("spawn script thread");
 }
@@ -110,41 +136,33 @@ pub enum Completion {
 }
 
 static CACHE: LazyLock<crate::http_cache::HttpCache> = LazyLock::new(Default::default);
+static POOL: Mutex<Option<ureq::Agent>> = Mutex::new(None);
+const RECEIVE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub fn clear_cache() {
     CACHE.clear();
 }
 
-static AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
-    ureq::Agent::config_builder()
-        .http_status_as_error(false)
-        .user_agent(crate::user_agent())
-        .build()
-        .into()
-});
-
-fn run<S: ureq::AsSendBody>(
-    request: ureq::http::Request<S>,
-    timeout: Option<Duration>,
-) -> Result<ureq::http::Response<ureq::Body>, String> {
-    let request = AGENT
-        .configure_request(request)
-        .timeout_global(timeout)
-        .build();
-    AGENT.run(request).map_err(|e| e.to_string())
+fn agent(pooled: bool) -> ureq::Agent {
+    let build = |idle: usize| -> ureq::Agent {
+        ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .user_agent(crate::user_agent())
+            .max_idle_connections(idle)
+            .build()
+            .into()
+    };
+    if !pooled {
+        return build(0);
+    }
+    POOL.lock()
+        .unwrap()
+        .get_or_insert_with(|| build(10))
+        .clone()
 }
 
-fn perform(req: &HttpRequest) -> HttpResponse {
-    let mut out = HttpResponse {
-        id: req.id,
-        status: 0,
-        status_text: String::new(),
-        url: req.url.clone(),
-        headers: Vec::new(),
-        body: Vec::new(),
-        error: None,
-    };
-    let timeout = Some(Duration::from_millis(req.timeout_ms.max(1000)));
+fn attempt(req: &HttpRequest, agent: &ureq::Agent) -> Result<HttpResponse, String> {
+    let timeout = Duration::from_millis(req.timeout_ms.max(1000));
     let mut builder = ureq::http::Request::builder()
         .method(req.method.as_str())
         .uri(req.url.as_str());
@@ -155,32 +173,67 @@ fn perform(req: &HttpRequest) -> HttpResponse {
     {
         builder = builder.header(k.as_str(), v.as_str());
     }
-    let result = match &req.body {
-        Some(b) => builder
-            .body(b.clone())
-            .map_err(|e| e.to_string())
-            .and_then(|r| run(r, timeout)),
-        None => builder
-            .body(())
-            .map_err(|e| e.to_string())
-            .and_then(|r| run(r, timeout)),
-    };
-    match result {
-        Ok(mut resp) => {
-            out.status = resp.status().as_u16();
-            out.status_text = resp.status().canonical_reason().unwrap_or("").to_string();
-            out.url = resp.get_uri().to_string();
-            out.headers = resp
-                .headers()
-                .iter()
-                .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
-                .collect();
-            match resp.body_mut().with_config().limit(256 << 20).read_to_vec() {
-                Ok(b) => out.body = b,
-                Err(e) => out.error = Some(e.to_string()),
-            }
-        }
-        Err(e) => out.error = Some(e),
+    fn send<S: ureq::AsSendBody>(
+        agent: &ureq::Agent,
+        request: ureq::http::Request<S>,
+        timeout: Duration,
+    ) -> Result<ureq::http::Response<ureq::Body>, ureq::Error> {
+        let request = agent
+            .configure_request(request)
+            .timeout_global(Some(timeout))
+            .timeout_recv_response(Some(timeout.min(RECEIVE_RESPONSE_TIMEOUT)))
+            .build();
+        agent.run(request)
     }
-    out
+    let sent = match &req.body {
+        Some(b) => builder.body(b.clone()).map(|r| send(agent, r, timeout)),
+        None => builder.body(()).map(|r| send(agent, r, timeout)),
+    };
+    let mut resp = sent
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let body = resp
+        .body_mut()
+        .with_config()
+        .limit(256 << 20)
+        .read_to_vec()
+        .map_err(|e| e.to_string())?;
+    Ok(HttpResponse {
+        id: req.id,
+        status: resp.status().as_u16(),
+        status_text: resp.status().canonical_reason().unwrap_or("").to_string(),
+        url: resp.get_uri().to_string(),
+        headers: resp
+            .headers()
+            .iter()
+            .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
+            .collect(),
+        body,
+        error: None,
+    })
+}
+
+fn failed(req: &HttpRequest, error: String) -> HttpResponse {
+    HttpResponse {
+        id: req.id,
+        status: 0,
+        status_text: String::new(),
+        url: req.url.clone(),
+        headers: Vec::new(),
+        body: Vec::new(),
+        error: Some(error),
+    }
+}
+
+pub(crate) fn perform(req: &HttpRequest) -> HttpResponse {
+    let idempotent = matches!(req.method.to_ascii_uppercase().as_str(), "GET" | "HEAD");
+    let result = attempt(req, &agent(true)).or_else(|e| {
+        *POOL.lock().unwrap() = None;
+        if idempotent {
+            attempt(req, &agent(false))
+        } else {
+            Err(e)
+        }
+    });
+    result.unwrap_or_else(|e| failed(req, e))
 }

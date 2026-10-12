@@ -465,3 +465,123 @@ fn a_coalesced_waiter_gives_up_at_its_own_deadline_and_a_failed_leader_releases_
         "{waited:?}"
     );
 }
+
+fn silent_after_first_reply(
+    every_connection: bool,
+) -> (u16, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    use std::sync::{Arc, Mutex};
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let log = seen.clone();
+    std::thread::spawn(move || {
+        for (n, sock) in listener.incoming().enumerate() {
+            let mut sock = sock.unwrap();
+            let log = log.clone();
+            std::thread::spawn(move || {
+                let mut r = BufReader::new(sock.try_clone().unwrap());
+                for served in 0.. {
+                    let mut head = String::new();
+                    while r.read_line(&mut head).unwrap_or(0) > 2 && !head.ends_with("\r\n\r\n") {}
+                    if head.is_empty() {
+                        return;
+                    }
+                    log.lock()
+                        .unwrap()
+                        .push(format!("conn{n} {}", head.lines().next().unwrap_or("")));
+                    if (n == 0 || every_connection) && served == 1 {
+                        std::thread::sleep(std::time::Duration::from_secs(30));
+                        return;
+                    }
+                    if sock
+                        .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    (port, seen)
+}
+
+#[test]
+fn a_silently_dead_pooled_connection_is_retried_once_for_get_and_never_for_post() {
+    for (method, retried) in [("GET", true), ("POST", false)] {
+        let (port, seen) = silent_after_first_reply(false);
+        let req = |method: &str| crate::net::HttpRequest {
+            id: 1,
+            method: method.into(),
+            url: format!("http://127.0.0.1:{port}/x"),
+            headers: Vec::new(),
+            body: (method == "POST").then(Vec::new),
+            timeout_ms: 1500,
+            use_cache: false,
+        };
+        assert_eq!(crate::net::perform(&req("GET")).status, 200);
+        let started = std::time::Instant::now();
+        let second = crate::net::perform(&req(method));
+        let took = started.elapsed();
+        if retried {
+            assert_eq!(
+                (second.status, second.error.as_deref()),
+                (200, None),
+                "{method}"
+            );
+            assert!(
+                took >= std::time::Duration::from_millis(1400),
+                "{method} never met the dead connection: {took:?}"
+            );
+        } else {
+            assert!(second.error.is_some(), "{method} must not be retried");
+        }
+        assert!(
+            took < std::time::Duration::from_secs(5),
+            "{method} waited {took:?}"
+        );
+        let posts = seen
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|l| l.contains("POST"))
+            .count();
+        assert_eq!(
+            posts,
+            usize::from(method == "POST"),
+            "{:?}",
+            seen.lock().unwrap()
+        );
+        assert_eq!(
+            crate::net::perform(&req("GET")).status,
+            200,
+            "{method}: the next request after the failure"
+        );
+    }
+}
+
+#[test]
+fn a_transport_error_drops_the_pool_so_sibling_stale_connections_are_not_reused() {
+    let (port, _) = silent_after_first_reply(true);
+    let req = move || crate::net::HttpRequest {
+        id: 1,
+        method: "GET".into(),
+        url: format!("http://127.0.0.1:{port}/y"),
+        headers: Vec::new(),
+        body: None,
+        timeout_ms: 1500,
+        use_cache: false,
+    };
+    let warm: Vec<_> = (0..2)
+        .map(|_| std::thread::spawn(move || crate::net::perform(&req()).status))
+        .collect();
+    assert!(warm.into_iter().all(|t| t.join().unwrap() == 200));
+    assert_eq!(crate::net::perform(&req()).status, 200);
+    let started = std::time::Instant::now();
+    assert_eq!(crate::net::perform(&req()).status, 200);
+    assert!(
+        started.elapsed() < std::time::Duration::from_millis(1000),
+        "reused a stale sibling: {:?}",
+        started.elapsed()
+    );
+}
