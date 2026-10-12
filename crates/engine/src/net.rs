@@ -111,6 +111,10 @@ pub enum Completion {
 
 static CACHE: LazyLock<crate::http_cache::HttpCache> = LazyLock::new(Default::default);
 
+pub fn clear_cache() {
+    CACHE.clear();
+}
+
 static AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
     ureq::Agent::config_builder()
         .http_status_as_error(false)

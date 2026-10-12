@@ -604,6 +604,7 @@ impl Engine {
                 output_device.clone(),
             )) as Box<dyn AudioSink>
         });
+        crate::net::clear_cache();
         let engine = Engine::with_backends(cdm, sink)?;
         {
             let mut st = engine.n.borrow_mut();

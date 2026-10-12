@@ -233,6 +233,57 @@ fn a_fresh_get_is_served_from_the_http_cache_and_everything_else_goes_to_the_net
             &fresh,
             1,
         ),
+        (
+            "a second Cache-Control line says no-store",
+            get("http://h/a", &[]),
+            &[
+                ("Cache-Control", "max-age=600"),
+                ("Cache-Control", "no-store"),
+            ],
+            3,
+        ),
+        (
+            "request no-cache",
+            get("http://h/a", &[("Cache-Control", "no-cache")]),
+            &fresh,
+            3,
+        ),
+        (
+            "request no-store",
+            get("http://h/a", &[("Cache-Control", "no-store")]),
+            &fresh,
+            3,
+        ),
+        (
+            "request max-age=0",
+            get("http://h/a", &[("Cache-Control", "max-age=0")]),
+            &fresh,
+            3,
+        ),
+        (
+            "request Pragma: no-cache",
+            get("http://h/a", &[("Pragma", "no-cache")]),
+            &fresh,
+            3,
+        ),
+        (
+            "conditional request",
+            get("http://h/a", &[("If-None-Match", "\"x\"")]),
+            &fresh,
+            3,
+        ),
+        (
+            "music user token without public",
+            get("http://h/a", &[("Music-User-Token", "t")]),
+            &[("Cache-Control", "max-age=600")],
+            3,
+        ),
+        (
+            "media user token without public",
+            get("http://h/a", &[("Media-User-Token", "t")]),
+            &[("Cache-Control", "max-age=600")],
+            3,
+        ),
     ];
     for (name, req, headers, expected) in cases {
         assert_eq!(
@@ -322,5 +373,95 @@ fn concurrent_identical_cacheable_fetches_share_one_network_request() {
         requests.load(Ordering::SeqCst),
         2,
         "two concurrent GETs plus one no-store GET"
+    );
+}
+
+#[test]
+fn a_vary_split_over_two_header_lines_still_keys_on_every_named_header() {
+    let cache = crate::http_cache::HttpCache::default();
+    let resp = reply(&[
+        ("Cache-Control", "public, max-age=600"),
+        ("Vary", "Accept-Encoding"),
+        ("Vary", "Media-User-Token"),
+    ]);
+    let a = get("http://h/v2", &[("Media-User-Token", "user-a")]);
+    let b = get("http://h/v2", &[("Media-User-Token", "user-b")]);
+    assert_eq!(network_calls(&cache, &a, &resp, 2), 1);
+    assert_eq!(
+        network_calls(&cache, &b, &resp, 1),
+        1,
+        "user B was served user A's response"
+    );
+}
+
+#[test]
+fn clearing_empties_the_cache_and_the_entry_count_and_expiry_are_bounded() {
+    let cache = crate::http_cache::HttpCache::default();
+    let fresh = reply(&[("Cache-Control", "max-age=600")]);
+    for i in 0..300 {
+        network_calls(&cache, &get(&format!("http://h/{i}"), &[]), &fresh, 1);
+    }
+    assert!(cache.len() <= 256, "{} entries", cache.len());
+    cache.clear();
+    assert_eq!(network_calls(&cache, &get("http://h/0", &[]), &fresh, 1), 1);
+    let short = reply(&[("Cache-Control", "max-age=601"), ("Age", "600")]);
+    cache.clear();
+    for i in 0..5 {
+        network_calls(&cache, &get(&format!("http://h/short{i}"), &[]), &short, 1);
+    }
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    network_calls(&cache, &get("http://h/after", &[]), &fresh, 1);
+    assert_eq!(cache.len(), 1, "expired entries are purged on insert");
+}
+
+fn leader_then_waiter(
+    leader_ms: u64,
+    leader_fails: bool,
+    waiter_timeout_ms: u64,
+) -> (std::time::Duration, bool) {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let cache = Arc::new(crate::http_cache::HttpCache::default());
+    let mut req = get("http://h/lead", &[]);
+    let c = cache.clone();
+    let lead = get("http://h/lead", &[]);
+    let leader = std::thread::spawn(move || {
+        c.fetch(&lead, |r| {
+            std::thread::sleep(std::time::Duration::from_millis(leader_ms));
+            let mut out = reply(&[("Cache-Control", "max-age=600")]);
+            out.id = r.id;
+            if leader_fails {
+                out.error = Some("connection reset".into());
+            }
+            out
+        })
+    });
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    req.timeout_ms = waiter_timeout_ms;
+    let went_to_network = AtomicBool::new(false);
+    let started = std::time::Instant::now();
+    cache.fetch(&req, |r| {
+        went_to_network.store(true, Ordering::SeqCst);
+        crate::net::HttpResponse {
+            id: r.id,
+            ..reply(&[])
+        }
+    });
+    let waited = started.elapsed();
+    leader.join().unwrap();
+    (waited, went_to_network.load(Ordering::SeqCst))
+}
+
+#[test]
+fn a_coalesced_waiter_gives_up_at_its_own_deadline_and_a_failed_leader_releases_it() {
+    let (waited, own_fetch) = leader_then_waiter(2000, false, 300);
+    assert!(
+        own_fetch && waited < std::time::Duration::from_millis(1000),
+        "{waited:?}"
+    );
+    let (waited, own_fetch) = leader_then_waiter(200, true, 10_000);
+    assert!(
+        own_fetch && waited < std::time::Duration::from_millis(1000),
+        "{waited:?}"
     );
 }
