@@ -387,6 +387,8 @@ def f_rules(check, ev, fails):
             fails.append('MCP library_playlists listed no playlists')
         if (ev.get('largestTracks') or 0) < 100:
             fails.append(f'largest playlist has {ev.get("largestTracks")} tracks < 100')
+        if ev.get('viewTotal') != ev.get('largestTracks'):
+            fails.append(f'the view opened {ev.get("viewTotal")} tracks, not the largest playlist\'s {ev.get("largestTracks")}')
         if not ev.get('endReached') or not ev.get('artTextures'):
             fails.append(f'the playlist view did not reach its end with covers: end {ev.get("endReached")}, art {ev.get("artTextures")}')
         return {'driver': ev.get('driver')}
@@ -396,12 +398,20 @@ def f_rules(check, ev, fails):
         return {}
     if check == 'F10':
         bad, net = ev['f10-badid'], ev['f10-net']
-        if not (bad.get('alive') and bad.get('error')):
-            fails.append(f'a bad id did not show an error with the app alive: {bad}')
+        fresh = bad.get('banner') and bad.get('banner') != bad.get('bannerBefore')
+        if not (bad.get('alive') and (bad.get('refused') or fresh)):
+            fails.append(f'a bad id did not show a new error with the app alive: {bad}')
         if not (net.get('downError') and net.get('downUi') == 'error' and net.get('alive')):
             fails.append(f'network down did not give an error with the app alive: {net}')
         if net.get('coversRecoveredS') is None or not net.get('searchAfter') or net.get('uiAfter') != 'results':
             fails.append(f'no automatic recovery after the network returned: {net}')
+        drop, after = net.get('midDrop') or {}, net.get('afterDrop') or {}
+        if [net.get(k) for k in ('probeCold', 'probeUp', 'probeDropped', 'probeBack')] != [False, True, False, True]:
+            fails.append(f'the namespace probes do not show down, up, down, up: {net}')
+        if not drop.get('exit') or drop.get('ui') != 'error' or after.get('exit') != 0 or after.get('ui') != 'results':
+            fails.append(f'no recovery from a mid-session drop: {net}')
+        if not net.get('aliveAtEnd'):
+            fails.append(f'the app was not alive at the end of the offline session: {net}')
         return {}
     if check in ('R4', 'R5'):
         bar, state = (R4_BAR, 'Playing') if check == 'R4' else (R5_BAR, 'Paused')

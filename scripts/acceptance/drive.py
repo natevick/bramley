@@ -1,4 +1,4 @@
-import argparse, contextlib, glob, hashlib, http.server, importlib.util, json, os, queue, re, shutil, signal, subprocess, sys, threading, time
+import argparse, contextlib, glob, hashlib, http.server, importlib.util, json, os, queue, re, shutil, signal, socket, subprocess, sys, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
@@ -596,12 +596,12 @@ def browse_session(out, binary, env, sink, config):
         finally:
             mcp.close()
         f7(a, playlist)
-        ev = {'t0': time.time(), 'pidBefore': a.snap().get('pid')}
+        before = a.snap()
+        ev = {'t0': time.time(), 'pidBefore': before.get('pid'), 'bannerBefore': before.get('banner')}
         code, reply, _ = a.cli('play', BAD_ID)
-        s, _ = a.until(lambda s: s.get('banner') or s.get('state') == 'Error', 20)
+        a.until(lambda s: s.get('banner') not in (None, ev['bannerBefore']), 20)
         time.sleep(3)
         ev.update(exit=code, refused=reply.get('refused') or reply.get('error'), banner=a.snap().get('banner'), alive=a.p.poll() is None and a.cli('now')[1].get('pid') == ev['pidBefore'])
-        ev['error'] = bool(ev['banner'] or ev['refused'])
         evidence(out, 'f10-badid.json', ev, a)
     return playlist
 
@@ -612,7 +612,7 @@ def f7(a, playlist):
     s, _ = a.until(lambda s: s.get('route') == 'Playlist' and done(s.get('library') or {}), 120, 0.5)
     lib, tracks, mcp = s.get('library') or {}, (s.get('library') or {}).get('tracks') or {}, gate.load(a.out, 'f7.mcp.json') or {}
     gate.save(a.out, 'f7.json', {'driver': 'shipped: MCP library_playlists, then `open playlist:<id>` and `scroll end` through the CLI', 'exits': exits, 'mcpTotal': mcp.get('total'),
-                                 'largestTracks': mcp.get('largestTracks'), 'endReached': bool(exits) and not any(exits) and tracks.get('loaded') == tracks.get('total') == lib.get('shownTo') and (tracks.get('pages') or 0) > 1,
+                                 'largestTracks': mcp.get('largestTracks'), 'viewTotal': tracks.get('total'), 'endReached': bool(exits) and not any(exits) and tracks.get('loaded') == tracks.get('total') == lib.get('shownTo') and (tracks.get('pages') or 0) > 1,
                                  'artTextures': lib.get('artTextures'), 'session': a.name, 'renderers': a.renderers()})
 
 
@@ -620,23 +620,41 @@ def offline_session(out, binary, env, sink):
     resolv = os.path.join(out, 'netns-resolv.conf')
     open(resolv, 'w').write('nameserver 10.0.2.3\n')
     wrap = ('bwrap', '--dev-bind', '/', '/', '--ro-bind', resolv, '/etc/resolv.conf', '--unshare-net', '--die-with-parent', '--')
+    api = socket.getaddrinfo('api.music.apple.com', 443, socket.AF_INET, socket.SOCK_STREAM)[0][4][0]
     slirp = None
     with app(out, 'offline', binary, env, sink, wrap=wrap) as a:
         ev = {'t0': time.time()}
+        probe = lambda: subprocess.run(['nsenter', '-t', str(a.pid), '-U', '-n', '--preserve-credentials', 'python3', '-I', '-c',
+                                        f'import socket; socket.create_connection(("{api}", 443), 5)'], capture_output=True, timeout=20).returncode == 0
+        attach = lambda: subprocess.Popen(['slirp4netns', '--configure', '--mtu=65520', '--disable-host-loopback', str(a.pid), 'tap0'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        def search(key, mark, want):
+            code, _, _ = a.cli('search', TERM)
+            ui, _ = a.until(lambda s: (s.get('search') or {}).get('state') == want and ((s.get('search') or {}).get('seq') or 0) > mark, 10)
+            ev[key] = {'exit': code, 'ui': (ui.get('search') or {}).get('state')}
+            return (ui.get('search') or {}).get('seq') or 0
         try:
             a.until(lambda s: s.get('framesPainted', 0) > 0, 30)
             time.sleep(10)
-            code, _, _ = a.cli('search', TERM)
-            ui, _ = a.until(lambda s: (s.get('search') or {}).get('state') == 'error', 10)
-            ev.update(downError=code != 0, downUi=(ui.get('search') or {}).get('state'), coversWhileDown=a.snap().get('texturesUploaded'), alive=a.p.poll() is None)
+            ev['probeCold'] = probe()
+            mark = search('coldSearch', 0, 'error')
+            ev.update(downError=ev['coldSearch']['exit'] != 0, downUi=ev['coldSearch']['ui'], coversWhileDown=a.snap().get('texturesUploaded'), alive=a.p.poll() is None)
             ev['homeOpenedWhileDown'] = a.cli('open', 'home')[0] == 0
-            slirp = subprocess.Popen(['slirp4netns', '--configure', '--mtu=65520', '--disable-host-loopback', str(a.pid), 'tap0'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            slirp = attach()
             up = time.time()
             _, back = a.until(lambda s: (s.get('texturesUploaded') or 0) >= gate.COVERS, RECOVER_S, 0.5)
-            ev['coversRecoveredS'] = back and round(back - up, 1)
-            code, _, _ = a.cli('search', TERM)
-            ui, _ = a.until(lambda s: (s.get('search') or {}).get('state') == 'results', 10)
-            ev.update(searchAfter=code == 0, uiAfter=(ui.get('search') or {}).get('state'), aliveAtEnd=a.p.poll() is None)
+            ev['coversRecoveredS'], ev['probeUp'] = back and round(back - up, 1), probe()
+            mark = search('afterCold', mark, 'results')
+            ev.update(searchAfter=ev['afterCold']['exit'] == 0, uiAfter=ev['afterCold']['ui'])
+            slirp.terminate()
+            slirp.wait(5)
+            ev['probeDropped'] = probe()
+            mark = search('midDrop', mark, 'error')
+            slirp = attach()
+            time.sleep(2)
+            ev['probeBack'] = probe()
+            search('afterDrop', mark, 'results')
+            ev['aliveAtEnd'] = a.p.poll() is None and a.cli('now')[1].get('pid') == a.pid
         finally:
             if slirp:
                 slirp.terminate()

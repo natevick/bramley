@@ -73,11 +73,12 @@ def write_valid(out, renderer=RADEONSI, mode='counted'):
     w('f4.json', dict(played(), sessions=['shipped'], renderers=[renderer]))
     w('f5.json', s('shipped', t0=1000.0, t1=1050.0, started=True, rounds=f5_rounds()))
     w('f6.json', s('shipped', t0=1000.0, t1=1050.0, started=True, transitions=[move(), move(173.0, 185.0), move(211.0, 358.0)]))
-    w('f7.json', {'mcpTotal': 34, 'largestTracks': 250, 'endReached': True, 'artTextures': 60, 'renderers': [renderer]})
+    w('f7.json', {'mcpTotal': 34, 'largestTracks': 250, 'viewTotal': 250, 'endReached': True, 'artTextures': 60, 'renderers': [renderer]})
     w('f8.json', s('shipped', t0=1000.0, t1=1050.0, started=True, expected=['a', 'b', 'c', 'd'], seen=['a', 'b', 'c', 'd'], exits=[0] * 4))
     w('f9.json', s('browse', **played(1, tools=gate.TOOLS, searchHasSong=True)))
-    w('f10-badid.json', s('browse', t0=1000.0, t1=1010.0, alive=True, error=True))
-    w('f10-net.json', s('offline', t0=1000.0, t1=1010.0, downError=True, downUi='error', alive=True, coversRecoveredS=4.0, searchAfter=True, uiAfter='results'))
+    w('f10-badid.json', s('browse', t0=1000.0, t1=1010.0, alive=True, bannerBefore=None, banner='Error("setQueue: NOT_FOUND")', refused=None))
+    w('f10-net.json', s('offline', t0=1000.0, t1=1010.0, downError=True, downUi='error', alive=True, coversRecoveredS=4.0, searchAfter=True, uiAfter='results',
+                        probeCold=False, probeUp=True, probeDropped=False, probeBack=True, midDrop={'exit': 1, 'ui': 'error'}, afterDrop={'exit': 0, 'ui': 'results'}, aliveAtEnd=True))
     w('r3.json', s('shipped', t0=1000.0, t1=2810.0, started=True, pid=7, samples=soak(), seekTimes=[]))
     cpu = lambda state, load: dict(t0=1000.0, t1=1060.0, before=state, after=state, cpu=[load] * 30, mean=load, binS=10, procs=[1] * 30)
     w('r4.json', s('cpu', started=True, **cpu('Playing', 4.0)))
@@ -275,6 +276,7 @@ FUNCTIONAL = [
     ('F7 short playlist', put('f7.json', largestTracks=99), 'F7', 'FAIL', '99 tracks'),
     ('F7 end not reached', put('f7.json', endReached=False), 'F7', 'FAIL', 'end'),
     ('F7 no covers', put('f7.json', artTextures=0), 'F7', 'FAIL', 'end'),
+    ('F7 another playlist', put('f7.json', viewTotal=120), 'F7', 'FAIL', 'not the largest'),
     ('F8 out of order', put('f8.json', seen=['a', 'c', 'b', 'd']), 'F8', 'FAIL', 'played'),
     ('F8 a failed add', put('f8.json', exits=[0, 0, 1, 0]), 'F8', 'FAIL', 'played'),
     ('F8 nothing expected', put('f8.json', expected=[], seen=[]), 'F8', 'FAIL', 'played'),
@@ -285,7 +287,15 @@ FUNCTIONAL = [
     ('F9 slow audio', put('f9.json', reps=[{'audioMs': 3001}] * 5), 'F9', 'FAIL', 'audio median'),
     ('F9 no stream', put('browse.guard.json', log=[]), 'F9', 'VOID', 'no stream'),
     ('F10 bad id crashed', put('f10-badid.json', alive=False), 'F10', 'FAIL', 'bad id'),
-    ('F10 bad id silent', put('f10-badid.json', error=False), 'F10', 'FAIL', 'bad id'),
+    ('F10 bad id silent', put('f10-badid.json', banner=None), 'F10', 'FAIL', 'bad id'),
+    ('F10 banner left from before', put('f10-badid.json', bannerBefore='Error("setQueue: NOT_FOUND")'), 'F10', 'FAIL', 'bad id'),
+    ('F10 bad id refused', put('f10-badid.json', banner=None, refused='not a catalog id'), 'F10', 'PASS', None),
+    ('F10 drop never happened', put('f10-net.json', probeDropped=True), 'F10', 'FAIL', 'probes'),
+    ('F10 cold leg online', put('f10-net.json', probeCold=True), 'F10', 'FAIL', 'probes'),
+    ('F10 drop search passed', put('f10-net.json', midDrop={'exit': 0, 'ui': 'results'}), 'F10', 'FAIL', 'mid-session'),
+    ('F10 CLI fails after drop', put('f10-net.json', afterDrop={'exit': 1, 'ui': 'results'}), 'F10', 'FAIL', 'mid-session'),
+    ('F10 view stuck after drop', put('f10-net.json', afterDrop={'exit': 0, 'ui': 'error'}), 'F10', 'FAIL', 'mid-session'),
+    ('F10 dead at end', put('f10-net.json', aliveAtEnd=False), 'F10', 'FAIL', 'alive at the end'),
     ('F10 offline search passed', put('f10-net.json', downError=False), 'F10', 'FAIL', 'network down'),
     ('F10 offline view quiet', put('f10-net.json', downUi='idle'), 'F10', 'FAIL', 'network down'),
     ('F10 offline crash', put('f10-net.json', alive=False), 'F10', 'FAIL', 'network down'),
