@@ -279,6 +279,12 @@ fn a_fresh_get_is_served_from_the_http_cache_and_everything_else_goes_to_the_net
             3,
         ),
         (
+            "x-apple music user token without public",
+            get("http://h/a", &[("X-Apple-Music-User-Token", "t")]),
+            &[("Cache-Control", "max-age=600")],
+            3,
+        ),
+        (
             "media user token without public",
             get("http://h/a", &[("Media-User-Token", "t")]),
             &[("Cache-Control", "max-age=600")],

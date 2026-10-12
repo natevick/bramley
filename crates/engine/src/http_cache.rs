@@ -7,8 +7,12 @@ use crate::net::{HttpRequest, HttpResponse};
 const MAX_ENTRY_BYTES: usize = 512 << 10;
 const MAX_TOTAL_BYTES: usize = 2 << 20;
 const MAX_ENTRIES: usize = 256;
-const PERSONAL_REQUEST_HEADERS: [&str; 3] =
-    ["authorization", "media-user-token", "music-user-token"];
+const PERSONAL_REQUEST_HEADERS: [&str; 4] = [
+    "authorization",
+    "media-user-token",
+    "music-user-token",
+    "x-apple-music-user-token",
+];
 
 struct Stored {
     response: HttpResponse,
