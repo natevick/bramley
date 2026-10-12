@@ -595,6 +595,7 @@ def browse_session(out, binary, env, sink, config):
             gate.save(out, 'f7.mcp.json', {'error': err, 'total': (listed or {}).get('total'), 'largestTracks': tracks})
         finally:
             mcp.close()
+        f7(a, playlist)
         ev = {'t0': time.time(), 'pidBefore': a.snap().get('pid')}
         code, reply, _ = a.cli('play', BAD_ID)
         s, _ = a.until(lambda s: s.get('banner') or s.get('state') == 'Error', 20)
@@ -603,6 +604,16 @@ def browse_session(out, binary, env, sink, config):
         ev['error'] = bool(ev['banner'] or ev['refused'])
         evidence(out, 'f10-badid.json', ev, a)
     return playlist
+
+
+def f7(a, playlist):
+    exits = [a.cli('open', f'playlist:{playlist}')[0], a.cli('scroll', 'end')[0]] if playlist else []
+    done = lambda lib: (lib.get('tracks') or {}).get('loaded') == (lib.get('tracks') or {}).get('total') == lib.get('shownTo') and lib.get('artTextures')
+    s, _ = a.until(lambda s: s.get('route') == 'Playlist' and done(s.get('library') or {}), 120, 0.5)
+    lib, tracks, mcp = s.get('library') or {}, (s.get('library') or {}).get('tracks') or {}, gate.load(a.out, 'f7.mcp.json') or {}
+    gate.save(a.out, 'f7.json', {'driver': 'shipped: MCP library_playlists, then `open playlist:<id>` and `scroll end` through the CLI', 'exits': exits, 'mcpTotal': mcp.get('total'),
+                                 'largestTracks': mcp.get('largestTracks'), 'endReached': bool(exits) and not any(exits) and tracks.get('loaded') == tracks.get('total') == lib.get('shownTo') and (tracks.get('pages') or 0) > 1,
+                                 'artTextures': lib.get('artTextures'), 'session': a.name, 'renderers': a.renderers()})
 
 
 def offline_session(out, binary, env, sink):
@@ -618,6 +629,7 @@ def offline_session(out, binary, env, sink):
             code, _, _ = a.cli('search', TERM)
             ui, _ = a.until(lambda s: (s.get('search') or {}).get('state') == 'error', 10)
             ev.update(downError=code != 0, downUi=(ui.get('search') or {}).get('state'), coversWhileDown=a.snap().get('texturesUploaded'), alive=a.p.poll() is None)
+            ev['homeOpenedWhileDown'] = a.cli('open', 'home')[0] == 0
             slirp = subprocess.Popen(['slirp4netns', '--configure', '--mtu=65520', '--disable-host-loopback', str(a.pid), 'tap0'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             up = time.time()
             _, back = a.until(lambda s: (s.get('texturesUploaded') or 0) >= gate.COVERS, RECOVER_S, 0.5)
@@ -649,14 +661,7 @@ def dev_views(out, dev, env, sink, playlist, run):
                 a.safe_to_play()
                 a.cli('play', SONG)
             a.p.wait(120)
-            s = a.snap()
         made[view] = os.path.exists(png)
-        if view == 'playlist':
-            lib, mcp = s.get('library') or {}, gate.load(out, 'f7.mcp.json') or {}
-            tracks = lib.get('tracks') or {}
-            gate.save(out, 'f7.json', {'driver': 'MCP list on shipped; open, scroll and covers on the dev build (deviation pending approval)', 'mcpTotal': mcp.get('total'),
-                                       'largestTracks': mcp.get('largestTracks'), 'endReached': tracks.get('loaded') == tracks.get('total') == lib.get('shownTo') and (tracks.get('pages') or 0) > 1,
-                                       'artTextures': lib.get('artTextures'), 'renderers': [s.get('glRenderer')]})
     gate.save(out, 'screenshots.json', {'dir': os.path.relpath(shots, ROOT), 'made': made})
 
 
