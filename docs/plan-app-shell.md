@@ -167,6 +167,14 @@ Addition 2026-10-11 (Norm, from the S6 review): S8 makes Home's cover grid playa
 - **AC:** 250 fixture items over 3 pages give 250 rows via `show_rows`, and the live count equals `meta.total`.
 - **Budget** 300/150/40. **Deps:** S5, S6.
 
+## S9b. Library artists (added 2026-10-11, Nate)
+- **Goal:** an **Artists** entry at the TOP of the sidebar's Your Library list, above Playlists, Albums and Songs.
+- **List view:** the user's library artists, from the documented `GET /v1/me/library/artists`, paged and virtualized like S9.
+- **Artist view:** that artist's library albums (the artist's `albums` relationship) as a grid with art, plus their library songs. Clicking plays, as in S8/S9.
+- **Rules:** names are display-only, never in status or logs. Art appears only in this playback context, memory-only, LRU-bounded as in S9.
+- **Gate:** R1/R2 PASS, plus a live check that opens Artists, scrolls to the end, opens one artist and plays a song.
+- **Budget:** ~250 source / 150 tests.
+
 ## S10. Queue panel
 - **Goal:** show the queue and jump within it.
 - **Files:** `engine/src/player.rs` and `js/player.js` (the snapshot gains `queue.items`), `ui/queue_panel.rs`. A click calls `changeToMediaAtIndex`.
