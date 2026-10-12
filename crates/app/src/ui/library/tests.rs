@@ -347,15 +347,15 @@ fn opening_another_playlist_starts_its_tracks_afresh() {
     );
 }
 
-#[test]
-fn clicking_a_track_plays_the_playlist_from_that_track() {
-    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+fn click(
+    ctx: &egui::Context,
+    lib: &mut Library,
+    route: &Route,
+    label: &str,
+) -> (Vec<Action>, Vec<Nav>) {
     ctx.enable_accesskit();
-    let route = Route::Playlist("p.LIST".into());
-    frame(&ctx, &mut lib, &route, 600.0, vec![]);
-    lib.lists[List::Tracks as usize].items = (0..10).map(item).collect();
     let mut out = ctx.run_ui(RawInput::default(), |ui| {
-        show(ui, &mut lib, &route, (&mut vec![], &mut vec![]))
+        show(ui, lib, route, (&mut vec![], &mut vec![]))
     });
     out.textures_delta.clear();
     let nodes = out
@@ -363,10 +363,10 @@ fn clicking_a_track_plays_the_playlist_from_that_track() {
         .accesskit_update
         .expect("an accesskit tree")
         .nodes;
-    let row = nodes
-        .iter()
-        .find(|(_, n)| n.label() == Some("Play Secret Song 3 · Secret Artist"));
-    let at = row.and_then(|(_, n)| n.bounds()).expect("row 3 on screen");
+    let row = nodes.iter().find(|(_, n)| n.label() == Some(label));
+    let at = row
+        .and_then(|(_, n)| n.bounds())
+        .expect("the row on screen");
     let pos = Pos2::new((at.x0 + at.x1) as f32 / 2.0, (at.y0 + at.y1) as f32 / 2.0);
     let button = |pressed| Event::PointerButton {
         pos,
@@ -375,15 +375,151 @@ fn clicking_a_track_plays_the_playlist_from_that_track() {
         modifiers: Default::default(),
     };
     frame(
-        &ctx,
-        &mut lib,
-        &route,
+        ctx,
+        lib,
+        route,
         600.0,
         vec![Event::PointerMoved(pos), button(true)],
     );
-    let (actions, _) = frame(&ctx, &mut lib, &route, 600.0, vec![button(false)]);
+    frame(ctx, lib, route, 600.0, vec![button(false)])
+}
+
+#[test]
+fn clicking_a_track_plays_the_playlist_from_that_track() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    let route = Route::Playlist("p.LIST".into());
+    frame(&ctx, &mut lib, &route, 600.0, vec![]);
+    lib.lists[List::Tracks as usize].items = (0..10).map(item).collect();
+    let (actions, _) = click(&ctx, &mut lib, &route, "Play Secret Song 3 · Secret Artist");
     let ids = (3..10).map(|i| format!("i.{i}")).collect();
     assert_eq!(actions, [Action::PlayIn(Queue::Songs(ids), 0)]);
+}
+
+fn named(ids: &[&str], next: Option<&str>) -> Reply {
+    let items = ids.iter().enumerate().map(|(i, id)| Item {
+        id: id.to_string(),
+        ..item(i)
+    });
+    Reply::Page(Page {
+        items: items.collect(),
+        next: next.map(str::to_owned),
+        total: Some(ids.len() as u32),
+    })
+}
+
+#[test]
+fn an_artist_reads_its_albums_then_each_albums_tracks_in_turn_and_starts_afresh_per_artist() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    frame(&ctx, &mut lib, &Route::Artists, 600.0, vec![]);
+    let next = "/v1/me/library/artists?offset=100";
+    let first = answer(&mut lib, &ctx, now, page(0..100, Some(next)));
+    assert_eq!(first, Call::Library(Shelf::Artists));
+    frame(&ctx, &mut lib, &Route::Artists, 6000.0, vec![]);
+    assert_eq!(
+        answer(&mut lib, &ctx, now, page(100..137, None)),
+        Call::Next(next.into())
+    );
+    assert_eq!(lib.status()["artists"]["loaded"], 137);
+    let route = Route::Artist("r.A".into());
+    let tracks = "/v1/me/library/albums/l.0/tracks?offset=100";
+    let albums = "/v1/me/library/artists/r.A/albums?offset=1";
+    let steps = [
+        (
+            Call::ArtistAlbums("r.A".into()),
+            named(&["l.0"], Some(albums)),
+        ),
+        (Call::Next(albums.into()), named(&["l.1"], None)),
+        (Call::AlbumTracks("l.0".into()), page(0..100, Some(tracks))),
+        (Call::Next(tracks.into()), page(100..120, None)),
+        (Call::AlbumTracks("l.1".into()), page(120..130, None)),
+    ];
+    for (call, reply) in steps {
+        frame(&ctx, &mut lib, &route, 6000.0, vec![]);
+        assert_eq!(answer(&mut lib, &ctx, now, reply), call);
+    }
+    frame(&ctx, &mut lib, &route, 600.0, vec![]);
+    assert!(lib.tick(now, true, || {}).is_empty(), "every album is read");
+    let status = lib.status();
+    assert_eq!(status["artistSongs"]["loaded"], 130);
+    assert_eq!(status["artistSongs"]["more"], false);
+    frame(&ctx, &mut lib, &Route::Artist("r.B".into()), 600.0, vec![]);
+    assert_eq!(lib.list(List::ArtistSongs).items.len(), 0);
+    let sent = lib.tick(now, true, || {});
+    assert_eq!(
+        sent.iter().map(|j| &j.call).collect::<Vec<_>>(),
+        [&Call::ArtistAlbums("r.B".into())]
+    );
+}
+
+#[test]
+fn artists_are_built_only_where_visible_as_names_without_art() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    lib.lists[List::Artists as usize].items = (0..250).map(|i| art_item(i, "http://x")).collect();
+    frame(&ctx, &mut lib, &Route::Artists, 600.0, vec![]);
+    let (built, _, _) = lib.built;
+    assert!(
+        built > 0 && built <= 600 / ROW_PT as usize + 2,
+        "{built} rows built"
+    );
+    assert_eq!(
+        lib.art.drawn + lib.art.shown,
+        0,
+        "an artist row asks for art"
+    );
+}
+
+#[test]
+fn an_artist_opens_its_view_and_its_songs_and_albums_play_in_context() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    lib.lists[List::Artists as usize].items = (0..5).map(item).collect();
+    let (_, navs) = click(&ctx, &mut lib, &Route::Artists, "Open artist Secret Song 2");
+    assert_eq!(navs, [Nav::Go(Route::Artist("i.2".into()))]);
+    let route = Route::Artist("i.2".into());
+    frame(&ctx, &mut lib, &route, 600.0, vec![]);
+    lib.lists[List::ArtistAlbums as usize].items = (7..9).map(item).collect();
+    lib.lists[List::ArtistSongs as usize].items = (0..10).map(item).collect();
+    let (album, _) = click(&ctx, &mut lib, &route, "Play album Secret Song 8");
+    assert_eq!(album, [Action::PlayIn(Queue::Album("i.8".into()), 0)]);
+    let (song, _) = click(&ctx, &mut lib, &route, "Play Secret Song 4 · Secret Artist");
+    assert_eq!(song, [Action::PlayIn(Queue::Songs(ids(4..10)), 0)]);
+    lib.started(1);
+    frame(
+        &ctx,
+        &mut lib,
+        &Route::Artist("r.OTHER".into()),
+        600.0,
+        vec![],
+    );
+    lib.lists[List::ArtistSongs as usize].items = (0..20).map(item).collect();
+    assert_eq!(lib.top_up(&window(0, 6, 4..10), LIVE, Instant::now()), None);
+    assert!(
+        lib.follow.is_none(),
+        "another artist's songs never top up the queue"
+    );
+}
+
+#[test]
+fn signing_out_clears_the_artists_and_a_403_on_an_artist_asks_for_sign_in() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    let route = Route::Artist("r.A".into());
+    frame(&ctx, &mut lib, &route, 600.0, vec![]);
+    answer(&mut lib, &ctx, now, named(&["l.0"], None));
+    answer(&mut lib, &ctx, now, page(0..10, None));
+    lib.lists[List::Artists as usize].items = (0..5).map(item).collect();
+    let status = lib.status().to_string();
+    assert!(
+        !status.contains("Secret") && !status.contains("l.0"),
+        "{status}"
+    );
+    assert!(lib.tick(now, false, || {}).is_empty());
+    for list in [List::Artists, List::ArtistAlbums, List::ArtistSongs] {
+        assert_eq!(lib.list(list).items.len(), 0, "{list:?} survived sign-out");
+    }
+    frame(&ctx, &mut lib, &route, 600.0, vec![]);
+    let job = lib.tick(now, true, || {}).remove(0);
+    (job.done)(Err(Error::SignInNeeded));
+    lib.receive(&ctx);
+    assert!(lib.denied && lib.tick(now + RETRY, true, || {}).is_empty());
 }
 
 #[test]

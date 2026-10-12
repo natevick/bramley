@@ -11,6 +11,7 @@ pub enum Kind {
     LibrarySongs,
     LibraryAlbums,
     LibraryPlaylists,
+    LibraryArtists,
     #[serde(other)]
     Other,
 }

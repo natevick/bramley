@@ -32,7 +32,7 @@ pub fn show(
     match &shell.route {
         Route::Home => covers.show(ui, navs),
         Route::Search => search::show(ui, (shell, search), title.inner, (actions, navs)),
-        Route::Playlists | Route::Albums | Route::Songs => {
+        Route::Artists | Route::Artist(_) | Route::Playlists | Route::Albums | Route::Songs => {
             library::show(ui, library, &shell.route, (actions, navs))
         }
         Route::Playlist(id) if id.starts_with("p.") => {

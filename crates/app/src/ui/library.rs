@@ -39,7 +39,20 @@ pub enum List {
     Albums,
     Songs,
     Tracks,
+    Artists,
+    ArtistAlbums,
+    ArtistSongs,
 }
+
+const LISTS: [List; 7] = [
+    List::Playlists,
+    List::Albums,
+    List::Songs,
+    List::Tracks,
+    List::Artists,
+    List::ArtistAlbums,
+    List::ArtistSongs,
+];
 
 #[derive(Default)]
 pub struct Paged {
@@ -51,19 +64,28 @@ pub struct Paged {
     asked: u64,
     wanted: bool,
     failed: bool,
+    read: usize,
 }
 
 impl Paged {
-    fn call(&self, list: List, playlist: &str) -> Option<Call> {
+    fn call(&self, list: List, owner: Option<String>) -> Option<Call> {
         if let Some(next) = &self.next {
             return Some(Call::Next(next.clone()));
         }
-        (self.pages == 0).then(|| match list {
-            List::Playlists => Call::Library(Shelf::Playlists),
-            List::Albums => Call::Library(Shelf::Albums),
-            List::Songs => Call::Library(Shelf::Songs),
-            List::Tracks => Call::PlaylistTracks(playlist.to_owned()),
-        })
+        match list {
+            List::ArtistSongs => owner.map(Call::AlbumTracks),
+            _ if self.pages > 0 => None,
+            List::Playlists => Some(Call::Library(Shelf::Playlists)),
+            List::Albums => Some(Call::Library(Shelf::Albums)),
+            List::Songs => Some(Call::Library(Shelf::Songs)),
+            List::Artists => Some(Call::Library(Shelf::Artists)),
+            List::Tracks => owner.map(Call::PlaylistTracks),
+            List::ArtistAlbums => owner.map(Call::ArtistAlbums),
+        }
+    }
+
+    fn complete(&self) -> bool {
+        self.pages > 0 && self.next.is_none()
     }
 }
 
@@ -80,7 +102,7 @@ impl Default for Mailbox {
 
 struct Follow {
     list: List,
-    playlist: String,
+    owner: String,
     next: usize,
     batch: Vec<String>,
     previous: Vec<String>,
@@ -91,10 +113,11 @@ struct Follow {
 
 #[derive(Default)]
 pub struct Library {
-    lists: [Paged; 4],
+    lists: [Paged; 7],
     follow: Option<Follow>,
     pub top_up_failed: bool,
     playlist: String,
+    artist: String,
     sent: u64,
     mail: Mailbox,
     pub art: Art,
@@ -124,6 +147,21 @@ impl Library {
         &self.lists[list as usize]
     }
 
+    fn owner(&self, list: List) -> &str {
+        match list {
+            List::Tracks => &self.playlist,
+            List::ArtistAlbums | List::ArtistSongs => &self.artist,
+            _ => "",
+        }
+    }
+
+    fn unread_album(&self) -> Option<String> {
+        let albums = self.list(List::ArtistAlbums);
+        let read = self.list(List::ArtistSongs).read;
+        let album = albums.items.get(read).filter(|_| albums.complete());
+        album.map(|album| album.id.clone())
+    }
+
     pub fn reset(&mut self) {
         self.lists = Default::default();
         self.follow = None;
@@ -150,11 +188,18 @@ impl Library {
         if self.denied {
             return Vec::new();
         }
+        if self.list(List::ArtistSongs).wanted && !self.list(List::ArtistAlbums).complete() {
+            self.lists[List::ArtistAlbums as usize].wanted = true;
+        }
         let mut jobs = Vec::new();
-        for list in [List::Playlists, List::Albums, List::Songs, List::Tracks] {
+        for list in LISTS {
+            let owner = match list {
+                List::ArtistSongs => self.unread_album(),
+                _ => Some(self.owner(list).to_owned()),
+            };
             let paged = &mut self.lists[list as usize];
             let idle = paged.wanted && paged.busy_until.is_none_or(|until| now >= until);
-            let Some(call) = paged.call(list, &self.playlist).filter(|_| idle) else {
+            let Some(call) = paged.call(list, owner).filter(|_| idle) else {
                 continue;
             };
             self.sent += 1;
@@ -181,9 +226,13 @@ impl Library {
             match found {
                 Ok(Reply::Page(mut page)) => {
                     paged.items.append(&mut page.items);
+                    if list == List::ArtistSongs {
+                        paged.read += usize::from(page.next.is_none());
+                    } else {
+                        paged.total = page.total.or(paged.total);
+                    }
                     (paged.next, paged.busy_until, paged.failed) = (page.next, None, false);
                     paged.wanted = false;
-                    paged.total = page.total.or(paged.total);
                     paged.pages += 1;
                 }
                 Err(Error::SignInNeeded) => {
@@ -203,9 +252,22 @@ impl Library {
             json!({ "loaded": p.items.len(), "total": p.total, "pages": p.pages,
                     "more": p.next.is_some(), "failed": p.failed })
         };
-        let [playlists, albums, songs, tracks] = self.lists.each_ref().map(list);
+        let [
+            playlists,
+            albums,
+            songs,
+            tracks,
+            artists,
+            artist_albums,
+            mut artist_songs,
+        ] = self.lists.each_ref().map(list);
+        let by_artist = self.list(List::ArtistAlbums);
+        artist_songs["more"] = json!(
+            !by_artist.complete() || self.unread_album().is_some() || artist_songs["more"] == true
+        );
         let (built, built_max, shown_to) = self.built;
         json!({ "playlists": playlists, "albums": albums, "songs": songs, "tracks": tracks,
+                "artists": artists, "artistAlbums": artist_albums, "artistSongs": artist_songs,
                 "rowsBuilt": built, "rowsBuiltMax": built_max, "shownTo": shown_to,
                 "artTextures": self.art.textures.len(), "artDecoded": self.art.decoded })
     }
@@ -217,7 +279,7 @@ impl Library {
         self.follow = match &action {
             Some(Action::PlayIn(Queue::Songs(ids), _)) => Some(Follow {
                 list,
-                playlist: self.playlist.clone(),
+                owner: self.owner(list).to_owned(),
                 next: index + ids.len(),
                 batch: ids.clone(),
                 previous: Vec::new(),
@@ -242,6 +304,8 @@ impl Library {
         (generation, settled): (u64, bool),
         now: Instant,
     ) -> Option<Action> {
+        let follow = self.follow.as_ref()?;
+        let moved = follow.owner != self.owner(follow.list);
         let follow = self.follow.as_mut()?;
         if follow.generation != Some(generation) {
             if follow.generation.is_some() {
@@ -271,7 +335,6 @@ impl Library {
         }
         let paged = &mut self.lists[follow.list as usize];
         let cursor = paged.items.get(follow.next - 1).map(|item| &item.id);
-        let moved = follow.list == List::Tracks && follow.playlist != self.playlist;
         let room = QUEUE_CAP.saturating_sub(length);
         let end = paged.items.len().min(follow.next + TOP_UP_BATCH.min(room));
         if moved || cursor != follow.batch.last() || room == 0 {
@@ -294,9 +357,9 @@ impl Library {
 pub fn play(list: List, items: &[Item], index: usize) -> Option<Action> {
     let item = items.get(index)?;
     Some(match list {
-        List::Playlists => return None,
-        List::Albums => Action::PlayIn(Queue::Album(item.id.clone()), 0),
-        List::Songs | List::Tracks => {
+        List::Playlists | List::Artists => return None,
+        List::Albums | List::ArtistAlbums => Action::PlayIn(Queue::Album(item.id.clone()), 0),
+        List::Songs | List::Tracks | List::ArtistSongs => {
             let ahead = &items[index..items.len().min(index + QUEUE_AHEAD)];
             let ids = ahead.iter().map(|song| song.id.clone()).collect();
             Action::PlayIn(Queue::Songs(ids), 0)
@@ -481,6 +544,8 @@ pub fn show(
     (actions, navs): (&mut Vec<Action>, &mut Vec<Nav>),
 ) {
     let (list, verb) = match route {
+        Route::Artists => (List::Artists, "Open artist"),
+        Route::Artist(id) => return artist(ui, lib, id, (actions, navs)),
         Route::Playlists => (List::Playlists, "Open playlist"),
         Route::Albums => (List::Albums, "Play album"),
         Route::Songs => (List::Songs, "Play"),
@@ -491,10 +556,53 @@ pub fn show(
         }
         _ => (List::Tracks, "Play"),
     };
+    view(ui, lib, (list, verb), f32::INFINITY, (actions, navs));
+}
+
+fn artist(
+    ui: &mut egui::Ui,
+    lib: &mut Library,
+    id: &str,
+    (actions, navs): (&mut Vec<Action>, &mut Vec<Nav>),
+) {
+    if lib.artist != id {
+        lib.artist = id.to_owned();
+        lib.lists[List::ArtistAlbums as usize] = Paged::default();
+        lib.lists[List::ArtistSongs as usize] = Paged::default();
+    }
+    let named = lib.list(List::Artists).items.iter().find(|a| a.id == id);
+    if let Some(name) = named.and_then(|a| a.name.as_deref()) {
+        ui.label(egui::RichText::new(name).heading());
+    }
+    let albums_pt = 2.0 * (CELL_PT + 30.0);
+    view(
+        ui,
+        lib,
+        (List::ArtistAlbums, "Play album"),
+        albums_pt,
+        (actions, navs),
+    );
+    ui.separator();
+    view(
+        ui,
+        lib,
+        (List::ArtistSongs, "Play"),
+        f32::INFINITY,
+        (actions, navs),
+    );
+}
+
+fn view(
+    ui: &mut egui::Ui,
+    lib: &mut Library,
+    (list, verb): (List, &str),
+    max_height: f32,
+    (actions, navs): (&mut Vec<Action>, &mut Vec<Nav>),
+) {
     if lib.list(list).failed {
         super::notice(ui, "Your library could not load; retrying.");
     }
-    let albums = list == List::Albums;
+    let albums = matches!(list, List::Albums | List::ArtistAlbums);
     let columns = if albums {
         ((ui.available_width() / (CELL_PT + 8.0)) as usize).max(1)
     } else {
@@ -509,9 +617,12 @@ pub fn show(
     #[allow(unused_mut)]
     let mut area = egui::ScrollArea::vertical()
         .id_salt(list as usize)
-        .auto_shrink(false);
+        .max_height(max_height)
+        .auto_shrink([false, max_height.is_finite()]);
     #[cfg(feature = "dev")]
-    if lib.scroll_end.is_some_and(|at| Instant::now() >= at) {
+    let hooked = list != List::ArtistAlbums;
+    #[cfg(feature = "dev")]
+    if hooked && lib.scroll_end.is_some_and(|at| Instant::now() >= at) {
         let rows = loaded.div_ceil(columns) as f32;
         area = area.vertical_scroll_offset(rows * (row_pt + ui.spacing().item_spacing.y));
         ui.ctx().request_repaint();
@@ -526,11 +637,14 @@ pub fn show(
                 for index in (row * columns..(row + 1) * columns).filter(|i| *i < loaded) {
                     let item = &lib.lists[list as usize].items[index];
                     built += 1;
-                    let response = tile(ui, &mut lib.art, item, (albums, width), verb);
+                    let response = match list {
+                        List::Artists => name_row(ui, item, width, verb),
+                        _ => tile(ui, &mut lib.art, item, (albums, width), verb),
+                    };
                     if response.clicked() {
                         hit = Some(index);
                     }
-                    if matches!(list, List::Songs | List::Tracks) {
+                    if matches!(list, List::Songs | List::Tracks | List::ArtistSongs) {
                         super::track_menu(&response, &item.id, actions);
                     }
                 }
@@ -539,11 +653,19 @@ pub fn show(
         lib.built = (built, lib.built.1.max(built), range.end);
     });
     #[cfg(feature = "dev")]
-    if lib.click_last && lib.list(list).next.is_none() && lib.built.2 == loaded && loaded > 0 {
+    if hooked
+        && lib.click_last
+        && lib.list(list).next.is_none()
+        && lib.built.2 == loaded
+        && loaded > 0
+    {
         (lib.click_last, hit) = (false, Some(loaded - 1));
     }
     #[cfg(feature = "dev")]
-    if let Some(row) = lib.click_row.filter(|row| *row < loaded) {
+    if let Some(row) = lib.click_row.filter(|row| *row < loaded)
+        && hooked
+        && !matches!(list, List::Playlists | List::Artists)
+    {
         (lib.click_row, hit) = (None, Some(row));
     }
     let items = &lib.list(list).items;
@@ -551,9 +673,19 @@ pub fn show(
         Some(index) if list == List::Playlists => {
             navs.push(Nav::Go(Route::Playlist(items[index].id.clone())))
         }
+        Some(index) if list == List::Artists => {
+            navs.push(Nav::Go(Route::Artist(items[index].id.clone())))
+        }
         Some(index) => actions.extend(lib.play_from(list, index)),
         None => {}
     }
+}
+
+fn name_row(ui: &mut egui::Ui, item: &Item, width: f32, verb: &str) -> egui::Response {
+    let name = item.name.as_deref().unwrap_or("Untitled");
+    let row = egui::Button::new(name).frame(false).truncate();
+    let response = ui.add(row.min_size(egui::vec2(width, ROW_PT + 4.0)));
+    labeled(response, WidgetType::Button, &format!("{verb} {name}"))
 }
 
 pub fn sidebar(ui: &mut egui::Ui, lib: &mut Library, current: &Route, navs: &mut Vec<Nav>) {

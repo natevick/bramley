@@ -20,7 +20,12 @@ pub fn show(ui: &mut egui::Ui, current: &Route, library: &mut Library, navs: &mu
     }
     ui.separator();
     ui.label(RichText::new("Your Library").strong());
-    for route in [Route::Playlists, Route::Albums, Route::Songs] {
+    for route in [
+        Route::Artists,
+        Route::Playlists,
+        Route::Albums,
+        Route::Songs,
+    ] {
         entry(ui, current, route, navs);
     }
     ui.add_space(6.0);

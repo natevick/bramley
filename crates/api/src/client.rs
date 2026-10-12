@@ -17,7 +17,7 @@ const SEARCH_TYPES: &str = "songs,albums,artists,playlists";
 const SEARCH_LIMIT: &str = "10";
 const LIBRARY_LIMIT: &str = "100";
 const LIBRARY: &str = "/v1/me/library/";
-const NO_TRACKS: &str = "No related resources found for tracks";
+const NO_RELATED: &str = "No related resources found for ";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Error {
@@ -65,6 +65,7 @@ pub enum Shelf {
     Playlists,
     Albums,
     Songs,
+    Artists,
 }
 
 type Storefront = Arc<Mutex<Option<(u64, String)>>>;
@@ -195,12 +196,26 @@ impl Session<'_> {
     }
 
     pub fn playlist_tracks(&self, id: &str) -> Result<Page> {
-        let path = format!("{LIBRARY}playlists/{}/tracks", id_segment(id)?);
+        self.related("playlists", id, "tracks")
+    }
+
+    pub fn album_tracks(&self, id: &str) -> Result<Page> {
+        self.related("albums", id, "tracks")
+    }
+
+    pub fn artist_albums(&self, id: &str) -> Result<Page> {
+        self.related("artists", id, "albums")
+    }
+
+    fn related(&self, kind: &str, id: &str, relationship: &str) -> Result<Page> {
+        let path = format!("{LIBRARY}{kind}/{}/{relationship}", id_segment(id)?);
         match self.json(&path, &[("limit", LIBRARY_LIMIT)]) {
-            Err(Error::Http(404, why)) if why == NO_TRACKS => Ok(Page {
-                total: Some(0),
-                ..Page::default()
-            }),
+            Err(Error::Http(404, why)) if why.strip_prefix(NO_RELATED) == Some(relationship) => {
+                Ok(Page {
+                    total: Some(0),
+                    ..Page::default()
+                })
+            }
             page => page,
         }
     }
@@ -340,7 +355,9 @@ pub(crate) fn allowed(path: &str) -> bool {
         parts[1..],
         ["v1", "me", "storefront"]
             | ["v1", "me", "library", "playlists" | "albums" | "songs"]
-            | ["v1", "me", "library", "playlists", _, "tracks"]
+            | ["v1", "me", "library", "artists"]
+            | ["v1", "me", "library", "playlists" | "albums", _, "tracks"]
+            | ["v1", "me", "library", "artists", _, "albums"]
             | ["v1", "catalog", _, "search"]
             | ["v1", "catalog", _, "albums" | "playlists", _]
             | ["v1", "catalog", _, "albums" | "playlists", _, "tracks"]

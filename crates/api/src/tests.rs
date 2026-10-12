@@ -230,6 +230,50 @@ fn an_empty_library_playlist_is_an_empty_page_not_an_error() {
 }
 
 #[test]
+fn an_artist_lists_its_albums_and_an_album_its_tracks_and_none_is_empty() {
+    let artists = r#"{"data": [{"id": "r.A", "type": "library-artists", "attributes": {"name": "N"}}],
+                      "next": "/v1/me/library/artists?offset=1", "meta": {"total": 2}}"#;
+    let albums = r#"{"data": [{"id": "l.B", "type": "library-albums"}], "meta": {"total": 1}}"#;
+    let none =
+        r#"{"errors": [{"status": "404", "detail": "No related resources found for albums"}]}"#;
+    let server = serve(vec![
+        ("/v1/me/library/artists", vec![ok(artists)]),
+        ("/v1/me/library/artists/r.A/albums", vec![ok(albums)]),
+        (
+            "/v1/me/library/artists/r.Z/albums",
+            vec![(404, String::new(), none.into())],
+        ),
+        ("/v1/me/library/albums/l.B/tracks", vec![ok(albums)]),
+    ]);
+    let api = client(&server, Some(USER));
+    let first = api.library(Shelf::Artists).unwrap();
+    assert_eq!(
+        (first.items[0].kind, first.total, first.next.as_deref()),
+        (
+            Kind::LibraryArtists,
+            Some(2),
+            Some("/v1/me/library/artists?offset=1")
+        )
+    );
+    assert_eq!(api.artist_albums("r.A").unwrap().items[0].id, "l.B");
+    assert_eq!(api.album_tracks("l.B").unwrap().total, Some(1));
+    assert_eq!(api.artist_albums("r.Z").unwrap().total, Some(0));
+    assert_eq!(
+        server.targets(),
+        [
+            "/v1/me/library/artists?limit=100",
+            "/v1/me/library/artists/r.A/albums?limit=100",
+            "/v1/me/library/albums/l.B/tracks?limit=100",
+            "/v1/me/library/artists/r.Z/albums?limit=100",
+        ]
+    );
+    for bad in ["../x", "r.A/albums"] {
+        assert!(matches!(api.artist_albums(bad), Err(Error::Refused(_))));
+        assert!(matches!(api.album_tracks(bad), Err(Error::Refused(_))));
+    }
+}
+
+#[test]
 fn an_album_brings_its_first_tracks_and_pages_the_rest() {
     let server = serve(vec![
         ("/v1/me/storefront", vec![ok(STOREFRONT)]),
@@ -338,6 +382,9 @@ fn only_documented_api_paths_are_requested() {
         "/v1/me/storefront",
         "/v1/me/library/songs",
         "/v1/me/library/playlists/p.AAA/tracks",
+        "/v1/me/library/artists",
+        "/v1/me/library/artists/r.A/albums",
+        "/v1/me/library/albums/l.B/tracks",
         "/v1/catalog/us/search",
         "/v1/catalog/us/albums/2000001",
         "/v1/catalog/gb/playlists/pl.u-abc_d/tracks",
@@ -354,6 +401,8 @@ fn only_documented_api_paths_are_requested() {
         "/v1/catalog/us/charts",
         "/v1/me/recent/played",
         "/v1/catalog/us/albums/1/tracks/2",
+        "/v1/me/library/artists/r.A/tracks",
+        "/v1/me/library/songs/i.A/tracks",
         "v1/me/storefront",
         "@evil.example/v1/me/storefront",
     ] {

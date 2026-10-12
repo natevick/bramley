@@ -3,9 +3,11 @@ pub enum Route {
     #[default]
     Home,
     Search,
+    Artists,
     Playlists,
     Albums,
     Songs,
+    Artist(String),
     Album(String),
     Playlist(String),
 }
@@ -15,6 +17,8 @@ impl Route {
         match self {
             Route::Home => "Home",
             Route::Search => "Search",
+            Route::Artists => "Artists",
+            Route::Artist(_) => "Artist",
             Route::Playlists => "Playlists",
             Route::Albums => "Albums",
             Route::Songs => "Songs",
@@ -31,9 +35,13 @@ impl Route {
         if let Some(id) = name.strip_prefix("playlist:") {
             return Some(Route::Playlist(id.to_owned()));
         }
+        if let Some(id) = name.strip_prefix("artist:") {
+            return Some(Route::Artist(id.to_owned()));
+        }
         [
             Route::Home,
             Route::Search,
+            Route::Artists,
             Route::Playlists,
             Route::Albums,
             Route::Songs,

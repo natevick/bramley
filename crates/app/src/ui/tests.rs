@@ -53,6 +53,17 @@ fn navigation_pushes_the_route_left_and_back_returns_to_it() {
     assert!(!shell.can_go_back());
 }
 
+#[cfg(feature = "dev")]
+#[test]
+fn artist_routes_parse_and_their_title_never_names_the_artist() {
+    assert_eq!(Route::parse("artists"), Some(Route::Artists));
+    let artist = Route::parse("artist:r.1").expect("an artist route");
+    assert_eq!(
+        (&artist, artist.title()),
+        (&Route::Artist("r.1".into()), "Artist")
+    );
+}
+
 #[test]
 fn the_back_stack_keeps_only_the_latest_routes() {
     let mut shell = Shell::default();
@@ -173,10 +184,19 @@ fn nav_items_and_player_controls_carry_accessible_labels() {
         .accesskit_update;
     let nodes = update.expect("an accesskit tree").nodes;
     let labels: Vec<_> = nodes.iter().filter_map(|(_, n)| n.label()).collect();
-    let wanted = "Home,Search,Playlists,Albums,Songs,Back,Queue,Previous track,Play,Next track";
+    let wanted =
+        "Home,Search,Artists,Playlists,Albums,Songs,Back,Queue,Previous track,Play,Next track";
     for want in wanted.split(',').chain(["Position"]) {
         assert!(labels.contains(&want), "no {want:?} in {labels:?}");
     }
+    let top = |name| {
+        let node = nodes.iter().find(|(_, n)| n.label() == Some(name));
+        node.and_then(|(_, n)| n.bounds()).expect("on screen").y0
+    };
+    assert!(
+        top("Artists") < top("Playlists"),
+        "Artists heads Your Library"
+    );
     frame(&ctx, &mut app, press(Key::L, Modifiers::COMMAND));
     let update = frame(&ctx, &mut app, RawInput::default()).platform_output;
     let nodes = update.accesskit_update.expect("an accesskit tree").nodes;

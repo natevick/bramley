@@ -23,6 +23,8 @@ pub enum Call {
     Playlist(String),
     Library(Shelf),
     PlaylistTracks(String),
+    AlbumTracks(String),
+    ArtistAlbums(String),
     Next(String),
 }
 
@@ -86,6 +88,8 @@ impl Session<'_> {
             Call::Playlist(id) => Reply::Detail(self.playlist(&id)?),
             Call::Library(shelf) => Reply::Page(self.library(shelf)?),
             Call::PlaylistTracks(id) => Reply::Page(self.playlist_tracks(&id)?),
+            Call::AlbumTracks(id) => Reply::Page(self.album_tracks(&id)?),
+            Call::ArtistAlbums(id) => Reply::Page(self.artist_albums(&id)?),
             Call::Next(next) => Reply::Page(self.next(&next)?),
         })
     }
