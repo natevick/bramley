@@ -20,7 +20,10 @@
     return id(v);
   };
   const log = (...parts) => console.log("TRACE " + G.performance.now().toFixed(3) + " " + parts.join(" "));
-  const host = u => { const m = /^[a-z]+:\/\/([^/]+)/i.exec(String(u)); return m ? m[1] : "rel"; };
+  const host = u => { const m = /^[a-z]+:\/\/([^/]+)/i.exec(String(u)); return (m ? m[1] : "rel") + "~" + hash(String(u)); };
+  const hash = t => { let h = 0x811c9dc5; for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 0x01000193) >>> 0; return h.toString(16); };
+  const CACHE_HEADERS = ["cache-control", "expires", "age", "etag", "last-modified", "content-type", "content-length", "vary", "pragma"];
+  const cacheInfo = get => CACHE_HEADERS.map(h => [h, get(h)]).filter(([, v]) => v !== null && v !== undefined).map(([h, v]) => h + "=" + JSON.stringify(String(v).slice(0, 60))).join(" ");
 
   function wrapMethods(C, names) {
     for (const name of names) {
@@ -99,7 +102,12 @@
   wrapHandlerProps(XHR, ["readystatechange", "load", "loadend", "loadstart", "error", "abort", "timeout", "progress"]);
   const xopen = XHR.prototype.open, xsend = XHR.prototype.send, xabort = XHR.prototype.abort;
   XHR.prototype.open = function (m, u, ...r) { log("call", id(this), "open", m, host(u)); return xopen.call(this, m, u, ...r); };
-  XHR.prototype.send = function (...a) { log("call", id(this), "send"); return xsend.apply(this, a); };
+  XHR.prototype.send = function (...a) {
+    const x = this;
+    log("call", id(x), "send");
+    origAdd.call(x, "load", () => log("done", id(x), x.status, cacheInfo(h => x.getResponseHeader(h))));
+    return xsend.apply(this, a);
+  };
   XHR.prototype.abort = function (...a) { log("call", id(this), "abort"); return xabort.apply(this, a); };
 
   let fetches = 0;
@@ -107,7 +115,7 @@
   G.fetch = function (input, init) {
     const n = "fetch#" + ++fetches, url = typeof input === "string" ? input : input && input.url;
     log("call", n, "fetch", (init && init.method) || "GET", host(url));
-    return realFetch.call(this, input, init).then(r => { log("resolve", n, r.status, id(r)); return r; }, e => { log("reject", n, e && e.name); throw e; });
+    return realFetch.call(this, input, init).then(r => { log("resolve", n, r.status, id(r), cacheInfo(h => r.headers.get(h))); return r; }, e => { log("reject", n, e && e.name); throw e; });
   };
   for (const name of ["arrayBuffer", "json", "text"]) {
     const f = G.Response.prototype[name];
