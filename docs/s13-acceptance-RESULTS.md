@@ -81,3 +81,55 @@ Both runs are valid: no co-tenant, the leak grep is clean and caught its plant, 
   - `bramley search` from the plain CLI fills the Search view (an MCP search doesn't);
   - the search view's `seq` is in the status;
   - `gate-sabotage` gains `BRAMLEY_GATE_LEAK_MIB`.
+
+## Fix round (2026-10-12): rules from PREREG Amendments 4–5, at 75f937c
+**Counted runs:** `fix-2` and `fix-3` (consecutive), then `fix-controls`. All three held the GPU lock, saw no co-tenant in 517–674 polls, had no phase errors, and had a clean leak grep with its file plant caught. `fix-1` (at 5fae888) is reported, not counted (see Amendment 5).
+
+**Verdict:** v1 is still not done. Every FAIL below has an app cause, and every control fired on its stated reason.
+
+| Check | fix-2 | fix-3 | Bar |
+|---|---|---|---|
+| F1 slowest of 5 launches | PASS 114 ms | PASS 142 ms | each ≤ 500 |
+| F2 | PASS | PASS | |
+| F3 CLI / view (median) | PASS 245 / 498 ms | **FAIL**: rep 2 hit the CLI's 3 s apply deadline ("the app did not answer in time", 4,004 ms); the other reps 148–289 ms | every rep returns songs; median ≤ 2 s |
+| F4 cold first play (median of 5 launches) | PASS 1,971 ms; decrypted 38.7 s per play, skipped 0, pace ≤ 0.05 s | PASS 2,003 ms; decrypted 38.7 s | ≤ 3 s, plus the judged-play deltas |
+| F5 pause / seek / resume / next / prev (effect) | **FAIL** 19 / **519** / 280 / 279 / **532** ms | **FAIL** 25 / **780** / 287 / **561** / **810** ms | pause, resume each ≤ 500; others median ≤ 500 |
+| F5 next / prev new item advancing (median) | 531 / 780 ms | 808 / 1,065 ms | ≤ 3,000 |
+| F6 | PASS 3/3 gapless (sent at flip 19.5–20.6 s, skipped 0, stall 0.24 s) | PASS | Amendment 4 |
+| F7 | PASS (the dev-build leg) | PASS | |
+| F8 | PASS | PASS | |
+| F9 (median) | PASS 1,047 ms; decrypted 38.8 s | PASS 1,064 ms | |
+| F10 | **FAIL**: no Home recovery | **FAIL** | |
+| R1 PSS | PASS 174.5 | PASS 172.5 | ≤ 200 |
+| R2 PSS | PASS 77.4 | PASS 76.7 | ≤ 100 |
+| R3 growth | +1.0 PSS / +1.0 USS, 13 tracks; **FAIL**: 51 underruns | −0.6 / −0.7 … +0.8, 13 tracks; **FAIL**: 47 underruns | growth ≤ 10; underruns = 0; pace ≤ 1 s |
+| R4 CPU playing, 10 s bins (median / mean) | PASS 3.7 / 3.74 % | PASS 3.9 / 4.10 % | ≤ 5 % |
+| R5 CPU paused, 10 s bins (median / mean) | **FAIL** 1.8 / 1.80 % | **FAIL** 1.8 / 1.84 % | ≤ 1 % |
+| R6 | 22,843,520 bytes | same | recorded |
+| Ballast (rise against MiB + 1.76) | holds: 68 → 68.6 | holds: 70 → 71.4 | ± 3.0 |
+
+**Controls (`fix-controls`): every one held.**
+
+| Control | What fired |
+|---|---|
+| No user token | F2 PASS. F4 and F9 never started, under `SignInNeeded`. F5 had 0 rounds; F6 had 0 of 3 transitions. R1 never started |
+| Bad-signature token (a real JWT, signature reversed) | F3 failed with "developer token was rejected" (Apple's 401). F4 never started; the banner read `SignInNeeded` |
+| No stream | F4 never started: "the audio output could not be opened" |
+| Cut tail | F6 failed 2 of 3; the cut transition was caught by its skip count |
+| Leak | R3 FAIL in zone 1, USS +13.7 MiB. Only 5 changes after minute 5 (10 in earlier runs), above the 4 required |
+| Stall (SIGSTOP for 3 s) | the pacing rule caught a 2.92 s lag. `underruns` stayed at 0 |
+| Guard kill (a second, existing null sink) | the guard killed the app with "stream linked to" that sink; the app was gone; the default sink was unchanged |
+| Missing artifact | all 16 checks FAILed on missing evidence |
+
+**New or confirmed app findings (for routing; none fixed here)**
+1. **F5:** seek and prev settle only after MusicKit's promise. `applied` lands with the effect at 520–810 ms.
+2. **R3: the engine's underrun counter rises about once per 10 s mid-track on certain tracks**, with no pacing lag (≤ 0.2 s):
+   - two tracks had 16 each, and two had 7 and 5, out of 47–51 per soak;
+   - the media element repeatedly drops below `HAVE_FUTURE_DATA` while the output keeps playing.
+3. **F3:** one CLI search in 5 took more than the CLI's 3 s apply window, and was reported as "not applied".
+4. **The bad developer token shows `SignInNeeded`:** the developer-rejected banner is outranked in `app.rs` `banner()`.
+5. **R5:** 1.8 % CPU while paused. An idle, never-played app reads 0.0 %, so the cost is the started engine.
+6. **F10:** Home never reloads after the network returns.
+7. **Not reproduced:** in fix-1, F8 and R3 stalled with `seq` frozen while 18 commands exited 0. A smoke repro, fix-2 and fix-3 all played normally, and queue replies are now recorded.
+
+**Ballast note:** across runs the rise residual (measured minus requested plus kept) spans −3.3 to +0.9 MiB. fix-1's −3.3 missed the 3.0 tolerance. This is launch-to-launch USS variance; the tolerance was not widened. **Proposal:** allocate the ballast inside the same launch after a first R1 window, so the rise is measured within one process.
