@@ -1,10 +1,9 @@
-import argparse, contextlib, glob, hashlib, http.server, json, os, re, shutil, signal, statistics, subprocess, threading, time
+import contextlib, glob, json, os, re, shutil, signal, subprocess, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SONG = '6781024437'
 REAL_CONFIG = os.path.expanduser('~/.config/bramley')
 REAL_CACHE = os.path.expanduser('~/.cache/bramley')
-SIGNED_IN = ('idle', 'play', 'shot', 'guardtest')
 SECRETS = ['gdbus', 'call', '--session', '--dest', 'org.freedesktop.secrets']
 
 
@@ -111,18 +110,6 @@ def rollup(pid):
     return r
 
 
-def smaps_by_kind(pid):
-    kinds, kind = {}, None
-    for line in open(f'/proc/{pid}/smaps'):
-        parts = line.split()
-        if '-' in parts[0] and len(parts) >= 5 and not parts[0].endswith(':'):
-            path = parts[5] if len(parts) > 5 else ''
-            kind = ('anon' if not path else 'heap' if path == '[heap]' else 'stack' if path.startswith('[stack') else 'dri' if path.startswith('/dev/dri') else 'memfd' if path.startswith('/memfd') else 'binary' if 'bramley' in path else 'shm' if path.startswith('/dev/shm') else 'lib' if '.so' in path else 'other:' + path.rsplit('/', 1)[-1])
-        elif parts[0] == 'Pss:':
-            kinds[kind] = kinds.get(kind, 0) + int(parts[1])
-    return dict(sorted(((k, round(v / 1024, 2)) for k, v in kinds.items()), key=lambda kv: -kv[1]))
-
-
 def children(pid):
     found = []
     for d in glob.glob('/proc/[0-9]*/stat'):
@@ -160,181 +147,6 @@ def wait_for(pred, timeout, what):
     raise RuntimeError(f'timed out waiting for {what}')
 
 
-class Refuse(http.server.BaseHTTPRequestHandler):
-    paths, status = [], 401
-
-    def do_GET(self):
-        Refuse.paths.append(self.path)
-        self.send_response(Refuse.status)
-        self.send_header('Content-Length', '0')
-        self.end_headers()
-
-    def log_message(self, *_):
-        pass
-
-
-def refuse_shot(name, binary, a, iso):
-    png = os.path.join(ROOT, 'target', 'tmp', f'{name}.png')
-    env = dict(os.environ, **iso)
-    assert_isolated(env)
-    run = subprocess.run([binary, '--screenshot', png], env=env, capture_output=True, text=True, timeout=20)
-    res = {'name': name, 'mode': 'refuseshot', 'binary': os.path.basename(binary), 'exit': run.returncode, 'unknownArgument': 'unknown argument --screenshot' in run.stderr, 'pngWritten': os.path.exists(png)}
-    json.dump(res, open(os.path.join(a.out, name + '.verdict.json'), 'w'), indent=1)
-    return res
-
-
-MODES = ('idle', 'play', 'shot', 'guardtest', 'signedout', 'refuseshot', 'expired-401', 'expired-403')
-
-
-def run_one(name, binary, mode, a, sock, sink):
-    if mode not in MODES:
-        raise RuntimeError(f'{name}: unknown mode {mode}')
-    server = None
-    with isolated(f'{name}-{mode}', mode in SIGNED_IN) as (iso, config):
-        try:
-            if mode == 'refuseshot':
-                return refuse_shot(name, binary, a, iso)
-            if mode.startswith('expired-'):
-                for f in ('developer-token', 'music-user-token'):
-                    open(os.path.join(config, f), 'w').write(f'expired-{f}')
-                Refuse.paths, Refuse.status = [], int(mode.split('-')[1])
-                server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Refuse)
-                threading.Thread(target=server.serve_forever, daemon=True).start()
-            return run_app(name, binary, mode, a, sock, sink, iso, server)
-        finally:
-            if server:
-                server.shutdown()
-
-def run_app(name, binary, mode, a, sock, sink, iso, server):
-    out = os.path.join(a.out, name)
-    st = out + '.status.json'
-    for f in glob.glob(out + '.*'):
-        os.remove(f)
-    env = dict(os.environ, WAYLAND_DISPLAY=sock, PULSE_SINK=sink, TMPDIR=os.path.join(ROOT, 'target', 'tmp'), **iso)
-    env.pop('DISPLAY', None)
-    assert_isolated(env)
-    rc = subprocess.run([binary, 'now'], env=env, capture_output=True).returncode
-    if rc != 3:
-        raise RuntimeError(f'{name}: slot held (now exit {rc})')
-    playing = mode in ('play', 'guardtest', 'shot')
-    if playing and not sink_exists(sink):
-        raise RuntimeError(f'{name}: null sink {sink} missing before launch; refusing')
-    res = {'name': name, 'binary': os.path.basename(binary), 'sha256': hashlib.sha256(open(binary, 'rb').read()).hexdigest()[:16], 'mode': mode, 'defaultBefore': default_sink(), 'gpuBefore': gpu()}
-    cmd = [binary, '--status', st]
-    if mode == 'shot':
-        os.makedirs(os.path.join(ROOT, 'target', 'screens'), exist_ok=True)
-        res['screenshot'] = os.path.join(ROOT, 'target', 'screens', f'{name}.png')
-        cmd += ['--screenshot', res['screenshot'], '--after', '45']
-    if server:
-        cmd += ['--api-base', f'http://127.0.0.1:{server.server_address[1]}']
-    log = open(out + '.log', 'w')
-    p = subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-    guard = Guard(p.pid, 'not-' + sink if mode == 'guardtest' else sink)
-    guard.start()
-    try:
-        wait_for(lambda: (status(st) or {}).get('framesPainted', 0) > 0, 30, 'first frame')
-        covers = ('s2b' in name or 'sab' in name or mode == 'shot') and mode != 'signedout' and not mode.startswith('expired-')
-        if covers:
-            s = wait_for(lambda: (lambda s: s if s and (s.get('texturesUploaded') == 50 or s.get('coversFailed')) else None)(status(st)), 60, 'covers')
-            res['coversReady'] = {k: s.get(k) for k in COVER_KEYS}
-        if playing:
-            wait_for(lambda: guard.polls > 0, 10, 'a clean guard poll')
-            if not sink_exists(sink):
-                raise RuntimeError(f'{name}: null sink vanished before play; refusing')
-            ack = subprocess.run([binary, 'play', SONG], env=env, capture_output=True, text=True)
-            res['playAck'] = {'exit': ack.returncode, 'stdout': ack.stdout.strip()[:400], 'stderr': ack.stderr.strip()[:400]}
-            res['playAt'] = time.time()
-            if ack.returncode != 0:
-                raise RuntimeError(f'{name}: play exited {ack.returncode}')
-        if (mode == 'signedout' or mode.startswith('expired-')):
-            time.sleep(10)
-            res['aliveAtEnd'] = p.poll() is None
-            res['final'] = status(st)
-            res['coversReady'] = {k: res['final'].get(k) for k in COVER_KEYS}
-            if server:
-                res['serverPaths'] = list(Refuse.paths)
-            return res
-        if mode == 'guardtest':
-            wait_for(lambda: guard.killed, 60, 'guard kill')
-            res['guard'] = {'killed': guard.killed['why'], 'killAfterLastCleanPollS': round(guard.killed['t'] - guard.last_clean, 2) if guard.last_clean else None, 'appGone': p.wait(5) is not None}
-            return res
-        if mode == 'shot':
-            p.wait(120)
-            res['screenshotExists'] = os.path.exists(res['screenshot'])
-            res['final'] = status(st)
-            return res
-        if playing:
-            wait_for(lambda: (lambda s: s and s['state'] == 'Playing' and s['banner'] is None and (s['position'] or 0) > 15 and s['applied'] >= s['seq'])(status(st)), 90, 'playing past 15 s')
-        else:
-            time.sleep(12)
-        samples = []
-        for _ in range(30 if playing else a.samples):
-            r = rollup(p.pid)
-            s = status(st)
-            samples.append({'pss': r['Pss'], 'uss': r.get('Private_Clean', 0) + r.get('Private_Dirty', 0), 'rss': r['Rss'], 'anon': r.get('Anonymous', 0), 'kids': len(children(p.pid)), 'position': s and s['position'], 'state': s and s['state'], 'inFlight': s and s.get('decodedInFlight'), 'textures': s and s.get('texturesUploaded')})
-            time.sleep(1)
-        med = lambda k: round(statistics.median(x[k] for x in samples) / 1024, 1)
-        res.update({'pss': med('pss'), 'uss': med('uss'), 'rss': med('rss'), 'anon': med('anon'), 'samples': len(samples), 'maxKids': max(x['kids'] for x in samples), 'positions': [samples[0]['position'], samples[-1]['position']], 'states': sorted(set(str(x['state']) for x in samples)), 'gpuAfter': gpu()})
-        res['series'] = samples
-        res['smaps'] = smaps_by_kind(p.pid)
-        res['final'] = status(st)
-        return res
-    finally:
-        if p.poll() is None:
-            p.terminate()
-            try:
-                p.wait(15)
-            except subprocess.TimeoutExpired:
-                p.kill()
-                p.wait()
-        guard.stop = True
-        guard.join(2)
-        res['guardSeen'] = sorted(str(t) for t in guard.seen)
-        res['guardPolls'] = guard.polls
-        res['guardKilled'] = guard.killed and guard.killed['why']
-        res['defaultAfter'] = default_sink()
-        log.close()
-        json.dump(res, open(out + '.json', 'w'), indent=1)
-        json.dump(verdict(res), open(out + '.verdict.json', 'w'), indent=1)
-
-
-COVER_KEYS = ('texturesUploaded', 'decodedInFlight', 'decodedBytesKept', 'coversRequested', 'coversFailed')
-STATUS_KEYS = ('state', 'position', 'applied', 'seq', 'banner', 'engineStarted', 'framesPainted', 'glRenderer') + COVER_KEYS
-
-
-def verdict(res):
-    keep = ('name', 'mode', 'binary', 'sha256', 'aliveAtEnd', 'serverPaths', 'pss', 'uss', 'rss', 'anon', 'samples', 'maxKids', 'positions', 'states', 'coversReady', 'smaps', 'gpuBefore', 'gpuAfter', 'guard', 'guardSeen', 'guardPolls', 'guardKilled', 'defaultBefore', 'defaultAfter', 'screenshotExists', 'error')
-    v = {k: res[k] for k in keep if k in res}
-    v['final'] = {k: (res.get('final') or {}).get(k) for k in STATUS_KEYS}
-    if 'playAck' in res:
-        v['playAckExit'] = res['playAck']['exit']
-    return v
-
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--out', required=True)
-    ap.add_argument('--samples', type=int, default=20)
-    ap.add_argument('runs', nargs='+', help='name=binary:mode')
-    a = ap.parse_args()
-    os.makedirs(a.out, exist_ok=True)
-    os.makedirs(os.path.join(ROOT, 'target', 'tmp'), exist_ok=True)
-    with session(a.out, 'bramley-s2b') as (sock, sink, summary):
-        for spec in a.runs:
-            name, rest = spec.split('=', 1)
-            binary, mode = rest.rsplit(':', 1)
-            try:
-                r = run_one(name, os.path.abspath(binary), mode, a, sock, sink)
-            except Exception as e:
-                r = {'name': name, 'error': str(e)}
-                json.dump(r, open(os.path.join(a.out, name + '.verdict.json'), 'w'))
-            keep = ('name', 'error', 'exit', 'unknownArgument', 'pngWritten', 'aliveAtEnd', 'serverPaths', 'pss', 'uss', 'rss', 'anon', 'samples', 'maxKids', 'positions', 'states', 'coversReady', 'guard', 'guardSeen', 'guardKilled', 'screenshotExists', 'defaultBefore', 'defaultAfter')
-            line = {k: r[k] for k in keep if k in r}
-            line['gl'] = ((r.get('final') or {}).get('glRenderer') or '')[:40]
-            line['frames'] = (r.get('final') or {}).get('framesPainted')
-            print(json.dumps(line), flush=True)
-
-
 @contextlib.contextmanager
 def session(out, prefix):
     os.environ['XDG_RUNTIME_DIR'] = f'/run/user/{os.getuid()}'
@@ -361,6 +173,3 @@ def session(out, prefix):
         print(json.dumps(summary), flush=True)
         json.dump(summary, open(os.path.join(out, 'session.verdict.json'), 'w'))
 
-
-if __name__ == '__main__':
-    main()

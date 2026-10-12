@@ -1,19 +1,17 @@
-import argparse, glob, hashlib, importlib.util, json, math, os, statistics, subprocess, sys, time
+import json, math, os, statistics
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-_spec = importlib.util.spec_from_file_location('covers_session', os.path.join(ROOT, 'scripts', 'app', 'covers-session.py'))
-cs = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(cs)
-
 REFERENCE = {'binary': os.path.join(ROOT, 'target', 'reference', 'bramley-main-4961e27'), 'sha256': '1a72eb4b2880ac5a', 'pss': 88.6}
-R1_BAR, R2_BAR, DRIFT_BAR, BALLAST_OVER, LANDING_BAND = 200.0, 100.0, 5.0, 15.0, 5.0
-COVERS, ADVANCE_S, PLAY_WARM_S, LINK_CONFIRM_S, MIN_WINDOW_POLLS, RISE_TOLERANCE = 50, 50.0, 15, 2, 30, 3.0
+R1_BAR, R2_BAR, R3_BAR, R4_BAR, R5_BAR, DRIFT_BAR, BALLAST_OVER, LANDING_BAND = 200.0, 100.0, 10.0, 5.0, 1.0, 5.0, 15.0, 5.0
+COVERS, ADVANCE_S, MIN_WINDOW_POLLS, RISE_TOLERANCE, REPS = 50, 50.0, 30, 3.0, 5
+F1_MS, F3_MS, F4_MS, F5_MS, F4_PLAYED_S, FULL_SONG_S, R3_TRACKS, R3_STALL_S = 500, 2000, 3000, 500, 35.0, 300.0, 8, 2.0
 REFERENCE_RUNS = ('reference', 'reference-after')
-R1_SAMPLES, R2_SAMPLES, R2_SETTLE_S, REF_SAMPLES, REF_SETTLE_S = 60, 20, 5, 20, 12
-
-
-def sha(path):
-    return hashlib.sha256(open(path, 'rb').read()).hexdigest()[:16]
+R1_SAMPLES, R2_SAMPLES, REF_SAMPLES, CPU_SAMPLES = 60, 20, 20, 30
+F5_COMMANDS, EVERY_REP = ('pause', 'seek', 'resume', 'next', 'prev'), ('pause', 'resume')
+TOOLS = sorted('search play pause resume next previous seek queue_add now_playing library_playlists'.split())
+CHECKS = ('F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6')
+EVIDENCE = {'F1': ('f1',), 'F2': ('f2',), 'F3': ('f3',), 'F4': ('f4',), 'F5': ('f5',), 'F6': ('f6',), 'F7': ('f7',), 'F8': ('f8',), 'F9': ('f9',),
+            'F10': ('f10-badid', 'f10-net'), 'R3': ('r3',), 'R4': ('r4',), 'R5': ('r5',)}
 
 
 def load(out, name):
@@ -29,155 +27,13 @@ def save(out, name, data):
         json.dump(data, f, indent=1)
 
 
-def now(binary, env):
-    r = subprocess.run([binary, 'now'], env=env, capture_output=True, text=True, timeout=10)
-    try:
-        return json.loads(r.stdout) if r.returncode == 0 else None
-    except ValueError:
-        return None
-
-
-def mem(pid):
-    pids = [pid] + cs.children(pid)
-    rolls = [cs.rollup(p) for p in pids]
-    total = lambda *keys: round(sum(r.get(k, 0) for r in rolls for k in keys) / 1024, 2)
-    return {'pss': total('Pss'), 'uss': total('Private_Clean', 'Private_Dirty'), 'rss': total('Rss'), 'procs': len(pids)}
-
-
-SNAP_KEYS = ('pid', 'state', 'position', 'banner', 'engineStarted', 'texturesUploaded', 'coversFailed', 'framesPainted', 'glRenderer', 'applied', 'seq')
-STANDING_GPU_CLIENTS = ('gnome-shell', 'Xvfb', 'grok-bot')
-GPU_LIBS = ('libgallium', 'radeonsi', 'libLLVM')
-
-
-def preflight():
-    found = []
-    for d in glob.glob('/proc/[0-9]*'):
-        try:
-            comm = open(f'{d}/comm').read().strip()
-            libs = sorted({line.split()[-1].rsplit('/', 1)[-1] for line in open(f'{d}/maps') if any(lib in line for lib in GPU_LIBS)})
-        except OSError:
-            libs = []
-        if int(d[6:]) != os.getpid() and (comm in ('weston', 'bramley') or (libs and comm not in STANDING_GPU_CLIENTS)):
-            found.append(f'{d[6:]} {comm} {libs}')
-    return found
-
-
-def sample(pid, binary, env, n):
-    rows = []
-    for _ in range(n):
-        t = time.time()
-        s = now(binary, env) or {}
-        rows.append(dict(mem(pid), t=round(t, 2), **{k: s.get(k) for k in SNAP_KEYS}))
-        time.sleep(max(0.0, 1 - (time.time() - t)))
-    return rows
+def median(values):
+    values = [v for v in values if v is not None]
+    return round(statistics.median(values), 1) if values else None
 
 
 def medians(rows):
-    return {k: round(statistics.median(r[k] for r in rows), 1) for k in ('pss', 'uss', 'rss')} if rows else {}
-
-
-def env_for(sock, sink, llvmpipe=False, **extra):
-    env = dict(os.environ, WAYLAND_DISPLAY=sock, PULSE_SINK=sink, TMPDIR=os.path.join(ROOT, 'target', 'tmp'), **extra)
-    env.pop('DISPLAY', None)
-    if llvmpipe:
-        env['LIBGL_ALWAYS_SOFTWARE'] = '1'
-    return env
-
-
-def launch(binary, env, log_path):
-    cs.assert_isolated(env)
-    rc = subprocess.run([binary, 'now'], env=env, capture_output=True).returncode
-    if rc != 3:
-        raise RuntimeError(f'slot held before launch (now exit {rc}); refusing')
-    log = open(log_path, 'w')
-    return subprocess.Popen([binary], env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True), log
-
-
-def stop(p, log):
-    if p.poll() is None:
-        p.terminate()
-        try:
-            p.wait(15)
-        except subprocess.TimeoutExpired:
-            p.kill()
-            p.wait()
-    log.close()
-
-
-def reference(out, sock, sink, name):
-    with cs.isolated(f'{os.path.basename(out)}-{name}', True) as (iso, _):
-        reference_in(out, sock, sink, name, env_for(sock, sink, **iso))
-
-
-def reference_in(out, sock, sink, name, env):
-    binary = REFERENCE['binary']
-    ev = {'binary': os.path.basename(binary), 'sha256': sha(binary)}
-    p, log = launch(binary, env, os.path.join(out, f'{name}.log'))
-    ev['pid'] = p.pid
-    try:
-        cs.wait_for(lambda: (lambda s: s if s and s.get('framesPainted', 0) > 0 else None)(now(binary, env)), 30, 'reference first frame')
-        time.sleep(REF_SETTLE_S)
-        ev['samples'] = sample(p.pid, binary, env, REF_SAMPLES)
-    finally:
-        stop(p, log)
-        save(out, f'{name}.json', ev)
-
-
-def app_run(out, name, binary, sock, sink, llvmpipe, ballast_mib=None):
-    with cs.isolated(f'{os.path.basename(out)}-{name}', True) as (iso, _):
-        app_run_in(out, name, binary, sock, sink, llvmpipe, ballast_mib, iso)
-
-
-def app_run_in(out, name, binary, sock, sink, llvmpipe, ballast_mib, iso):
-    extra = {} if ballast_mib is None else {'BRAMLEY_GATE_BALLAST_MIB': str(ballast_mib)}
-    env = env_for(sock, sink, llvmpipe, **extra, **iso)
-    p, log = launch(binary, env, os.path.join(out, f'{name}.log'))
-    guard = cs.Guard(p.pid, sink)
-    guard.start()
-    r1 = None
-    try:
-        cs.wait_for(lambda: (lambda s: s if s and s.get('framesPainted', 0) > 0 and (s.get('texturesUploaded', 0) >= COVERS or s.get('coversFailed')) else None)(now(binary, env)), 60, 'first frame and covers')
-        time.sleep(R2_SETTLE_S)
-        save(out, f'{name}.r2.json', {'binary': os.path.basename(binary), 'pid': p.pid, 'samples': sample(p.pid, binary, env, R2_SAMPLES)})
-        r1 = {'binary': os.path.basename(binary), 'pid': p.pid, 'ballastMiB': ballast_mib, 'gpuBefore': cs.gpu(), 'samples': []}
-        cs.wait_for(lambda: guard.polls > 0, 10, 'a clean guard poll')
-        r1['prePlay'] = {'sinkExists': cs.sink_exists(sink), 'default': cs.default_sink(), 'guardPolls': guard.polls, 'guardKilled': bool(guard.killed)}
-        if not r1['prePlay']['sinkExists'] or r1['prePlay']['default'] in (None, sink) or guard.killed:
-            raise RuntimeError(f'audio not safe before play: {r1["prePlay"]}')
-        played_at = time.time()
-        ack = subprocess.run([binary, 'play', cs.SONG], env=env, capture_output=True, text=True, timeout=15)
-        r1['playExit'] = ack.returncode
-        try:
-            cs.wait_for(lambda: (lambda s: s and s.get('state') == 'Playing' and (s.get('position') or 0) > 0)(now(binary, env)), 90, 'audio')
-        except RuntimeError:
-            r1['started'] = False
-            return
-        r1['playToAudioS'] = round(time.time() - played_at, 2)
-        try:
-            cs.wait_for(lambda: any(t >= played_at and sink in targets for t, targets in list(guard.log)), LINK_CONFIRM_S, 'a null-sink link')
-        except RuntimeError:
-            guard.kill(f'no null-sink link within {LINK_CONFIRM_S} s of audio')
-            raise
-        warm = lambda s: s and s.get('state') == 'Playing' and s.get('banner') is None and (s.get('position') or 0) > PLAY_WARM_S and s.get('applied', 0) >= s.get('seq', 1)
-        try:
-            cs.wait_for(lambda: warm(now(binary, env)), 90, f'playing past {PLAY_WARM_S} s')
-            r1['started'] = True
-        except RuntimeError:
-            r1['started'] = False
-        r1['samples'] = sample(p.pid, binary, env, R1_SAMPLES) if r1['started'] else []
-        r1['gpuAfter'] = cs.gpu()
-    finally:
-        stop(p, log)
-        guard.stop = True
-        guard.join(2)
-        save(out, f'{name}.guard.json', {'pid': p.pid, 'polls': guard.polls, 'killed': guard.killed and guard.killed['why'], 'log': guard.log})
-        if r1 is not None:
-            save(out, f'{name}.r1.json', r1)
-
-
-def ballast_size(out):
-    rows = (load(out, 'shipped.r1.json') or {}).get('samples')
-    return max(0, math.ceil(R1_BAR + BALLAST_OVER - medians(rows)['uss'])) if rows else None
+    return {k: median(r[k] for r in rows) for k in ('pss', 'uss', 'rss')} if rows else {}
 
 
 def renderer_voids(renderers, what):
@@ -194,7 +50,7 @@ def weston_renderer(out):
 
 
 def session_problems(out):
-    missing, fails, voids, drifts = [], [], [], []
+    missing, fails, voids = [], [], []
     build, sess, weston = load(out, 'build.json'), load(out, 'session.verdict.json'), weston_renderer(out)
     if not build:
         missing.append('missing evidence: build.json')
@@ -214,6 +70,11 @@ def session_problems(out):
         missing.append('missing evidence: weston.log')
     else:
         voids += renderer_voids(weston, 'weston')
+    return missing, fails, voids
+
+
+def reference_problems(out):
+    missing, voids, drifts = [], [], []
     for name in REFERENCE_RUNS:
         ref = load(out, f'{name}.json')
         if not ref or not ref.get('samples'):
@@ -225,27 +86,46 @@ def session_problems(out):
             voids.append(f'{name} snapshot from another process')
         voids += renderer_voids([r.get('glRenderer') for r in ref['samples']], name)
         drifts.append(round(medians(ref['samples'])['pss'] - REFERENCE['pss'], 1))
-    return missing, fails, voids, drifts
+    return missing, voids, drifts
 
 
-def audio_voids(ev, guard, sink):
-    rows = ev['samples']
-    positions = [r.get('position') or 0 for r in rows]
-    if not rows or positions[-1] - positions[0] < ADVANCE_S:
+def guard_voids(out, ev, sink, started):
+    guard = load(out, f'{ev.get("session")}.guard.json')
+    if guard is None:
+        return [], [f'missing evidence: {ev.get("session")}.guard.json']
+    voids = [f'guard killed the app: {guard["killed"]}'] if guard.get('killed') else []
+    window = [targets for t, targets in guard.get('log', []) if ev.get('t0', 0) <= t <= ev.get('t1', 0)]
+    if started and (any(targets not in ([], [sink]) for targets in window) or [sink] not in window):
+        voids.append('playback started but no stream was seen linked to the null sink only')
+    return voids, []
+
+
+def drift_voids(zone, outcome, drifts):
+    if zone != 3:
         return []
-    window = [targets for t, targets in guard.get('log', []) if rows[0]['t'] <= t <= rows[-1]['t']]
-    if len(window) < MIN_WINDOW_POLLS:
-        return [f'guard observed {len(window)} polls in the R1 window < {MIN_WINDOW_POLLS}']
-    off = sum(1 for targets in window if targets != [sink])
-    return [f'{off} of {len(window)} polls in the R1 window not linked to the null sink only'] if off else []
+    suspect = {'FAIL': [d for d in drifts if d > DRIFT_BAR], 'PASS': [d for d in drifts if d < -DRIFT_BAR]}.get(outcome, [])
+    return [f'reference drifted {d:+.1f} MiB from {REFERENCE["pss"]} (bar {DRIFT_BAR}), which voids a {outcome}' for d in suspect]
 
 
-def check(out, name, kind):
-    missing, fails, voids, drifts = session_problems(out)
+def zone_of(m, bar, fails):
+    if not m or m.get('uss') is None:
+        return None
+    zone = 1 if m['uss'] > bar else 2 if m['rss'] <= bar else 3
+    if zone == 1:
+        fails.append(f'USS median {m["uss"]} > {bar}')
+    if zone == 3 and m['pss'] > bar:
+        fails.append(f'PSS median {m["pss"]} > {bar}')
+    return zone
+
+
+def memory_check(out, name, kind, sink):
+    missing, fails, voids = session_problems(out)
+    ref_missing, ref_voids, drifts = reference_problems(out)
     ev, guard = load(out, f'{name}.{kind}.json'), load(out, f'{name}.guard.json')
-    missing += [f'missing evidence: {f}' for f, d in ((f'{name}.{kind}.json', ev), (f'{name}.guard.json', guard)) if d is None]
+    missing += ref_missing + [f'missing evidence: {f}' for f, d in ((f'{name}.{kind}.json', ev), (f'{name}.guard.json', guard)) if d is None]
     if missing:
-        return {'verdict': 'FAIL', 'reasons': missing + fails + voids}
+        return {'verdict': 'FAIL', 'reasons': missing + fails + voids + ref_voids}
+    voids += ref_voids
     rows = ev.get('samples') or []
     m = medians(rows)
     voids += renderer_voids([r.get('glRenderer') for r in rows], name) if rows else []
@@ -261,9 +141,15 @@ def check(out, name, kind):
         bar, want = R1_BAR, R1_SAMPLES
         if (ev.get('prePlay') or {}).get('default') is None:
             voids.append('default sink unreadable before play')
-        voids += audio_voids(ev, guard, (load(out, 'session.verdict.json') or {}).get('sink'))
         positions = [r.get('position') or 0 for r in rows]
         advanced = positions[-1] - positions[0] if rows else 0
+        if advanced >= ADVANCE_S:
+            window = [targets for t, targets in guard.get('log', []) if rows[0]['t'] <= t <= rows[-1]['t']]
+            off = sum(1 for targets in window if targets != [sink])
+            if len(window) < MIN_WINDOW_POLLS:
+                voids.append(f'guard observed {len(window)} polls in the R1 window < {MIN_WINDOW_POLLS}')
+            elif off:
+                voids.append(f'{off} of {len(window)} polls in the R1 window not linked to the null sink only')
         if not ev.get('started'):
             fails.append('playback never started')
         if advanced < ADVANCE_S:
@@ -276,117 +162,266 @@ def check(out, name, kind):
         fails.append(f'fewer than {COVERS} covers in some sample')
     if any(r.get('procs') != 1 for r in rows):
         fails.append('not exactly 1 process in every sample')
-    zone = None
-    if m:
-        zone = 1 if m['uss'] > bar else 2 if m['rss'] <= bar else 3
-        if zone == 1:
-            fails.append(f'USS median {m["uss"]} > {bar}')
-        if zone == 3 and m['pss'] > bar:
-            fails.append(f'PSS median {m["pss"]} > {bar}')
+    zone = zone_of(m, bar, fails)
     outcome = 'VOID' if voids else 'FAIL' if fails else 'PASS'
-    if zone == 3:
-        suspect = {'FAIL': [d for d in drifts if d > DRIFT_BAR], 'PASS': [d for d in drifts if d < -DRIFT_BAR]}.get(outcome, [])
-        voids += [f'reference drifted {d:+.1f} MiB from {REFERENCE["pss"]} (bar {DRIFT_BAR}), which voids a {outcome}' for d in suspect]
+    voids += drift_voids(zone, outcome, drifts)
     return dict(m, verdict='VOID' if voids else outcome, reasons=voids + fails, bar=bar, zone=zone, referenceDrift=max(drifts, key=abs))
+
+
+def growth(rows, lo, hi):
+    pick = lambda a, b: [r for r in rows if a <= r['m'] < b]
+    start, end = medians(pick(lo, lo + 1)), medians(pick(hi - 1, hi + 0.01))
+    return {k: round(end[k] - start[k], 1) for k in start} if start and end else {}
+
+
+def r3_rules(ev, fails, sink):
+    rows = ev.get('samples') or []
+    g = growth(rows, 5, 30)
+    played = len({r.get('itemId') for r in rows if r.get('itemId')})
+    if not rows or rows[-1]['m'] < 30:
+        fails.append(f'soak ended at minute {rows[-1]["m"] if rows else 0} < 30')
+    if any(r.get('pid') != ev.get('pid') or r.get('procs') != 1 for r in rows):
+        fails.append('the app crashed, restarted or forked during the soak')
+    if played < R3_TRACKS:
+        fails.append(f'{played} tracks played < {R3_TRACKS}')
+    if any((r.get('texturesUploaded') or 0) < COVERS for r in rows):
+        fails.append(f'fewer than {COVERS} covers in some sample')
+    if any(r.get('state') != 'Playing' or r.get('banner') is not None for r in rows):
+        fails.append('not Playing with no banner in every sample')
+    stalls = [round(b['t'] - a['t'] - (b['position'] - a['position']), 1) for a, b in zip(rows, rows[1:])
+              if a.get('itemId') == b.get('itemId') and a.get('seeks') == b.get('seeks') and b['t'] - a['t'] - (b['position'] - a['position']) > R3_STALL_S]
+    if stalls:
+        fails.append(f'position stalled (underrun proxy): {stalls}')
+    if g.get('uss') is not None:
+        if g['uss'] > R3_BAR:
+            fails.append(f'USS growth {g["uss"]} > {R3_BAR}')
+        elif g['pss'] > R3_BAR:
+            fails.append(f'PSS growth {g["pss"]} > {R3_BAR}')
+    elif rows:
+        fails.append('no samples at minute 5 or minute 30')
+    return dict(g, zone=None if g.get('uss') is None else 1 if g['uss'] > R3_BAR else 3, tracks=played,
+                changesAfter5=sum(1 for a, b in zip(rows, rows[1:]) if b['m'] >= 5 and a.get('itemId') != b.get('itemId')))
+
+
+def audible(ev, fails):
+    reps = [r.get('audioMs') for r in ev.get('reps') or []]
+    final = ev.get('final') or {}
+    if not ev.get('started'):
+        fails.append('playback never started')
+    if len(reps) < REPS or None in reps:
+        fails.append(f'audio started in {sum(r is not None for r in reps)} of {REPS} plays')
+    elif median(reps) > F4_MS:
+        fails.append(f'audio median {median(reps)} ms > {F4_MS}')
+    if final.get('itemId') != ev.get('song') or (final.get('position') or 0) <= F4_PLAYED_S or (final.get('sentMs') or 0) <= F4_PLAYED_S * 1000:
+        fails.append(f'not past {F4_PLAYED_S} s of the asked song with output sent: {final}')
+    if (final.get('duration') or 0) < FULL_SONG_S:
+        fails.append(f'duration {final.get("duration")} < {FULL_SONG_S}: a preview, not the full song')
+    return {'audioMedianMs': median(reps)}
+
+
+def f_rules(check, ev, fails):
+    if check == 'F1':
+        starts = ev.get('starts') or []
+        if len(starts) < REPS or any(s.get('ms') is None for s in starts):
+            fails.append(f'{sum(s.get("ms") is not None for s in starts)} of {REPS} starts reached a first frame')
+        elif median(s['ms'] for s in starts) > F1_MS:
+            fails.append(f'first frame median {median(s["ms"] for s in starts)} ms > {F1_MS}')
+        if any(not s.get('playlists') or s.get('route') != 'Home' for s in starts):
+            fails.append('a start did not show the library sidebar on Home')
+        return {'medianMs': median(s.get('ms') for s in starts)}
+    if check == 'F2':
+        if ev.get('banner') != 'SignInNeeded':
+            fails.append(f'banner {ev.get("banner")} is not SignInNeeded')
+        if ev.get('playExit') != 5 or ev.get('played') or ev.get('streams'):
+            fails.append(f'a signed-out play was not refused cleanly: exit {ev.get("playExit")}, played {ev.get("played")}, streams {ev.get("streams")}')
+        return {}
+    if check == 'F3':
+        reps = ev.get('reps') or []
+        if len(reps) < REPS or any(r.get('exit') != 0 or not r.get('songs') for r in reps):
+            fails.append('a search did not return songs')
+        if len(reps) < REPS or any(r.get('uiMs') is None for r in reps):
+            fails.append('the Search view did not show the results every time')
+        for key in ('wallMs', 'uiMs'):
+            if reps and (median(r.get(key) for r in reps) or F3_MS + 1) > F3_MS:
+                fails.append(f'{key} median {median(r.get(key) for r in reps)} > {F3_MS}')
+        return {'wallMedianMs': median(r.get('wallMs') for r in reps), 'uiMedianMs': median(r.get('uiMs') for r in reps)}
+    if check in ('F4', 'F9'):
+        extra = audible(ev, fails)
+        if check == 'F9':
+            if ev.get('tools') != TOOLS:
+                fails.append(f'tools/list gave {ev.get("tools")}')
+            if not ev.get('searchHasSong'):
+                fails.append('MCP search did not return the song')
+        return extra
+    if check == 'F5':
+        rounds, out = ev.get('rounds') or [], {}
+        if len(rounds) < REPS:
+            fails.append(f'{len(rounds)} rounds < {REPS}')
+        for cmd in F5_COMMANDS:
+            seen = [r.get(cmd) or {} for r in rounds]
+            ms = [s.get('ms') for s in seen]
+            if any(not s.get('matched') for s in seen):
+                fails.append(f'{cmd}: a snapshot never matched (engine, seq) with the effect')
+            elif cmd in EVERY_REP and rounds and max(ms) > F5_MS:
+                fails.append(f'{cmd}: slowest {max(ms)} ms > {F5_MS}')
+            elif rounds and median(ms) > F5_MS:
+                fails.append(f'{cmd}: median {median(ms)} ms > {F5_MS}')
+            out[cmd] = median(ms)
+        return out
+    if check == 'F6':
+        moves = ev.get('transitions') or []
+        if len(moves) < 3 or not all(t.get('pass') for t in moves):
+            fails.append(f'{sum(bool(t.get("pass")) for t in moves)} of 3 transitions passed')
+        return {}
+    if check == 'F7':
+        if not (ev.get('mcpTotal') or 0) >= 1:
+            fails.append('MCP library_playlists listed no playlists')
+        if (ev.get('largestTracks') or 0) < 100:
+            fails.append(f'largest playlist has {ev.get("largestTracks")} tracks < 100')
+        if not ev.get('endReached') or not ev.get('artTextures'):
+            fails.append(f'the playlist view did not reach its end with covers: end {ev.get("endReached")}, art {ev.get("artTextures")}')
+        return {'driver': ev.get('driver')}
+    if check == 'F8':
+        if not ev.get('expected') or ev.get('seen') != ev.get('expected') or any(ev.get('exits') or [1]):
+            fails.append(f'played {ev.get("seen")}, expected {ev.get("expected")}, exits {ev.get("exits")}')
+        return {}
+    if check == 'F10':
+        bad, net = ev['f10-badid'], ev['f10-net']
+        if not (bad.get('alive') and bad.get('error')):
+            fails.append(f'a bad id did not show an error with the app alive: {bad}')
+        if not (net.get('downError') and net.get('downUi') == 'error' and net.get('alive')):
+            fails.append(f'network down did not give an error with the app alive: {net}')
+        if net.get('coversRecoveredS') is None or not net.get('searchAfter') or net.get('uiAfter') != 'results':
+            fails.append(f'no automatic recovery after the network returned: {net}')
+        return {}
+    if check in ('R4', 'R5'):
+        bar, state = (R4_BAR, 'Playing') if check == 'R4' else (R5_BAR, 'Paused')
+        cpu = ev.get('cpu') or []
+        if len(cpu) < CPU_SAMPLES:
+            fails.append(f'{len(cpu)} CPU samples < {CPU_SAMPLES}')
+        if ev.get('before') != state or ev.get('after') != state:
+            fails.append(f'not {state} across the window: {ev.get("before")} -> {ev.get("after")}')
+        if cpu and median(cpu) > bar:
+            fails.append(f'CPU median {median(cpu)} % > {bar}')
+        return {'cpuMedian': median(cpu), 'bar': bar}
+    return {}
+
+
+PLAYS = ('F4', 'F5', 'F6', 'F8', 'F9', 'R3', 'R4')
+
+
+def check(out, name, pre=''):
+    missing, fails, voids = session_problems(out)
+    files = {f: load(out, f'{pre}{f}.json') for f in EVIDENCE[name]}
+    missing += [f'missing evidence: {pre}{f}.json' for f, d in files.items() if d is None]
+    sink = (load(out, 'session.verdict.json') or {}).get('sink')
+    drifts, zone = [], None
+    if name == 'R3':
+        ref_missing, ref_voids, drifts = reference_problems(out)
+        missing += ref_missing
+        voids += ref_voids
+    for ev in files.values():
+        if ev is None:
+            continue
+        if 'session' in ev:
+            more_voids, more_missing = guard_voids(out, ev, sink, name in PLAYS and ev.get('started'))
+            voids, missing = voids + more_voids, missing + more_missing
+        voids += renderer_voids(ev.get('renderers') or [], name)
+    if missing:
+        return {'verdict': 'FAIL', 'reasons': missing + fails + voids}
+    ev = files[EVIDENCE[name][0]] if len(files) == 1 else files
+    extra = r3_rules(ev, fails, sink) if name == 'R3' else f_rules(name, ev, fails)
+    outcome = 'VOID' if voids else 'FAIL' if fails else 'PASS'
+    if name == 'R3':
+        voids += drift_voids(extra.get('zone'), outcome, drifts)
+    return dict(extra, verdict='VOID' if voids else outcome, reasons=voids + fails)
+
+
+def checks(out, pre=''):
+    v = {c: check(out, c, pre) for c in CHECKS if c in EVIDENCE}
+    v['R1'], v['R2'] = (memory_check(out, f'{pre}shipped', k, (load(out, 'session.verdict.json') or {}).get('sink')) for k in ('r1', 'r2'))
+    size = (load(out, 'build.json') or {}).get('shippedBytes')
+    v['R6'] = {'verdict': 'PASS' if size else 'FAIL', 'bytes': size, 'reasons': [] if size else ['missing evidence: shippedBytes in build.json']}
+    return {c: v[c] for c in CHECKS}
+
+
+def ballast_size(out):
+    rows = (load(out, 'shipped.r1.json') or {}).get('samples')
+    return max(0, math.ceil(R1_BAR + BALLAST_OVER - medians(rows)['uss'])) if rows else None
+
+
+def ballast(out, build):
+    sink = (load(out, 'session.verdict.json') or {}).get('sink')
+    b = memory_check(out, 'ballast', 'r1', sink)
+    shipped, ev = load(out, 'shipped.r1.json') or {}, load(out, 'ballast.r1.json') or {}
+    shipped_uss = medians(shipped.get('samples')).get('uss')
+    rise = round(b['uss'] - shipped_uss, 1) if b.get('uss') is not None and shipped_uss is not None else None
+    kept = ((ev.get('samples') or [{}])[-1].get('decodedBytesKept') or 0) / 2**20
+    expected = ev['ballastMiB'] + kept if ev.get('ballastMiB') is not None else None
+    threshold_only = b['verdict'] == 'FAIL' and [r[:10] for r in b['reasons']] == ['USS median']
+    landed = b.get('uss') is not None and abs(b['uss'] - (R1_BAR + BALLAST_OVER)) <= LANDING_BAND
+    flagged = build.get('ballastFeaturesExit') == 1 and 'app/gate-sabotage' in (build.get('ballastFeaturesOutput') or '')
+    rose = rise is not None and expected is not None and abs(rise - expected) <= RISE_TOLERANCE
+    return dict(b, ballastMiB=ev.get('ballastMiB'), keptMiB=round(kept, 2), ussRise=rise, holds=threshold_only and landed and flagged and rose,
+                thresholdOnly=threshold_only, landedWithinBand=landed, failsShippedCheck=flagged, ussRoseByBallast=rose)
+
+
+def real_fail(c):
+    return c['verdict'] == 'FAIL' and not any(r.startswith('missing evidence') for r in c['reasons'])
+
+
+def controls(out, build):
+    sink, c, empty = (load(out, 'session.verdict.json') or {}).get('sink'), {}, os.path.join(out, 'empty')
+    os.makedirs(empty, exist_ok=True)
+    seen = lambda pre, names: {n: memory_check(out, f'{pre}shipped', 'r1', sink) if n == 'R1' else check(out, n, pre) for n in names}
+    flagged = build.get('ballastFeaturesExit') == 1 and 'app/gate-sabotage' in (build.get('ballastFeaturesOutput') or '')
+    nouser, badtoken, nostream = seen('nouser.', ('F2', 'F4', 'F5', 'F6', 'F9', 'R1')), seen('badtoken.', ('F3', 'F4')), seen('nostream.', ('F4',))
+    leak = check(out, 'R3', 'leak.')
+    c['noUserToken'] = dict({n: v['verdict'] for n, v in nouser.items()}, holds=nouser['F2']['verdict'] == 'PASS' and all(real_fail(v) for n, v in nouser.items() if n != 'F2'))
+    c['badDeveloperToken'] = dict({n: v['verdict'] for n, v in badtoken.items()}, holds=all(real_fail(v) for v in badtoken.values()))
+    c['noStream'] = {'F4': nostream['F4']['verdict'], 'holds': real_fail(nostream['F4']) and 'playback never started' in nostream['F4']['reasons']}
+    c['leak'] = {'R3': leak['verdict'], 'zone': leak.get('zone'), 'uss': leak.get('uss'), 'changesAfter5': leak.get('changesAfter5'),
+                 'holds': real_fail(leak) and leak.get('zone') == 1 and (leak.get('changesAfter5') or 0) >= 4 and flagged}
+    c['missingArtifact'] = dict(found := {n: v['verdict'] for n, v in checks(empty).items()}, holds=all(v == 'FAIL' for v in found.values()))
+    c['holds'] = all(x['holds'] for x in c.values())
+    return c
 
 
 def verdict(out):
     build = load(out, 'build.json') or {}
-    refs = {n: medians((load(out, f'{n}.json') or {}).get('samples')) for n in REFERENCE_RUNS}
-    v = {'commit': build.get('commit'), 'dirty': build.get('dirty'), 'llvmpipeForced': build.get('llvmpipe'), 'binaries': build.get('sha256'),
-         'reference': dict(refs, recordedPss=REFERENCE['pss']), 'weston': weston_renderer(out),
-         'R1': check(out, 'shipped', 'r1'), 'R2': check(out, 'shipped', 'r2'), 'errors': load(out, 'errors.json') or {},
-         'screenshotExists': (load(out, 'screenshot.json') or {}).get('screenshotExists', False)}
-    shipped, ballast = load(out, 'shipped.r1.json') or {}, load(out, 'ballast.r1.json') or {}
-    gpu = lambda k: shipped.get(k, {}).get('mem_info_vram_used')
-    if gpu('gpuBefore') is not None and gpu('gpuAfter') is not None:
-        v['vramDeltaMiB'] = round((gpu('gpuAfter') - gpu('gpuBefore')) / 2**20, 1)
-    b = check(out, 'ballast', 'r1')
-    shipped_uss = medians(shipped.get('samples')).get('uss')
-    rise = round(b['uss'] - shipped_uss, 1) if 'uss' in b and shipped_uss is not None else None
-    threshold_only = b['verdict'] == 'FAIL' and len(b['reasons']) == 1 and b['reasons'][0].startswith('USS median')
-    landed = 'uss' in b and abs(b['uss'] - (R1_BAR + BALLAST_OVER)) <= LANDING_BAND
-    flagged = build.get('ballastFeaturesExit') == 1 and 'app/gate-sabotage' in (build.get('ballastFeaturesOutput') or '')
-    rose = rise is not None and ballast.get('ballastMiB') is not None and abs(rise - ballast['ballastMiB']) <= RISE_TOLERANCE
-    v['ballast'] = dict(b, ballastMiB=ballast.get('ballastMiB'), ussRise=rise, holds=threshold_only and landed and flagged and rose,
-                        thresholdOnly=threshold_only, landedWithinBand=landed, failsShippedCheck=flagged, ussRoseByBallast=rose)
-    if build.get('llvmpipe'):
-        renderers = {str(r.get('glRenderer')) for r in (load(out, 'shipped.r2.json') or {}).get('samples', [])}
-        v['llvmpipeControl'] = {'holds': all(v[c]['verdict'] == 'VOID' and any('renderer' in r for r in v[c]['reasons']) for c in ('R1', 'R2')) and any('llvmpipe' in g for g in renderers), 'renderers': sorted(renderers)}
+    v = {'commit': build.get('commit'), 'dirty': build.get('dirty'), 'mode': build.get('mode'), 'binaries': build.get('sha256'),
+         'reference': dict({n: medians((load(out, f'{n}.json') or {}).get('samples')) for n in REFERENCE_RUNS}, recordedPss=REFERENCE['pss']),
+         'weston': weston_renderer(out), 'errors': load(out, 'errors.json') or {}, 'screenshots': (load(out, 'screenshots.json') or {})}
     real = load(out, 'realstate.json') or {}
     v['realStateUnchanged'] = bool(real) and real.get('before', {}).get('keyringItems') is not None and real.get('before') == real.get('after')
-    checks = (v['R1']['verdict'], v['R2']['verdict'])
-    v['gate'] = 'FAIL' if not v['realStateUnchanged'] else ('VOID' if 'VOID' in checks else 'FAIL' if 'FAIL' in checks else 'PASS' if v['ballast']['holds']
+    if build.get('mode') == 'controls':
+        v['controls'] = controls(out, build)
+        v['gate'] = 'PASS' if v['realStateUnchanged'] and v['controls']['holds'] else 'FAIL'
+        return v
+    v['checks'] = checks(out)
+    if build.get('mode') == 'llvmpipe':
+        renderers = {str(r.get('glRenderer')) for r in (load(out, 'shipped.r2.json') or {}).get('samples', [])}
+        named = ('F1', 'F4', 'R1', 'R2')
+        holds = all(v['checks'][c]['verdict'] == 'VOID' and any('renderer' in r for r in v['checks'][c]['reasons']) for c in named)
+        v['llvmpipeControl'] = {'holds': holds and any('llvmpipe' in g for g in renderers), 'renderers': sorted(renderers)}
+        v['gate'] = 'PASS' if v['realStateUnchanged'] and v['llvmpipeControl']['holds'] else 'FAIL'
+        return v
+    v['ballast'] = ballast(out, build)
+    seen = [c['verdict'] for c in v['checks'].values()]
+    v['gate'] = 'FAIL' if not v['realStateUnchanged'] else ('VOID' if 'VOID' in seen else 'FAIL' if 'FAIL' in seen else 'PASS' if v['ballast']['holds']
                  else 'VOID' if v['ballast']['verdict'] == 'VOID' else 'FAIL')
     return v
 
 
-def ballast_run(out, bins, sock, sink, llvmpipe):
-    mib = ballast_size(out)
-    if mib is None:
-        raise RuntimeError('no shipped R1 median to size the ballast from')
-    app_run(out, 'ballast', os.path.join(bins, 'bramley-ballast'), sock, sink, llvmpipe, mib)
-
-
-def screenshot(out, bins, sock, sink):
-    res = cs.run_one(f'acceptance-{os.path.basename(out)}', os.path.join(bins, 'bramley-dev'), 'shot', argparse.Namespace(out=out), sock, sink)
-    save(out, 'screenshot.json', {k: res.get(k) for k in ('binary', 'sha256', 'screenshot', 'screenshotExists', 'error')})
-
-
-def guard_fired(out):
-    return [n for n in ('shipped', 'ballast') if (load(out, f'{n}.guard.json') or {}).get('killed')]
-
-
-def real_state():
-    token = os.path.join(cs.REAL_CONFIG, 'music-user-token')
-    st = os.stat(token) if os.path.exists(token) else None
-    cache = {f: [s.st_mtime_ns, s.st_size] for f in sorted(os.listdir(cs.REAL_CACHE)) for s in [os.stat(os.path.join(cs.REAL_CACHE, f))]} if os.path.isdir(cs.REAL_CACHE) else None
-    return {'tokenMtimeNs': st and st.st_mtime_ns, 'tokenSize': st and st.st_size, 'keyringItems': cs.keyring_items('bramley'), 'cache': cache}
-
-
-def run(out, llvmpipe):
-    os.makedirs(os.path.join(ROOT, 'target', 'tmp'), exist_ok=True)
-    before = real_state()
-    bins = os.path.join(out, 'bin')
-    build = load(out, 'build.json') or {}
-    build['sha256'] = {b: sha(os.path.join(bins, b)) for b in sorted(os.listdir(bins))}
-    save(out, 'build.json', build)
-    errors = {}
-    with cs.session(out, 'bramley-gate') as (sock, sink, _):
-        for phase, plays, go in (('reference', False, lambda: reference(out, sock, sink, 'reference')),
-                                 ('shipped', True, lambda: app_run(out, 'shipped', os.path.join(bins, 'bramley'), sock, sink, llvmpipe)),
-                                 ('ballast', True, lambda: ballast_run(out, bins, sock, sink, llvmpipe)),
-                                 ('reference-after', False, lambda: reference(out, sock, sink, 'reference-after')),
-                                 ('screenshot', True, lambda: screenshot(out, bins, sock, sink))):
-            try:
-                if plays and guard_fired(out):
-                    raise RuntimeError(f'skipped: the guard fired in {guard_fired(out)}')
-                go()
-            except Exception as e:
-                errors[phase] = f'{type(e).__name__}: {e}'.replace(ROOT, '.').replace(os.path.expanduser('~'), '~')[:300]
-            save(out, 'errors.json', errors)
-    save(out, 'realstate.json', {'before': before, 'after': real_state()})
-
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--out')
-    ap.add_argument('--llvmpipe', action='store_true')
-    ap.add_argument('--verdict-only', action='store_true')
-    ap.add_argument('--preflight', action='store_true')
-    a = ap.parse_args()
-    if a.preflight:
-        found = preflight()
-        print('\n'.join(['refusing: other GPU clients are running:'] + found) if found else 'preflight: no other weston, bramley or GPU client')
-        sys.exit(2 if found else 0)
-    if not a.verdict_only:
-        run(a.out, a.llvmpipe)
-    v = verdict(a.out)
-    save(a.out, 'verdict.json', v)
-    brief = lambda c: {k: c.get(k) for k in ('verdict', 'zone', 'pss', 'uss', 'rss', 'referenceDrift', 'reasons', 'ballastMiB', 'ussRise', 'holds') if k in c}
-    print(json.dumps(dict(gate=v['gate'], realStateUnchanged=v['realStateUnchanged'], R1=brief(v['R1']), R2=brief(v['R2']), ballast=brief(v['ballast']), reference=v['reference'], llvmpipeControl=v.get('llvmpipeControl'), errors=v['errors']), indent=1))
-    sys.exit(0 if v['gate'] == 'PASS' else 1)
+def brief(v):
+    keep = lambda c: {k: x for k, x in c.items() if k not in ('reasons',) or x}
+    return dict(gate=v['gate'], realStateUnchanged=v['realStateUnchanged'], checks={n: keep(c) for n, c in (v.get('checks') or {}).items()},
+                ballast=v.get('ballast') and keep(v['ballast']), reference=v['reference'], controls=v.get('controls'), llvmpipeControl=v.get('llvmpipeControl'), errors=v['errors'])
 
 
 if __name__ == '__main__':
-    main()
+    import sys
+    result = verdict(sys.argv[1])
+    save(sys.argv[1], 'verdict.json', result)
+    print(json.dumps(brief(result), indent=1))
+    sys.exit(0 if result['gate'] == 'PASS' else 1)
