@@ -4,10 +4,14 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 REFERENCE = {'binary': os.path.join(ROOT, 'target', 'reference', 'bramley-main-4961e27'), 'sha256': '1a72eb4b2880ac5a', 'pss': 88.6}
 R1_BAR, R2_BAR, R3_BAR, R4_BAR, R5_BAR, DRIFT_BAR, BALLAST_OVER, LANDING_BAND = 200.0, 100.0, 10.0, 5.0, 1.0, 5.0, 15.0, 5.0
 COVERS, ADVANCE_S, MIN_WINDOW_POLLS, RISE_TOLERANCE, REPS = 50, 50.0, 30, 3.0, 5
-F1_MS, F3_MS, F4_MS, F5_MS, F4_PLAYED_S, FULL_SONG_S, R3_TRACKS, R3_STALL_S = 500, 2000, 3000, 500, 35.0, 300.0, 8, 2.0
+F1_MS, F3_MS, F4_MS, F5_MS, F4_PLAYED_S, FULL_SONG_S, R3_TRACKS = 500, 2000, 3000, 500, 35.0, 300.0, 8
 REFERENCE_RUNS = ('reference', 'reference-after')
-R1_SAMPLES, R2_SAMPLES, REF_SAMPLES, CPU_SAMPLES = 60, 20, 20, 30
+R1_SAMPLES, R2_SAMPLES, REF_SAMPLES, CPU_SAMPLES, CPU_BIN_S = 60, 20, 20, 30, 10
 F5_COMMANDS, EVERY_REP = ('pause', 'seek', 'resume', 'next', 'prev'), ('pause', 'resume')
+ADVANCE_EPS_S, F5_SEEK_S, F5_POSITION_S, F5_ADVANCING_MS = 0.05, 120.0, 0.1, 3000
+DECRYPTED_MS, SKIPPED_MS, PACE_S = 35000, 100, 1.0
+F6_SENT_SLACK_S, F6_SKIPPED_S, F6_STALL_S, F6_LAND_S, F6_WINDOW_S = 3.0, 0.1, 1.0, 1.0, 5.0
+BAD_TOKEN_SEARCH, BAD_TOKEN_PLAY, NO_OUTPUT = 'developer token was rejected', 'SignInNeeded', 'the audio output could not be opened'
 TOOLS = sorted('search play pause resume next previous seek queue_add now_playing library_playlists'.split())
 CHECKS = ('F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6')
 EVIDENCE = {'F1': ('f1',), 'F2': ('f2',), 'F3': ('f3',), 'F4': ('f4',), 'F5': ('f5',), 'F6': ('f6',), 'F7': ('f7',), 'F8': ('f8',), 'F9': ('f9',),
@@ -17,16 +21,27 @@ EVIDENCE = {'F1': ('f1',), 'F2': ('f2',), 'F3': ('f3',), 'F4': ('f4',), 'F5': ('
 STANDING_GPU_CLIENTS, GPU_LIBS = ('gnome-shell', 'Xvfb', 'grok-bot'), ('libgallium', 'radeonsi', 'libLLVM')
 
 
-def preflight(exclude=lambda pid: False):
-    found = []
+def gpu_processes():
+    found = {}
     for d in glob.glob('/proc/[0-9]*'):
         try:
             comm = open(f'{d}/comm').read().strip()
+        except OSError:
+            continue
+        try:
             libs = sorted({line.split()[-1].rsplit('/', 1)[-1] for line in open(f'{d}/maps') if any(lib in line for lib in GPU_LIBS)})
         except OSError:
             libs = []
-        if int(d[6:]) != os.getpid() and not exclude(int(d[6:])) and (comm in ('weston', 'bramley') or (libs and comm not in STANDING_GPU_CLIENTS)):
-            found.append(f'{d[6:]} {comm} {libs}')
+        found[int(d[6:])] = (comm, libs)
+    return found
+
+
+def preflight(exclude=lambda pid: False, standing=None):
+    found = []
+    for pid, (comm, libs) in gpu_processes().items():
+        allowed = pid in standing if standing is not None else comm in STANDING_GPU_CLIENTS
+        if pid != os.getpid() and not exclude(pid) and (comm in ('weston', 'bramley') or (libs and not allowed)):
+            found.append(f'{pid} {comm} {libs}')
     return found
 
 
@@ -111,14 +126,17 @@ def reference_problems(out):
 
 
 def guard_voids(out, ev, sink, started):
-    guard = load(out, f'{ev.get("session")}.guard.json')
-    if guard is None:
-        return [], [f'missing evidence: {ev.get("session")}.guard.json']
-    voids = [f'guard killed the app: {guard["killed"]}'] if guard.get('killed') else []
-    window = [targets for t, targets in guard.get('log', []) if ev.get('t0', 0) <= t <= ev.get('t1', 0)]
-    if started and (any(targets not in ([], [sink]) for targets in window) or [sink] not in window):
+    voids, missing, window = [], [], []
+    for session in ev.get('sessions') or [ev.get('session')]:
+        guard = load(out, f'{session}.guard.json')
+        if guard is None:
+            missing.append(f'missing evidence: {session}.guard.json')
+            continue
+        voids += [f'guard killed the app: {guard["killed"]}'] if guard.get('killed') else []
+        window += [targets for t, targets in guard.get('log', []) if ev.get('t0', 0) <= t <= ev.get('t1', 0)]
+    if started and not missing and (any(targets not in ([], [sink]) for targets in window) or [sink] not in window):
         voids.append('playback started but no stream was seen linked to the null sink only')
-    return voids, []
+    return voids, missing
 
 
 def drift_voids(zone, outcome, drifts):
@@ -195,6 +213,13 @@ def growth(rows, lo, hi):
     return {k: round(end[k] - start[k], 1) for k in start} if start and end else {}
 
 
+def lags(rows, seeks):
+    lag = lambda a, b: round((b['t'] - a['t']) - (b['position'] - a['position']), 2)
+    judged = [(a, b) for a, b in zip(rows, rows[1:]) if a.get('itemId') == b.get('itemId') and a.get('state') == b.get('state') == 'Playing'
+              and not any(a['t'] - 1 <= t <= b['t'] + 1 for t in seeks)]
+    return [lag(a, b) for a, b in judged if lag(a, b) > PACE_S]
+
+
 def r3_rules(ev, fails, sink):
     rows = ev.get('samples') or []
     g = growth(rows, 5, 30)
@@ -209,10 +234,12 @@ def r3_rules(ev, fails, sink):
         fails.append(f'fewer than {COVERS} covers in some sample')
     if any(r.get('state') != 'Playing' or r.get('banner') is not None for r in rows):
         fails.append('not Playing with no banner in every sample')
-    stalls = [round(b['t'] - a['t'] - (b['position'] - a['position']), 1) for a, b in zip(rows, rows[1:])
-              if a.get('itemId') == b.get('itemId') and a.get('seeks') == b.get('seeks') and b['t'] - a['t'] - (b['position'] - a['position']) > R3_STALL_S]
+    underruns = (rows[-1].get('underruns') or 0) - (rows[0].get('underruns') or 0) if rows and rows[-1].get('underruns') is not None else None
+    if underruns != 0:
+        fails.append(f'underruns during the soak: {underruns}')
+    stalls = lags(rows, ev.get('seekTimes') or [])
     if stalls:
-        fails.append(f'position stalled (underrun proxy): {stalls}')
+        fails.append(f'position fell behind the wall clock by more than {PACE_S} s: {stalls}')
     if g.get('uss') is not None:
         if g['uss'] > R3_BAR:
             fails.append(f'USS growth {g["uss"]} > {R3_BAR}')
@@ -224,20 +251,61 @@ def r3_rules(ev, fails, sink):
                 changesAfter5=sum(1 for a, b in zip(rows, rows[1:]) if b['m'] >= 5 and a.get('itemId') != b.get('itemId')))
 
 
-def audible(ev, fails):
+def delta(a, b, key):
+    return (b.get(key) or 0) - (a.get(key) or 0)
+
+
+def heard_play(j):
+    base, heard, end = j.get('base') or {}, j.get('heard') or {}, j.get('end') or {}
+    why = []
+    if delta(base, end, 'decryptedMs') < DECRYPTED_MS:
+        why.append(f'decrypted {delta(base, end, "decryptedMs")} ms < {DECRYPTED_MS}')
+    if delta(base, end, 'skippedMs') > SKIPPED_MS:
+        why.append(f'skipped {delta(base, end, "skippedMs")} ms > {SKIPPED_MS}')
+    if delta(base, end, 'decryptFails') != 0:
+        why.append(f'decrypt failures {delta(base, end, "decryptFails")}')
+    if abs(delta(heard, end, 'position') - delta(heard, end, 't')) > PACE_S:
+        why.append(f'position moved {delta(heard, end, "position"):.2f} s in {delta(heard, end, "t"):.2f} s of wall clock (tolerance {PACE_S})')
+    if (end.get('position') or 0) <= F4_PLAYED_S or j.get('itemId') != j.get('song') or j.get('state') != 'Playing' or j.get('banner') is not None:
+        why.append(f'not Playing past {F4_PLAYED_S} s of the asked song with no banner: {j.get("state")}, {end.get("position")}, {j.get("banner")}')
+    if (j.get('duration') or 0) < FULL_SONG_S:
+        why.append(f'duration {j.get("duration")} < {FULL_SONG_S}')
+    return why
+
+
+def audible(ev, fails, plays):
     reps = [r.get('audioMs') for r in ev.get('reps') or []]
-    final = ev.get('final') or {}
     if not ev.get('started'):
         fails.append('playback never started')
     if len(reps) < REPS or None in reps:
         fails.append(f'audio started in {sum(r is not None for r in reps)} of {REPS} plays')
     elif median(reps) > F4_MS:
         fails.append(f'audio median {median(reps)} ms > {F4_MS}')
-    if final.get('itemId') != ev.get('song') or (final.get('position') or 0) <= F4_PLAYED_S or (final.get('sentMs') or 0) <= F4_PLAYED_S * 1000:
-        fails.append(f'not past {F4_PLAYED_S} s of the asked song with output sent: {final}')
-    if (final.get('duration') or 0) < FULL_SONG_S:
-        fails.append(f'duration {final.get("duration")} < {FULL_SONG_S}: a preview, not the full song')
-    return {'audioMedianMs': median(reps)}
+    judged = ev.get('judged') or []
+    if len(judged) < plays:
+        fails.append(f'{len(judged)} judged plays < {plays}')
+    for i, j in enumerate(judged):
+        fails += [f'judged play {i}: {w}' for w in heard_play(dict(j, song=ev.get('song')))]
+    return {'audioMedianMs': median(reps), 'decryptedMs': [delta(j.get('base') or {}, j.get('end') or {}, 'decryptedMs') for j in judged]}
+
+
+def f6_move(t):
+    base, flip, end = t.get('base'), t.get('flip'), t.get('end')
+    if not (base and flip and end):
+        return {'pass': False, 'why': 'no applied seek, flip or window end'}
+    if end['t'] < flip['t'] + F6_WINDOW_S:
+        return {'pass': False, 'why': f'window ended {end["t"] - flip["t"]:.2f} s after the flip < {F6_WINDOW_S}'}
+    window = [(ts, p) for ts, p in t.get('samples') or [] if abs(ts - flip['t']) <= F6_WINDOW_S]
+    stall, moved = 0.0, window[0][0] if window else 0.0
+    for (t0, p0), (t1, p1) in zip(window, window[1:]):
+        moved = t1 if p1 > p0 else moved
+        stall = max(stall, t1 - moved)
+    m = {'drained': delta(base, end, 'drainsAcked') >= 1 and delta(base, end, 'drainTimeouts') == 0,
+         'sentS': delta(base, flip, 'sentMs') / 1000, 'skippedS': delta(base, end, 'skippedMs') / 1000, 'stallS': round(stall, 2),
+         'landedOff': round((base.get('position') or 0) - t.get('start', 0) - t.get('target', 0), 2), 'cut': t.get('cut')}
+    m['gapless'] = m['sentS'] >= t['duration'] - t['target'] - F6_SENT_SLACK_S and m['skippedS'] <= F6_SKIPPED_S and m['stallS'] <= F6_STALL_S
+    m['pass'] = abs(m['landedOff']) <= F6_LAND_S and (m['drained'] or m['gapless'])
+    return m
 
 
 def f_rules(check, ev, fails):
@@ -245,8 +313,8 @@ def f_rules(check, ev, fails):
         starts = ev.get('starts') or []
         if len(starts) < REPS or any(s.get('ms') is None for s in starts):
             fails.append(f'{sum(s.get("ms") is not None for s in starts)} of {REPS} starts reached a first frame')
-        elif median(s['ms'] for s in starts) > F1_MS:
-            fails.append(f'first frame median {median(s["ms"] for s in starts)} ms > {F1_MS}')
+        elif max(s['ms'] for s in starts) > F1_MS:
+            fails.append(f'slowest first frame {max(s["ms"] for s in starts)} ms > {F1_MS}')
         if any(not s.get('playlists') or s.get('route') != 'Home' for s in starts):
             fails.append('a start did not show the library sidebar on Home')
         return {'medianMs': median(s.get('ms') for s in starts)}
@@ -267,7 +335,11 @@ def f_rules(check, ev, fails):
                 fails.append(f'{key} median {median(r.get(key) for r in reps)} > {F3_MS}')
         return {'wallMedianMs': median(r.get('wallMs') for r in reps), 'uiMedianMs': median(r.get('uiMs') for r in reps)}
     if check in ('F4', 'F9'):
-        extra = audible(ev, fails)
+        extra = audible(ev, fails, REPS if check == 'F4' else 1)
+        if check == 'F4' and any(r.get('exit') != 0 for r in ev.get('reps') or []):
+            fails.append('a play command did not exit 0')
+        if check == 'F9' and any(r.get('error') is not False for r in ev.get('reps') or []):
+            fails.append('an MCP play returned an error')
         if check == 'F9':
             if ev.get('tools') != TOOLS:
                 fails.append(f'tools/list gave {ev.get("tools")}')
@@ -280,20 +352,26 @@ def f_rules(check, ev, fails):
             fails.append(f'{len(rounds)} rounds < {REPS}')
         for cmd in F5_COMMANDS:
             seen = [r.get(cmd) or {} for r in rounds]
-            ms = [s.get('ms') for s in seen]
-            if any(not s.get('matched') for s in seen):
-                fails.append(f'{cmd}: a snapshot never matched (engine, seq) with the effect')
+            ms = [s.get('effectMs') for s in seen]
+            if any(s.get('exit') != 0 or s.get('appliedMs') is None or s.get('effectMs') is None for s in seen):
+                fails.append(f'{cmd}: a command failed, or its snapshot never showed applied >= seq with the effect')
             elif cmd in EVERY_REP and rounds and max(ms) > F5_MS:
                 fails.append(f'{cmd}: slowest {max(ms)} ms > {F5_MS}')
             elif rounds and median(ms) > F5_MS:
                 fails.append(f'{cmd}: median {median(ms)} ms > {F5_MS}')
+            if cmd in ('next', 'prev'):
+                heard = [s.get('advancingMs') for s in seen]
+                if None in heard:
+                    fails.append(f'{cmd}: the new item never advanced')
+                elif rounds and median(heard) > F5_ADVANCING_MS:
+                    fails.append(f'{cmd}: new item advancing median {median(heard)} ms > {F5_ADVANCING_MS}')
             out[cmd] = median(ms)
         return out
     if check == 'F6':
-        moves = ev.get('transitions') or []
-        if len(moves) < 3 or not all(t.get('pass') for t in moves):
-            fails.append(f'{sum(bool(t.get("pass")) for t in moves)} of 3 transitions passed')
-        return {}
+        moves = [f6_move(t) for t in ev.get('transitions') or []]
+        if len(moves) < 3 or not all(m['pass'] for m in moves):
+            fails.append(f'{sum(m["pass"] for m in moves)} of 3 transitions passed')
+        return {'transitions': moves}
     if check == 'F7':
         if not (ev.get('mcpTotal') or 0) >= 1:
             fails.append('MCP library_playlists listed no playlists')
@@ -320,11 +398,13 @@ def f_rules(check, ev, fails):
         cpu = ev.get('cpu') or []
         if len(cpu) < CPU_SAMPLES:
             fails.append(f'{len(cpu)} CPU samples < {CPU_SAMPLES}')
+        if ev.get('binS') != CPU_BIN_S or any(p != 1 for p in ev.get('procs') or [None]):
+            fails.append(f'bins of {ev.get("binS")} s (want {CPU_BIN_S}) or not exactly 1 process: {sorted(set(ev.get("procs") or []))}')
         if ev.get('before') != state or ev.get('after') != state:
             fails.append(f'not {state} across the window: {ev.get("before")} -> {ev.get("after")}')
         if cpu and median(cpu) > bar:
             fails.append(f'CPU median {median(cpu)} % > {bar}')
-        return {'cpuMedian': median(cpu), 'bar': bar}
+        return {'cpuMedian': median(cpu), 'cpuMean': ev.get('mean'), 'bar': bar}
     return {}
 
 
@@ -344,7 +424,7 @@ def check(out, name, pre=''):
     for ev in files.values():
         if ev is None:
             continue
-        if 'session' in ev:
+        if 'session' in ev or 'sessions' in ev:
             more_voids, more_missing = guard_voids(out, ev, sink, name in PLAYS and ev.get('started'))
             voids, missing = voids + more_voids, missing + more_missing
         voids += renderer_voids(ev.get('renderers') or [], name)
@@ -387,8 +467,12 @@ def ballast(out, build):
                 thresholdOnly=threshold_only, landedWithinBand=landed, failsShippedCheck=flagged, ussRoseByBallast=rose)
 
 
-def real_fail(c):
-    return c['verdict'] == 'FAIL' and not any(r.startswith('missing evidence') for r in c['reasons'])
+def real_fail(c, *reasons):
+    return c['verdict'] == 'FAIL' and bool(reasons) and all(any(want in r for r in c['reasons']) for want in reasons)
+
+
+def banners(out, name):
+    return [str(r.get('banner')) for r in (load(out, name) or {}).get('reps') or []]
 
 
 def controls(out, build):
@@ -398,15 +482,29 @@ def controls(out, build):
     flagged = build.get('ballastFeaturesExit') == 1 and 'app/gate-sabotage' in (build.get('ballastFeaturesOutput') or '')
     nouser, badtoken, nostream = seen('nouser.', ('F2', 'F4', 'F5', 'F6', 'F9', 'R1')), seen('badtoken.', ('F3', 'F4')), seen('nostream.', ('F4',))
     leak = check(out, 'R3', 'leak.')
-    c['noUserToken'] = dict({n: v['verdict'] for n, v in nouser.items()}, holds=nouser['F2']['verdict'] == 'PASS' and all(real_fail(v) for n, v in nouser.items() if n != 'F2'))
-    c['badDeveloperToken'] = dict({n: v['verdict'] for n, v in badtoken.items()}, holds=all(real_fail(v) for v in badtoken.values()))
-    c['noStream'] = {'F4': nostream['F4']['verdict'], 'holds': real_fail(nostream['F4']) and 'playback never started' in nostream['F4']['reasons']}
-    cut, moves = check(out, 'F6', 'cut.'), (load(out, 'cut.f6.json') or {}).get('transitions') or []
-    caught = [t for t in moves if t.get('cut') and not t.get('pass') and not t.get('drained') and t.get('skippedS', 0) > 0.1 and abs(t.get('landedOff', 99)) <= 1]
-    c['cutTail'] = {'F6': cut['verdict'], 'holds': real_fail(cut) and len(caught) == 1}
+    want = {'F4': ('playback never started',), 'F5': ('0 rounds',), 'F6': ('0 of 3 transitions',), 'F9': ('playback never started',), 'R1': ('playback never started',)}
+    c['noUserToken'] = dict({n: v['verdict'] for n, v in nouser.items()}, holds=nouser['F2']['verdict'] == 'PASS' and all(real_fail(v, *want[n]) for n, v in nouser.items() if n != 'F2')
+                            and all('SignInNeeded' in b for b in banners(out, 'nouser.f4.json')))
+    f3_errors = [str(r.get('error')) for r in (load(out, 'badtoken.f3.json') or {}).get('reps') or []]
+    c['badDeveloperToken'] = dict({n: v['verdict'] for n, v in badtoken.items()}, holds=real_fail(badtoken['F3'], 'did not return songs') and real_fail(badtoken['F4'], 'playback never started')
+                                  and bool(f3_errors) and all(BAD_TOKEN_SEARCH in e for e in f3_errors) and all(BAD_TOKEN_PLAY in b for b in banners(out, 'badtoken.f4.json')))
+    c['noStream'] = {'F4': nostream['F4']['verdict'], 'holds': real_fail(nostream['F4'], 'playback never started') and all(NO_OUTPUT in b for b in banners(out, 'nostream.f4.json'))}
+    cut, moves = check(out, 'F6', 'cut.'), [f6_move(t) for t in (load(out, 'cut.f6.json') or {}).get('transitions') or []]
+    caught = [m for m in moves if m.get('cut') and not m['pass'] and m['skippedS'] > F6_SKIPPED_S and abs(m['landedOff']) <= F6_LAND_S]
+    c['cutTail'] = {'F6': cut['verdict'], 'holds': real_fail(cut, '2 of 3 transitions') and len(caught) == 1}
     c['leak'] = {'R3': leak['verdict'], 'zone': leak.get('zone'), 'uss': leak.get('uss'), 'changesAfter5': leak.get('changesAfter5'),
-                 'holds': real_fail(leak) and leak.get('zone') == 1 and (leak.get('changesAfter5') or 0) >= 4 and flagged}
-    c['missingArtifact'] = dict(found := {n: v['verdict'] for n, v in checks(empty).items()}, holds=all(v == 'FAIL' for v in found.values()))
+                 'holds': real_fail(leak, 'USS growth') and (leak.get('changesAfter5') or 0) >= 4 and flagged}
+    stall = load(out, 'stall.stall.json') or {}
+    pair = [dict(stall[k], state='Playing') for k in ('before', 'after') if stall.get(k)]
+    caught = lags(pair, []) if len(pair) == 2 else []
+    c['stall'] = {'lagS': caught, 'underruns': delta(*pair, 'underruns') if len(pair) == 2 else None, 'stoppedS': stall.get('stoppedS'), 'holds': bool(caught)}
+    g = load(out, 'guardtest.json') or {}
+    c['guardKill'] = {k: g.get(k) for k in ('killed', 'appGone', 'wrongSinkPresent', 'wrongSinkSeen')}
+    c['guardKill']['holds'] = bool(g.get('wrongSinkPresent') and g.get('appGone') and g.get('wrongSinkSeen') and 'stream linked to' in str(g.get('killed'))
+                                   and g.get('defaultBefore') and g.get('defaultBefore') == g.get('defaultAfter'))
+    empty_checks = checks(empty)
+    c['missingArtifact'] = dict(found := {n: v['verdict'] for n, v in empty_checks.items()},
+                                holds=all(v['verdict'] == 'FAIL' and v['reasons'] and all(r.startswith('missing evidence') for r in v['reasons'][:1]) for v in empty_checks.values()))
     c['holds'] = all(x['holds'] for x in c.values())
     return c
 
@@ -418,8 +516,9 @@ def verdict(out):
          'weston': weston_renderer(out), 'errors': load(out, 'errors.json') or {}, 'screenshots': (load(out, 'screenshots.json') or {})}
     real, leaks = load(out, 'realstate.json') or {}, load(out, 'leakgrep.json') or {}
     v['realStateUnchanged'] = bool(real) and real.get('before', {}).get('keyringItems') is not None and real.get('before') == real.get('after')
-    v['leakGrep'] = dict(leaks, clean=leaks.get('hits') == {'repo': 0, 'run': 0} and leaks.get('plantedCaught') is True)
-    safe = v['realStateUnchanged'] and v['leakGrep']['clean']
+    v['leakGrep'] = dict(leaks, clean=leaks.get('hits') == {'repo': 0, 'run': 0} and leaks.get('plantedCaught') is True and (leaks.get('runFiles') or 0) > 0)
+    v['phaseErrors'] = {k: e for k, e in v['errors'].items() if not e.startswith('RuntimeError: skipped: the guard fired')}
+    safe = v['realStateUnchanged'] and v['leakGrep']['clean'] and not v['phaseErrors']
     if build.get('mode') == 'controls':
         v['controls'] = controls(out, build)
         v['gate'] = 'PASS' if safe and v['controls']['holds'] else 'FAIL'

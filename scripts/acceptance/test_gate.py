@@ -23,12 +23,33 @@ def rows(n, pss, uss, rss, renderer=RADEONSI, playing=True, pid=7):
 
 def soak(n=181, uss=148.0):
     return [{'t': 1000.0 + 10 * i, 'm': round(i / 6, 3), 'pid': 7, 'procs': 1, 'pss': 170.0, 'uss': uss, 'rss': 205.0, 'texturesUploaded': 50, 'state': 'Playing',
-             'banner': None, 'itemId': f'i{i // 15}', 'position': 20.0 + 10 * i, 'seeks': 0} for i in range(n)]
+             'banner': None, 'itemId': f'i{i // 15}', 'position': 20.0 + 10 * i, 'seeks': 0, 'underruns': 2} for i in range(n)]
 
 
-def played(**extra):
-    return dict({'t0': 1000.0, 't1': 1050.0, 'started': True, 'song': SONG, 'reps': [{'audioMs': 800}] * 5, 'renderers': [RADEONSI],
-                 'final': {'itemId': SONG, 'position': 37.5, 'duration': 355.2, 'sentMs': 57000}}, **extra)
+def counts(t, position, decrypted, skipped=0, fails=0, sent=None, acked=0, timeouts=0):
+    return {'t': t, 'position': position, 'decryptedMs': decrypted, 'skippedMs': skipped, 'decryptFails': fails, 'sentMs': decrypted if sent is None else sent,
+            'underruns': 0, 'drainsAcked': acked, 'drainTimeouts': timeouts}
+
+
+def judged():
+    return {'base': counts(1000.0, None, 0), 'heard': counts(1001.0, 0.4, 900), 'end': counts(1038.0, 37.4, 38000), 'itemId': SONG, 'state': 'Playing', 'banner': None, 'duration': 355.2}
+
+
+def played(n=5, **extra):
+    return dict({'t0': 1000.0, 't1': 1050.0, 'started': True, 'song': SONG, 'reps': [{'audioMs': 800, 'exit': 0, 'error': False, 'banner': None}] * 5,
+                 'renderers': [RADEONSI], 'judged': [judged()] * n}, **extra)
+
+
+def move(duration=185.0, start=0.0, cut=False):
+    target, flip = duration - 20, 1000.0 + 20
+    samples = [[round(1000.0 + i / 4, 2), start + target + i / 4] for i in range(int(4 * 26))]
+    return {'reached': True, 'duration': duration, 'target': target, 'start': start, 'cut': cut, 'samples': samples,
+            'base': counts(1000.0, start + target + 0.2, 0, sent=0), 'flip': counts(flip, start + duration, 20000, sent=20000), 'end': counts(flip + 5.1, start + duration + 5, 25000, sent=25000)}
+
+
+def f5_rounds(**cmd):
+    row = {c: dict({'exit': 0, 'appliedMs': 30, 'effectMs': 40}, **({'advancingMs': 400} if c in ('next', 'prev') else {})) for c in gate.F5_COMMANDS}
+    return [dict(row, **cmd)] * 5
 
 
 def write_valid(out, renderer=RADEONSI, mode='counted'):
@@ -49,18 +70,20 @@ def write_valid(out, renderer=RADEONSI, mode='counted'):
     w('f1.json', {'starts': [{'ms': 110, 'route': 'Home', 'playlists': 34}] * 5, 'renderers': [renderer] * 5})
     w('f2.json', s('signedout', t0=1000.0, t1=1020.0, banner='SignInNeeded', playExit=5, played=False, streams=[]))
     w('f3.json', s('browse', t0=1000.0, t1=1010.0, reps=[{'exit': 0, 'wallMs': 250, 'songs': 10, 'uiMs': 420}] * 5))
-    w('f4.json', s('shipped', **played()))
-    w('f5.json', s('shipped', t0=1000.0, t1=1050.0, started=True, rounds=[{c: {'matched': True, 'ms': 40} for c in gate.F5_COMMANDS}] * 5))
-    w('f6.json', s('shipped', t0=1000.0, t1=1050.0, started=True, transitions=[{'pass': True}] * 3))
+    w('f4.json', dict(played(), sessions=['shipped'], renderers=[renderer]))
+    w('f5.json', s('shipped', t0=1000.0, t1=1050.0, started=True, rounds=f5_rounds()))
+    w('f6.json', s('shipped', t0=1000.0, t1=1050.0, started=True, transitions=[move(), move(173.0, 185.0), move(211.0, 358.0)]))
     w('f7.json', {'mcpTotal': 34, 'largestTracks': 250, 'endReached': True, 'artTextures': 60, 'renderers': [renderer]})
     w('f8.json', s('shipped', t0=1000.0, t1=1050.0, started=True, expected=['a', 'b', 'c', 'd'], seen=['a', 'b', 'c', 'd'], exits=[0] * 4))
-    w('f9.json', s('browse', **played(tools=gate.TOOLS, searchHasSong=True)))
+    w('f9.json', s('browse', **played(1, tools=gate.TOOLS, searchHasSong=True)))
     w('f10-badid.json', s('browse', t0=1000.0, t1=1010.0, alive=True, error=True))
     w('f10-net.json', s('offline', t0=1000.0, t1=1010.0, downError=True, downUi='error', alive=True, coversRecoveredS=4.0, searchAfter=True, uiAfter='results'))
-    w('r3.json', s('shipped', t0=1000.0, t1=2810.0, started=True, pid=7, samples=soak()))
-    w('r4.json', s('cpu', t0=1000.0, t1=1060.0, started=True, before='Playing', after='Playing', cpu=[4.0] * 30))
-    w('r5.json', s('cpu', t0=1000.0, t1=1060.0, before='Paused', after='Paused', cpu=[0.5] * 30))
-    real = {'tokenMtimeNs': 1, 'tokenSize': 300, 'keyringItems': [], 'cache': None}
+    w('r3.json', s('shipped', t0=1000.0, t1=2810.0, started=True, pid=7, samples=soak(), seekTimes=[]))
+    cpu = lambda state, load: dict(t0=1000.0, t1=1060.0, before=state, after=state, cpu=[load] * 30, mean=load, binS=10, procs=[1] * 30)
+    w('r4.json', s('cpu', started=True, **cpu('Playing', 4.0)))
+    w('r5.json', s('cpu', **cpu('Paused', 0.5)))
+    w('errors.json', {})
+    real = {'tokenMtimeNs': 1, 'tokenSize': 300, 'keyringItems': [], 'cache': None, 'config': {'developer-token': [1, 2]}}
     w('realstate.json', {'before': real, 'after': real})
     w('cotenants.json', {'polls': 600, 'seen': []})
     w('leakgrep.json', {'libraryNames': 34, 'catalogNames': 40, 'tokenFragments': 6, 'runFiles': 90, 'hits': {'repo': 0, 'run': 0}, 'plantedCaught': True})
@@ -164,8 +187,8 @@ MEMORY = [
     ('missing r1 in a void session', both(remove('shipped.r1.json'), put('session.verdict.json', sinkGone=False)), 'R1', 'FAIL', 'shipped.r1.json'),
 ]
 FUNCTIONAL = [
-    ('F1 slow median', put('f1.json', starts=[{'ms': 520, 'route': 'Home', 'playlists': 3}] * 3 + [{'ms': 100, 'route': 'Home', 'playlists': 3}] * 2), 'F1', 'FAIL', 'median 520'),
-    ('F1 one slow start is fine', put('f1.json', starts=[{'ms': 900, 'route': 'Home', 'playlists': 3}] + [{'ms': 100, 'route': 'Home', 'playlists': 3}] * 4), 'F1', 'PASS', None),
+    ('F1 one slow start fails', put('f1.json', starts=[{'ms': 501, 'route': 'Home', 'playlists': 3}] + [{'ms': 100, 'route': 'Home', 'playlists': 3}] * 4), 'F1', 'FAIL', 'slowest first frame 501'),
+    ('F1 every start at the bar', put('f1.json', starts=[{'ms': 500, 'route': 'Home', 'playlists': 3}] * 5), 'F1', 'PASS', None),
     ('F1 no frame', put('f1.json', starts=[{'ms': None, 'route': 'Home', 'playlists': 3}] + [{'ms': 100, 'route': 'Home', 'playlists': 3}] * 4), 'F1', 'FAIL', '4 of 5 starts'),
     ('F1 four starts', put('f1.json', starts=[{'ms': 100, 'route': 'Home', 'playlists': 3}] * 4), 'F1', 'FAIL', '4 of 5 starts'),
     ('F1 no sidebar', put('f1.json', starts=[{'ms': 100, 'route': 'Home', 'playlists': 0}] * 5), 'F1', 'FAIL', 'sidebar'),
@@ -183,27 +206,62 @@ FUNCTIONAL = [
     ('F3 error exit', put('f3.json', reps=[{'exit': 1, 'wallMs': 300, 'songs': 3, 'uiMs': 400}] * 5), 'F3', 'FAIL', 'did not return songs'),
     ('F3 four reps', put('f3.json', reps=[{'exit': 0, 'wallMs': 300, 'songs': 3, 'uiMs': 400}] * 4), 'F3', 'FAIL', 'did not return songs'),
     ('F4 never started', put('f4.json', started=False, reps=[{'audioMs': None}] * 5), 'F4', 'FAIL', 'never started'),
-    ('F4 slow audio', put('f4.json', reps=[{'audioMs': 3100}] * 5), 'F4', 'FAIL', 'audio median 3100'),
-    ('F4 slow median beside a fast play', put('f4.json', reps=[{'audioMs': 800}] * 2 + [{'audioMs': 3100}] * 3), 'F4', 'FAIL', 'audio median 3100'),
-    ('F4 fast median beside slow plays', put('f4.json', reps=[{'audioMs': 800}] * 3 + [{'audioMs': 9000}] * 2), 'F4', 'PASS', None),
-    ('F4 one missed play', put('f4.json', reps=[{'audioMs': None}] + [{'audioMs': 800}] * 4), 'F4', 'FAIL', '4 of 5'),
-    ('F4 preview', edit('f4.json', lambda d: d['final'].__setitem__('duration', 30.0)), 'F4', 'FAIL', 'preview'),
-    ('F4 stopped at 35', edit('f4.json', lambda d: d['final'].__setitem__('position', 35.0)), 'F4', 'FAIL', 'not past 35'),
-    ('F4 nothing sent', edit('f4.json', lambda d: d['final'].__setitem__('sentMs', 35000)), 'F4', 'FAIL', 'not past 35'),
-    ('F4 another song', edit('f4.json', lambda d: d['final'].__setitem__('itemId', '1')), 'F4', 'FAIL', 'not past 35'),
+    ('F4 slow audio', put('f4.json', reps=[{'audioMs': 3100, 'exit': 0}] * 5), 'F4', 'FAIL', 'audio median 3100'),
+    ('F4 slow median beside a fast play', put('f4.json', reps=[{'audioMs': 800, 'exit': 0}] * 2 + [{'audioMs': 3100, 'exit': 0}] * 3), 'F4', 'FAIL', 'audio median 3100'),
+    ('F4 fast median beside slow plays', put('f4.json', reps=[{'audioMs': 800, 'exit': 0}] * 3 + [{'audioMs': 9000, 'exit': 0}] * 2), 'F4', 'PASS', None),
+    ('F4 one missed play', put('f4.json', reps=[{'audioMs': None, 'exit': 0}] + [{'audioMs': 800, 'exit': 0}] * 4), 'F4', 'FAIL', '4 of 5'),
+    ('F4 a play exits non-zero', put('f4.json', reps=[{'audioMs': 800, 'exit': 1}] + [{'audioMs': 800, 'exit': 0}] * 4), 'F4', 'FAIL', 'did not exit 0'),
+    ('F4 four judged plays', edit('f4.json', lambda d: d['judged'].pop()), 'F4', 'FAIL', '4 judged plays < 5'),
+    ('F4 decrypted short', edit('f4.json', lambda d: d['judged'][2]['end'].__setitem__('decryptedMs', 34999)), 'F4', 'FAIL', 'decrypted 34999 ms < 35000'),
+    ('F4 decrypted at the bar', edit('f4.json', lambda d: d['judged'][2]['end'].__setitem__('decryptedMs', 35000)), 'F4', 'PASS', None),
+    ('F4 decrypted counted before the play', edit('f4.json', lambda d: d['judged'][2]['base'].__setitem__('decryptedMs', 10000)), 'F4', 'FAIL', 'decrypted 28000 ms'),
+    ('F4 skipped over', edit('f4.json', lambda d: d['judged'][0]['end'].__setitem__('skippedMs', 101)), 'F4', 'FAIL', 'skipped 101 ms > 100'),
+    ('F4 skipped at the bar', edit('f4.json', lambda d: d['judged'][0]['end'].__setitem__('skippedMs', 100)), 'F4', 'PASS', None),
+    ('F4 a decrypt failure', edit('f4.json', lambda d: d['judged'][0]['end'].__setitem__('decryptFails', 1)), 'F4', 'FAIL', 'decrypt failures 1'),
+    ('F4 position behind the wall clock', edit('f4.json', lambda d: d['judged'][1]['end'].__setitem__('t', 1039.1)), 'F4', 'FAIL', 'wall clock'),
+    ('F4 position ahead of the wall clock', edit('f4.json', lambda d: d['judged'][1]['end'].__setitem__('t', 1035.9)), 'F4', 'FAIL', 'wall clock'),
+    ('F4 pace at the tolerance', edit('f4.json', lambda d: d['judged'][1]['end'].__setitem__('t', 1038.0)), 'F4', 'PASS', None),
+    ('F4 banner at the end', edit('f4.json', lambda d: d['judged'][4].__setitem__('banner', 'Error')), 'F4', 'FAIL', 'no banner'),
+    ('F4 paused at the end', edit('f4.json', lambda d: d['judged'][4].__setitem__('state', 'Paused')), 'F4', 'FAIL', 'no banner'),
+    ('F4 another song', edit('f4.json', lambda d: d['judged'][4].__setitem__('itemId', '1')), 'F4', 'FAIL', 'no banner'),
+    ('F4 stopped at 35', edit('f4.json', lambda d: d['judged'][4]['end'].__setitem__('position', 35.0)), 'F4', 'FAIL', 'no banner'),
+    ('F4 preview', edit('f4.json', lambda d: d['judged'][4].__setitem__('duration', 30.0)), 'F4', 'FAIL', 'duration 30.0'),
+    ('F4 never started', put('f4.json', started=False, reps=[{'audioMs': None, 'exit': 0}] * 5, judged=[]), 'F4', 'FAIL', 'never started'),
     ('F4 no stream once started', put('shipped.guard.json', log=[[990.0 + i / 4, []] for i in range(400)]), 'F4', 'VOID', 'no stream'),
     ('F4 stream elsewhere once started', edit('shipped.guard.json', lambda d: d['log'][60].__setitem__(1, ['hdmi'])), 'F4', 'VOID', 'no stream'),
     ('F4 stream outside its window only', put('shipped.guard.json', log=[[900.0, [SINK]], [1100.0, [SINK]]]), 'F4', 'VOID', 'no stream'),
     ('F4 never started and no stream is FAIL', both(put('f4.json', started=False), put('shipped.guard.json', log=[])), 'F4', 'FAIL', 'never started'),
+    ('F4 a cold launch guard is missing', put('f4.json', sessions=['shipped', 'f4cold-gone']), 'F4', 'FAIL', 'f4cold-gone.guard.json'),
+    ('F4 a cold launch guard killed', both(put('f4.json', sessions=['cpu', 'shipped']), put('cpu.guard.json', killed='linked to spdif')), 'F4', 'VOID', 'guard killed'),
     ('F4 missing guard', remove('shipped.guard.json'), 'F4', 'FAIL', 'shipped.guard.json'),
     ('F4 renderer', put('f4.json', renderers=['Some GPU (nouveau)']), 'F4', 'VOID', 'renderer'),
-    ('F5 slow seek median', F5_SLOW('seek', 530, 3), 'F5', 'FAIL', 'seek: median 530'),
-    ('F5 one slow seek is fine', F5_SLOW('seek', 900, 1), 'F5', 'PASS', None),
-    ('F5 one slow pause fails', F5_SLOW('pause', 600, 1), 'F5', 'FAIL', 'pause: slowest 600'),
-    ('F5 one slow resume fails', F5_SLOW('resume', 600, 1), 'F5', 'FAIL', 'resume: slowest 600'),
-    ('F5 unmatched next', edit('f5.json', lambda d: d['rounds'][2].__setitem__('next', {'matched': False, 'ms': None})), 'F5', 'FAIL', 'next: a snapshot never matched'),
+    ('F5 slow seek median', put('f5.json', rounds=f5_rounds()[:2] + f5_rounds(seek={'exit': 0, 'appliedMs': 30, 'effectMs': 530})[:3]), 'F5', 'FAIL', 'seek: median 530'),
+    ('F5 one slow seek is fine', put('f5.json', rounds=f5_rounds()[:4] + f5_rounds(seek={'exit': 0, 'appliedMs': 30, 'effectMs': 900})[:1]), 'F5', 'PASS', None),
+    ('F5 one slow pause fails', put('f5.json', rounds=f5_rounds()[:4] + f5_rounds(pause={'exit': 0, 'appliedMs': 30, 'effectMs': 501})[:1]), 'F5', 'FAIL', 'pause: slowest 501'),
+    ('F5 one slow resume fails', put('f5.json', rounds=f5_rounds()[:4] + f5_rounds(resume={'exit': 0, 'appliedMs': 30, 'effectMs': 501})[:1]), 'F5', 'FAIL', 'resume: slowest 501'),
+    ('F5 resume at the bar', put('f5.json', rounds=f5_rounds(resume={'exit': 0, 'appliedMs': 30, 'effectMs': 500})), 'F5', 'PASS', None),
+    ('F5 acknowledged but no effect', put('f5.json', rounds=f5_rounds(seek={'exit': 0, 'appliedMs': 30, 'effectMs': None})), 'F5', 'FAIL', 'seek: a command failed'),
+    ('F5 effect without the acknowledgement', put('f5.json', rounds=f5_rounds(pause={'exit': 0, 'appliedMs': None, 'effectMs': 40})), 'F5', 'FAIL', 'pause: a command failed'),
+    ('F5 a command exits non-zero', put('f5.json', rounds=f5_rounds(prev={'exit': 1, 'appliedMs': 30, 'effectMs': 40, 'advancingMs': 400})), 'F5', 'FAIL', 'prev: a command failed'),
+    ('F5 next never advances', put('f5.json', rounds=f5_rounds(next={'exit': 0, 'appliedMs': 30, 'effectMs': 40, 'advancingMs': None})), 'F5', 'FAIL', 'next: the new item never advanced'),
+    ('F5 prev advances late', put('f5.json', rounds=f5_rounds(prev={'exit': 0, 'appliedMs': 30, 'effectMs': 40, 'advancingMs': 3001})), 'F5', 'FAIL', 'prev: new item advancing median 3001'),
+    ('F5 next advances at the bar', put('f5.json', rounds=f5_rounds(next={'exit': 0, 'appliedMs': 30, 'effectMs': 40, 'advancingMs': 3000})), 'F5', 'PASS', None),
     ('F5 four rounds', edit('f5.json', lambda d: d['rounds'].pop()), 'F5', 'FAIL', '4 rounds'),
-    ('F6 one transition cut', edit('f6.json', lambda d: d['transitions'][1].__setitem__('pass', False)), 'F6', 'FAIL', '2 of 3'),
+    ('F6 skipped over', edit('f6.json', lambda d: d['transitions'][1]['end'].__setitem__('skippedMs', 101)), 'F6', 'FAIL', '2 of 3'),
+    ('F6 skipped at the bar', edit('f6.json', lambda d: d['transitions'][1]['end'].__setitem__('skippedMs', 100)), 'F6', 'PASS', None),
+    ('F6 skipped after the flip counts', edit('f6.json', lambda d: d['transitions'][1]['end'].__setitem__('skippedMs', 3000)), 'F6', 'FAIL', '2 of 3'),
+    ('F6 early contiguous cut: sent short at the flip', edit('f6.json', lambda d: d['transitions'][0]['flip'].__setitem__('sentMs', 16999)), 'F6', 'FAIL', '2 of 3'),
+    ('F6 sent at the slack', edit('f6.json', lambda d: d['transitions'][0]['flip'].__setitem__('sentMs', 17000)), 'F6', 'PASS', None),
+    ('F6 sent read at the flip, not the window end', both(edit('f6.json', lambda d: d['transitions'][0]['flip'].__setitem__('sentMs', 12000)),
+                                                         edit('f6.json', lambda d: d['transitions'][0]['end'].__setitem__('sentMs', 30000))), 'F6', 'FAIL', '2 of 3'),
+    ('F6 stall over a second', edit('f6.json', lambda d: [p.__setitem__(1, d['transitions'][2]['start'] + 191.0) for p in d['transitions'][2]['samples'] if 1019.0 <= p[0] <= 1020.1]), 'F6', 'FAIL', '2 of 3'),
+    ('F6 mislanded', edit('f6.json', lambda d: d['transitions'][0]['base'].__setitem__('position', 166.3)), 'F6', 'FAIL', '2 of 3'),
+    ('F6 landed at the bar', edit('f6.json', lambda d: d['transitions'][0]['base'].__setitem__('position', 166.0)), 'F6', 'PASS', None),
+    ('F6 drained rescues a skip', both(edit('f6.json', lambda d: d['transitions'][1]['end'].__setitem__('skippedMs', 500)), edit('f6.json', lambda d: d['transitions'][1]['end'].__setitem__('drainsAcked', 1))), 'F6', 'PASS', None),
+    ('F6 a drain timeout in the window', both(edit('f6.json', lambda d: d['transitions'][1]['end'].update(skippedMs=500, drainsAcked=1, drainTimeouts=1))), 'F6', 'FAIL', '2 of 3'),
+    ('F6 a drain acked only at the flip is read at the window end', both(edit('f6.json', lambda d: d['transitions'][1]['flip'].__setitem__('drainsAcked', 1)), edit('f6.json', lambda d: d['transitions'][1]['end'].update(skippedMs=500, drainTimeouts=1, drainsAcked=1))), 'F6', 'FAIL', '2 of 3'),
+    ('F6 window shorter than 5 s', edit('f6.json', lambda d: d['transitions'][2]['end'].__setitem__('t', 1024.9)), 'F6', 'FAIL', '2 of 3'),
+    ('F6 no flip', edit('f6.json', lambda d: d['transitions'][2].__setitem__('flip', None)), 'F6', 'FAIL', '2 of 3'),
     ('F6 two transitions', edit('f6.json', lambda d: d['transitions'].pop()), 'F6', 'FAIL', '2 of 3'),
     ('F7 no playlists', put('f7.json', mcpTotal=0), 'F7', 'FAIL', 'listed no playlists'),
     ('F7 short playlist', put('f7.json', largestTracks=99), 'F7', 'FAIL', '99 tracks'),
@@ -214,6 +272,8 @@ FUNCTIONAL = [
     ('F8 nothing expected', put('f8.json', expected=[], seen=[]), 'F8', 'FAIL', 'played'),
     ('F9 missing tool', put('f9.json', tools=gate.TOOLS[1:]), 'F9', 'FAIL', 'tools/list'),
     ('F9 search miss', put('f9.json', searchHasSong=False), 'F9', 'FAIL', 'MCP search'),
+    ('F9 one MCP play errors', put('f9.json', reps=[{'audioMs': 800, 'exit': 0, 'error': True}] + [{'audioMs': 800, 'exit': 0, 'error': False}] * 4), 'F9', 'FAIL', 'MCP play returned an error'),
+    ('F9 error unrecorded', put('f9.json', reps=[{'audioMs': 800}] * 5), 'F9', 'FAIL', 'MCP play returned an error'),
     ('F9 slow audio', put('f9.json', reps=[{'audioMs': 3001}] * 5), 'F9', 'FAIL', 'audio median'),
     ('F9 no stream', put('browse.guard.json', log=[]), 'F9', 'VOID', 'no stream'),
     ('F10 bad id crashed', put('f10-badid.json', alive=False), 'F10', 'FAIL', 'bad id'),
@@ -234,8 +294,13 @@ FUNCTIONAL = [
     ('R3 seven tracks', soak_edit(lambda r: r.__setitem__('itemId', f'i{min(6, r["m"] // 2.5)}')), 'R3', 'FAIL', '7 tracks played'),
     ('R3 crash', edit('r3.json', lambda d: d['samples'][100].__setitem__('pid', 8)), 'R3', 'FAIL', 'crashed'),
     ('R3 forked', edit('r3.json', lambda d: d['samples'][100].__setitem__('procs', 2)), 'R3', 'FAIL', 'crashed'),
-    ('R3 stall', soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 11 else 0))), 'R3', 'FAIL', 'stalled'),
-    ('R3 a seek is not a stall', soak_edit(lambda r: r.update(position=r['position'] - (3.0 if r['m'] >= 11 else 0), seeks=int(r['m'] >= 11))), 'R3', 'PASS', None),
+    ('R3 stall', soak_edit(lambda r: r.__setitem__('position', r['position'] - (1.1 if r['m'] >= 11 else 0))), 'R3', 'FAIL', 'behind the wall clock'),
+    ('R3 lag at the tolerance', soak_edit(lambda r: r.__setitem__('position', r['position'] - (1.0 if r['m'] >= 11 else 0))), 'R3', 'PASS', None),
+    ('R3 a seek is not a stall', both(soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 11 else 0))), put('r3.json', seekTimes=[1000.0 + 10 * 65 + 5])), 'R3', 'PASS', None),
+    ('R3 a seek near a pair only excuses that pair', both(soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 11 else 0))), put('r3.json', seekTimes=[1000.0 + 10 * 30])), 'R3', 'FAIL', 'behind the wall clock'),
+    ('R3 an underrun', edit('r3.json', lambda d: d['samples'][-1].__setitem__('underruns', 3)), 'R3', 'FAIL', 'underruns during the soak: 1'),
+    ('R3 underruns unreadable', soak_edit(lambda r: r.pop('underruns')), 'R3', 'FAIL', 'underruns during the soak: None'),
+    ('R3 banner', edit('r3.json', lambda d: d['samples'][50].__setitem__('banner', 'Error')), 'R3', 'FAIL', 'not Playing'),
     ('R3 a track change is not a stall', soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 10 else 0) if r['itemId'] != 'i4' or r['m'] < 10 else r['position'])), 'R3', 'PASS', None),
     ('R3 paused', edit('r3.json', lambda d: d['samples'][50].__setitem__('state', 'Paused')), 'R3', 'FAIL', 'not Playing'),
     ('R3 covers gone', edit('r3.json', lambda d: d['samples'][50].__setitem__('texturesUploaded', 0)), 'R3', 'FAIL', 'covers'),
@@ -249,6 +314,10 @@ FUNCTIONAL = [
     ('R4 at the bar', put('r4.json', cpu=[5.0] * 30), 'R4', 'PASS', None),
     ('R4 not playing', put('r4.json', after='Paused'), 'R4', 'FAIL', 'not Playing'),
     ('R4 short window', put('r4.json', cpu=[1.0] * 29), 'R4', 'FAIL', '29 CPU samples'),
+    ('R4 two-second bins', put('r4.json', binS=2), 'R4', 'FAIL', 'bins of 2 s'),
+    ('R5 a child process', edit('r5.json', lambda d: d['procs'].__setitem__(4, 2)), 'R5', 'FAIL', 'not exactly 1 process'),
+    ('R5 procs unrecorded', put('r5.json', procs=[]), 'R5', 'FAIL', 'not exactly 1 process'),
+    ('R5 at the bar', put('r5.json', cpu=[1.0] * 30), 'R5', 'PASS', None),
     ('R5 busy', put('r5.json', cpu=[1.5] * 30), 'R5', 'FAIL', 'CPU median 1.5'),
     ('R5 not paused', put('r5.json', before='Playing'), 'R5', 'FAIL', 'not Paused'),
     ('R5 is judged against its own bar', put('r5.json', cpu=[4.0] * 30), 'R5', 'FAIL', 'CPU median 4.0'),
@@ -261,6 +330,7 @@ BALLAST = [
     ('ballast fails for another reason', edit('ballast.r1.json', lambda d: d['samples'][2].__setitem__('texturesUploaded', 0)), 'thresholdOnly', 'FAIL'),
     ('ballast fails only for another reason', both(every('ballast', 'uss', 150.0), every('ballast', 'rss', 199.0), edit('ballast.r1.json', lambda d: d['samples'][2].__setitem__('procs', 2))), 'thresholdOnly', 'FAIL'),
     ('ballast lands off band', every('ballast', 'uss', 225.0), 'landedWithinBand', 'FAIL'),
+    ('ballast lands off band with a matching rise', both(every('ballast', 'uss', 222.0), put('ballast.r1.json', ballastMiB=73)), 'landedWithinBand', 'FAIL'),
     ('ballast did not raise USS', put('ballast.r1.json', ballastMiB=40), 'ussRoseByBallast', 'FAIL'),
     ('ballast rise beyond its size plus kept covers', put('ballast.r1.json', ballastMiB=63), 'ussRoseByBallast', 'FAIL'),
     ('ballast-only void', put('ballast.guard.json', killed='linked to spdif'), 'thresholdOnly', 'VOID'),
@@ -331,12 +401,19 @@ class Verdict(unittest.TestCase):
                              ('unread keyring', edit('realstate.json', lambda d: [d[k].__setitem__('keyringItems', None) for k in d])),
                              ('missing', remove('realstate.json')), ('a name in the run', put('leakgrep.json', hits={'repo': 0, 'run': 1})),
                              ('a name in the repo', put('leakgrep.json', hits={'repo': 2, 'run': 0})), ('a grep that cannot fail', put('leakgrep.json', plantedCaught=False)),
-                             ('no grep', remove('leakgrep.json'))):
+                             ('no grep', remove('leakgrep.json')), ('a grep that read no files', put('leakgrep.json', runFiles=0)),
+                             ('a phase raised', lambda out: gate.save(out, 'errors.json', {'browse': 'RuntimeError: boom'}))):
             with self.subTest(name):
                 write_valid(SCRATCH)
                 mutate(SCRATCH)
                 v = gate.verdict(SCRATCH)
-                self.assertEqual((v['realStateUnchanged'] and v['leakGrep']['clean'], v['gate']), (False, 'FAIL'))
+                self.assertEqual((v['realStateUnchanged'] and v['leakGrep']['clean'] and not v['phaseErrors'], v['gate']), (False, 'FAIL'))
+
+    def test_a_phase_skipped_after_a_guard_kill_is_not_a_phase_error(self):
+        write_valid(SCRATCH)
+        gate.save(SCRATCH, 'errors.json', {'browse': "RuntimeError: skipped: the guard fired in ['shipped.guard.json']"})
+        v = gate.verdict(SCRATCH)
+        self.assertEqual((v['phaseErrors'], v['gate']), ({}, 'PASS'))
 
     def test_llvmpipe_voids_the_named_checks_and_the_control_needs_llvmpipe_seen(self):
         write_valid(SCRATCH, renderer=LLVMPIPE, mode='llvmpipe')
@@ -356,22 +433,27 @@ class Verdict(unittest.TestCase):
 def write_controls(out):
     write_valid(out, mode='controls')
     shutil.copy(os.path.join(out, 'f6.json'), os.path.join(out, 'cut.f6.json'))
-    edit('cut.f6.json', lambda d: d['transitions'].__setitem__(2, {'cut': True, 'pass': False, 'drained': False, 'skippedS': 2.9, 'landedOff': 0.2}))(out)
+    edit('cut.f6.json', lambda d: [d['transitions'][2]['end'].__setitem__('skippedMs', 2900), d['transitions'][2].__setitem__('cut', True)])(out)
     for f in os.listdir(out):
         if f.split('.')[0] in ('f2', 'f3', 'f4', 'f5', 'f6', 'f9', 'r3', 'shipped'):
             shutil.copy(os.path.join(out, f), os.path.join(out, ('leak.' if f.startswith('r3') else 'nouser.') + f))
     for pre in ('badtoken.', 'nostream.'):
         for f in ('f3.json', 'f4.json'):
             shutil.copy(os.path.join(out, f), os.path.join(out, pre + f))
-    put('nouser.f4.json', started=False, reps=[{'audioMs': None}] * 5)(out)
-    put('nouser.f5.json', rounds=[])(out)
-    put('nouser.f6.json', transitions=[])(out)
-    put('nouser.f9.json', started=False, reps=[{'audioMs': None}] * 5)(out)
+    never = lambda banner: dict(started=False, reps=[{'audioMs': None, 'exit': 0, 'banner': banner}] * 5, judged=[])
+    put('nouser.f4.json', **never('SignInNeeded'))(out)
+    put('nouser.f5.json', rounds=[], started=False)(out)
+    put('nouser.f6.json', transitions=[], started=False)(out)
+    put('nouser.f9.json', **never('SignInNeeded'))(out)
     put('nouser.shipped.r1.json', started=False, samples=[])(out)
-    put('badtoken.f3.json', reps=[{'exit': 1, 'wallMs': 300, 'songs': 0, 'uiMs': None}] * 5)(out)
-    put('badtoken.f4.json', started=False, reps=[{'audioMs': None}] * 5)(out)
-    put('nostream.f4.json', started=False, reps=[{'audioMs': None}] * 5)(out)
+    put('badtoken.f3.json', reps=[{'exit': 1, 'wallMs': 300, 'songs': 0, 'uiMs': None, 'error': "Bramley's developer token was rejected"}] * 5)(out)
+    put('badtoken.f4.json', **never('SignInNeeded'))(out)
+    put('nostream.f4.json', **never('Error("the audio output could not be opened")'))(out)
     edit('leak.r3.json', lambda d: [r.__setitem__('uss', r['uss'] + 3 * int(r['itemId'][1:])) for r in d['samples']])(out)
+    gate.save(out, 'stall.stall.json', {'before': counts(1000.0, 37.0, 38000), 'after': counts(1010.0, 44.1, 45000), 'stoppedS': 3})
+    edit('stall.stall.json', lambda d: [d[k].__setitem__('itemId', SONG) for k in ('before', 'after')])(out)
+    gate.save(out, 'guardtest.json', {'defaultBefore': 'iec958', 'defaultAfter': 'iec958', 'wrongSinkPresent': True, 'appGone': True, 'wrongSinkSeen': True,
+                                      'killed': "stream linked to ['bramley-gate-wrong-null-x']"})
 
 
 class Controls(unittest.TestCase):
@@ -380,11 +462,28 @@ class Controls(unittest.TestCase):
         os.makedirs(SCRATCH)
         self.addCleanup(shutil.rmtree, SCRATCH, True)
 
+    def test_the_missing_artifact_control_breaks_when_an_empty_directory_passes_a_check(self):
+        write_controls(SCRATCH)
+        real = gate.checks
+        try:
+            gate.checks = lambda out, pre='': dict(real(out, pre), R6={'verdict': 'PASS', 'reasons': []})
+            v = gate.verdict(SCRATCH)
+        finally:
+            gate.checks = real
+        self.assertEqual((v['controls']['missingArtifact']['holds'], v['gate']), (False, 'FAIL'))
+        try:
+            gate.checks = lambda out, pre='': dict(real(out, pre), R6={'verdict': 'FAIL', 'reasons': ['bytes look wrong']})
+            v = gate.verdict(SCRATCH)
+        finally:
+            gate.checks = real
+        self.assertEqual((v['controls']['missingArtifact']['holds'], v['gate']), (False, 'FAIL'))
+
     def test_every_control_holds_on_evidence_that_fails_for_its_reason(self):
         write_controls(SCRATCH)
         v = gate.verdict(SCRATCH)
         self.assertEqual(({k: c['holds'] for k, c in v['controls'].items() if k != 'holds'}, v['gate']),
-                         ({'noUserToken': True, 'badDeveloperToken': True, 'noStream': True, 'cutTail': True, 'leak': True, 'missingArtifact': True}, 'PASS'))
+                         ({'noUserToken': True, 'badDeveloperToken': True, 'noStream': True, 'cutTail': True, 'leak': True, 'stall': True, 'guardKill': True,
+                           'missingArtifact': True}, 'PASS'))
 
     def test_each_control_breaks_when_its_check_passes_or_fails_vacuously(self):
         for name, mutate, control in (('signed-out F2 fails', put('nouser.f2.json', banner=None), 'noUserToken'),
@@ -393,11 +492,28 @@ class Controls(unittest.TestCase):
                                       ('signed-out F9 passes', put('nouser.f9.json', started=True, reps=[{'audioMs': 800}] * 5), 'noUserToken'),
                                       ('bad token F3 passes', put('badtoken.f3.json', reps=[{'exit': 0, 'wallMs': 300, 'songs': 3, 'uiMs': 400}] * 5), 'badDeveloperToken'),
                                       ('bad token F4 missing', remove('badtoken.f4.json'), 'badDeveloperToken'),
-                                      ('cut passes', edit('cut.f6.json', lambda d: d['transitions'][2].__setitem__('pass', True)), 'cutTail'),
-                                      ('cut caught by a drain', edit('cut.f6.json', lambda d: d['transitions'][2].__setitem__('drained', True)), 'cutTail'),
-                                      ('cut not skipped', edit('cut.f6.json', lambda d: d['transitions'][2].__setitem__('skippedS', 0.1)), 'cutTail'),
-                                      ('cut mislanded', edit('cut.f6.json', lambda d: d['transitions'][2].__setitem__('landedOff', 1.5)), 'cutTail'),
+                                      ('cut caught by a drain', edit('cut.f6.json', lambda d: d['transitions'][2]['end'].__setitem__('drainsAcked', 1)), 'cutTail'),
+                                      ('cut not skipped', edit('cut.f6.json', lambda d: d['transitions'][2]['end'].__setitem__('skippedMs', 100)), 'cutTail'),
+                                      ('cut caught by the sent count, not the skipped one', edit('cut.f6.json', lambda d: [d['transitions'][2]['end'].__setitem__('skippedMs', 0),
+                                                                                                          d['transitions'][2]['flip'].__setitem__('sentMs', 9000)]), 'cutTail'),
+                                      ('cut mislanded', edit('cut.f6.json', lambda d: d['transitions'][2]['base'].__setitem__('position', 358.0 + 191.0 + 1.5)), 'cutTail'),
                                       ('cut never sent', edit('cut.f6.json', lambda d: d['transitions'][2].__setitem__('cut', False)), 'cutTail'),
+                                      ('signed-out F4 refused for another reason', put('nouser.f4.json', reps=[{'audioMs': None, 'exit': 0, 'banner': 'Error'}] * 5), 'noUserToken'),
+                                      ('signed-out F5 failed on timing, not on never starting', put('nouser.f5.json', rounds=f5_rounds(pause={'exit': 0, 'appliedMs': 30, 'effectMs': 900})), 'noUserToken'),
+                                      ('bad token search failed for another reason', put('badtoken.f3.json', reps=[{'exit': 1, 'wallMs': 300, 'songs': 0, 'uiMs': None, 'error': 'timed out'}] * 5), 'badDeveloperToken'),
+                                      ('bad token search slow but fine', put('badtoken.f3.json', reps=[{'exit': 0, 'wallMs': 2500, 'songs': 3, 'uiMs': 2500, 'error': 'None'}] * 5), 'badDeveloperToken'),
+                                      ('bad token play refused for another reason', put('badtoken.f4.json', reps=[{'audioMs': None, 'exit': 0, 'banner': 'Error'}] * 5), 'badDeveloperToken'),
+                                      ('no stream F4 failed for another reason', put('nostream.f4.json', reps=[{'audioMs': None, 'exit': 0, 'banner': 'SignInNeeded'}] * 5), 'noStream'),
+                                      ('leak failed on PSS, not USS', both(edit('leak.r3.json', lambda d: [r.update(uss=148.0, pss=170.0 + (12 if r['m'] >= 29 else 0)) for r in d['samples']])), 'leak'),
+                                      ('a stall the pacing rule misses', edit('stall.stall.json', lambda d: d['after'].__setitem__('position', 46.0)), 'stall'),
+                                      ('a stall across a track change', edit('stall.stall.json', lambda d: d['after'].__setitem__('itemId', '2')), 'stall'),
+                                      ('stall evidence missing', remove('stall.stall.json'), 'stall'),
+                                      ('guard never killed', put('guardtest.json', killed=None), 'guardKill'),
+                                      ('guard killed but the app lived', put('guardtest.json', appGone=False), 'guardKill'),
+                                      ('wrong sink not confirmed present', put('guardtest.json', wrongSinkPresent=False), 'guardKill'),
+                                      ('guard never saw the wrong sink', put('guardtest.json', wrongSinkSeen=False), 'guardKill'),
+                                      ('the default sink moved', put('guardtest.json', defaultAfter='hdmi'), 'guardKill'),
+                                      ('guardtest evidence missing', remove('guardtest.json'), 'guardKill'),
                                       ('cut evidence missing', remove('cut.f6.json'), 'cutTail'),
                                       ('no stream F4 started', put('nostream.f4.json', started=True, reps=[{'audioMs': None}] * 5), 'noStream'),
                                       ('leak too small', edit('leak.r3.json', lambda d: [r.__setitem__('uss', 148.0) for r in d['samples']]), 'leak'),

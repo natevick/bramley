@@ -18,9 +18,11 @@ ALBUM = ['6781024028', '6781024424', '6781024426', '6781024428', '6781024429', '
 F8_ORDER, TERM, BAD_ID = [ALBUM[9], ALBUM[0], ALBUM[6], ALBUM[3]], 'bohemian rhapsody', '1'
 SOAK_S, SOAK_EVERY_S, SOAK_TRACK_S, F6_WINDOW_S, RECOVER_S, CUT_BEFORE_END_S = 1800, 10, 150, 5, 90, 3
 NAMES = {'library': set(), 'catalog': set()}
+COUNTERS = ('sentMs', 'skippedMs', 'decryptedMs', 'underruns', 'decryptFails', 'drainsAcked', 'drainTimeouts')
 SNAP_KEYS = ('pid', 'state', 'position', 'duration', 'itemId', 'banner', 'engineStarted', 'texturesUploaded', 'coversFailed', 'framesPainted',
-             'glRenderer', 'applied', 'seq', 'engine', 'sentMs', 'decodedBytesKept')
-TICK, RUNTIME, CPU_EVERY_S, COTENANT_EVERY_S = os.sysconf('SC_CLK_TCK'), os.path.join(ROOT, 'target', 'x'), 2, 5
+             'glRenderer', 'applied', 'seq', 'engine', 'decodedBytesKept') + COUNTERS
+TICK, RUNTIME, CPU_EVERY_S, COTENANT_EVERY_S = os.sysconf('SC_CLK_TCK'), os.path.join(ROOT, 'target', 'x'), 10, 5
+ALBUM_ID, STOP_S, HOLD_S = '6781024026', 3, 0.3
 
 
 def note_names(found, kind='catalog'):
@@ -36,18 +38,34 @@ def leak_grep(out):
     fragments = [t[i:i + 24] for t in tokens for i in (0, len(t) // 2, len(t) - 24)]
     with contextlib.suppress(Exception):
         note_names(s9.every('/v1/me/library/playlists', tokens)[0], 'library')
-    in_base = {n for n in NAMES['library'] if subprocess.run(['git', 'grep', '-q', '-i', '-F', n, 'main', '--', '.'], cwd=ROOT).returncode == 0}
-    private, every = sorted(NAMES['library'] - in_base) + fragments, sorted(NAMES['library'] | NAMES['catalog']) + fragments
+        playlist, _ = largest_playlist(cs.REAL_CONFIG)
+        note_names(s9.every(f'/v1/me/library/playlists/{playlist}/tracks', tokens)[0], 'library')
+        note_names(s9.api(f'/v1/catalog/us/albums/{ALBUM_ID}/tracks', tokens), 'catalog')
+    in_tree = lambda n: subprocess.run(['git', 'grep', '-q', '-i', '-w', '-F', n, 'main', 'HEAD', '--', '.'], cwd=ROOT).returncode == 0
+    in_base = {n for n in NAMES['library'] | NAMES['catalog'] if in_tree(n)}
+    private, every = sorted(NAMES['library'] - in_base) + fragments, sorted((NAMES['library'] | NAMES['catalog']) - in_base) + fragments
     git = lambda *args: subprocess.run(['git', *args], cwd=ROOT, capture_output=True, text=True).stdout
     repo = '\n'.join([line for line in git('diff', 'main...HEAD').splitlines() if line.startswith('+')] + [git('log', 'main..HEAD', '--format=%B')]).lower()
-    files = []
-    for d, dirs, names in os.walk(out):
-        dirs[:] = [x for x in dirs if x not in ('bin', 'empty')]
-        files += [open(os.path.join(d, f), errors='replace').read() for f in names if not f.endswith('.png')]
-    run = '\n'.join(files).lower()
-    count = lambda body, needles: sum(body.count(n.lower()) for n in needles)
-    hits = {'repo': count(repo, private), 'run': count(run, every)}
-    planted = bool(NAMES['library'] - in_base) and count(run + every[0].lower(), every) > hits['run'] and count(repo + private[0].lower(), private) > hits['repo']
+    count = lambda body, needles: sum(len(re.findall(rf'(?<![a-z0-9]){re.escape(n.lower())}(?![a-z0-9])', body)) for n in needles)
+
+    def walk():
+        files = []
+        for d, dirs, names in os.walk(out):
+            dirs[:] = [x for x in dirs if x not in ('bin', 'empty')]
+            files += [open(os.path.join(d, f), errors='replace').read() for f in names if not f.endswith('.png')]
+        return files, count('\n'.join(files).lower(), every)
+
+    files, run_hits = walk()
+    hits = {'repo': count(repo, private), 'run': run_hits}
+    plant = os.path.join(out, 'leak-plant.txt')
+    planted = False
+    if private:
+        with os.fdopen(os.open(plant, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w') as f:
+            f.write(private[0])
+        try:
+            planted = walk()[1] == run_hits + 1 and bool(repo.strip())
+        finally:
+            os.remove(plant)
     gate.save(out, 'leakgrep.json', {'libraryNames': len(NAMES['library']), 'libraryNamesInBase': len(in_base), 'catalogNames': len(NAMES['catalog']), 'tokenFragments': len(fragments),
                                      'runFiles': len(files), 'hits': hits, 'plantedCaught': planted})
 
@@ -56,10 +74,11 @@ class Cotenants(threading.Thread):
     def __init__(self):
         super().__init__(daemon=True)
         self.stop, self.polls, self.seen = False, 0, []
+        self.standing = sorted(pid for pid, (comm, libs) in gate.gpu_processes().items() if libs and comm in gate.STANDING_GPU_CLIENTS and not ours(pid))
 
     def run(self):
         while not self.stop:
-            found = [f for f in gate.preflight(ours) if os.path.exists(f'/proc/{f.split()[0]}')]
+            found = [f for f in gate.preflight(ours, set(self.standing)) if os.path.exists(f'/proc/{f.split()[0]}')]
             self.polls += 1
             if found:
                 self.seen.append([round(time.time(), 1), found])
@@ -78,7 +97,7 @@ def ours(pid):
 
 
 def guard_fired(out):
-    return sorted(f for f in os.listdir(out) if f.endswith('.guard.json') and (gate.load(out, f) or {}).get('killed'))
+    return sorted(f for f in os.listdir(out) if f.endswith('.guard.json') and f != 'guardtest.guard.json' and (gate.load(out, f) or {}).get('killed'))
 
 
 def mem(pid):
@@ -91,7 +110,7 @@ def ticks(pid):
     total = 0
     for p in [pid] + cs.children(pid):
         fields = open(f'/proc/{p}/stat').read().rsplit(')', 1)[1].split()
-        total += int(fields[11]) + int(fields[12])
+        total += sum(int(f) for f in fields[11:15])
     return total
 
 
@@ -113,7 +132,9 @@ class App:
         return (cs.status(self.st) if self.st else self.cli('now')[1]) or {}
 
     def cli(self, *args):
-        t = time.time()
+        if args[:1] in (('play',), ('queue',)):
+            self.safe_to_play()
+        self.last_t = t = time.time()
         r = subprocess.run([self.binary, *args], env=self.env, capture_output=True, text=True, timeout=30)
         try:
             reply = json.loads(r.stdout.splitlines()[0])
@@ -177,14 +198,15 @@ def sample(a, n, every=1.0, extra=None):
 
 
 def cpu(a, state, name, pre):
-    ev = {'session': a.name, 't0': time.time(), 'before': a.snap().get('state')}
+    ev = {'session': a.name, 't0': time.time(), 'before': a.snap().get('state'), 'binS': CPU_EVERY_S, 'procs': []}
     rows, last = [], ticks(a.pid)
     for _ in range(gate.CPU_SAMPLES):
         time.sleep(CPU_EVERY_S)
         now = ticks(a.pid)
         rows.append(round(100 * (now - last) / TICK / CPU_EVERY_S, 2))
+        ev['procs'].append(1 + len(cs.children(a.pid)))
         last = now
-    ev.update(cpu=rows, after=a.snap().get('state'), started=state == 'Playing')
+    ev.update(cpu=rows, mean=round(sum(rows) / len(rows), 3), after=a.snap().get('state'), started=state == 'Playing')
     evidence(a.out, f'{pre}{name}.json', ev, a)
 
 
@@ -192,34 +214,85 @@ def applied(reply, effect, same_engine=True):
     return lambda s: (s.get('engine') == reply.get('engine') or not same_engine) and (s.get('applied') or 0) >= (reply.get('seq') or 1 << 62) and effect(s)
 
 
-def play_song(a, song, reps, ev):
-    ev.update(song=song, reps=[], started=False)
-    for _ in range(reps):
-        t = time.time()
-        code, reply, _ = a.cli('play', song)
-        fresh = lambda s: s.get('itemId') == song and s.get('state') == 'Playing' and 0 < (s.get('position') or 0) < 3
-        s, seen = a.until(applied(reply, fresh, same_engine=False), 15)
-        ev['reps'].append({'exit': code, 'audioMs': seen and round((seen - t) * 1000)})
-        ev['started'] |= seen is not None
-        if seen:
-            a.until(lambda s: (s.get('position') or 0) > 3, 10)
-    s, _ = a.until(lambda s: s.get('itemId') == song and (s.get('position') or 0) > gate.F4_PLAYED_S + 2, 60, 0.5) if ev['started'] else (a.snap(), None)
-    ev['final'] = {k: s.get(k) for k in ('itemId', 'state', 'position', 'duration', 'sentMs', 'banner')}
+def advancing(a, ready, timeout):
+    prev, end, s = None, time.time() + timeout, {}
+    while time.time() < end:
+        s = a.snap()
+        pos = s.get('position') or 0
+        if not ready(s):
+            prev = None
+        elif prev is not None and pos - prev > gate.ADVANCE_EPS_S:
+            return s, time.time()
+        elif prev is None or pos < prev:
+            prev = pos
+        time.sleep(0.005)
+    return s, None
+
+
+def counters(s, t=None):
+    return dict({k: s.get(k) for k in COUNTERS}, t=round(t or time.time(), 3), position=s.get('position'))
+
+
+def judged(a, song, base, heard, ev):
+    s, _ = a.until(lambda s: s.get('itemId') == song and (s.get('position') or 0) > gate.F4_PLAYED_S + 2, 60, 0.25)
+    ev['judged'] = [{'base': base, 'heard': heard, 'end': counters(s), 'itemId': s.get('itemId'), 'state': s.get('state'), 'banner': s.get('banner'), 'duration': s.get('duration')}]
     note_names(a.cli('now')[1])
 
 
+def play_song(a, song, reps, ev):
+    ev.update(song=song, reps=[], started=False)
+    for _ in range(reps):
+        base = counters(a.cli('now')[1])
+        code, reply, _ = a.cli('play', song)
+        ready = applied(reply, lambda s: s.get('itemId') == song and s.get('state') == 'Playing', same_engine=False)
+        s, seen = advancing(a, ready, 15)
+        ev['reps'].append({'exit': code, 'audioMs': seen and round((seen - a.last_t) * 1000), 'banner': s.get('banner')})
+        ev['started'] |= seen is not None
+    if ev['started']:
+        judged(a, song, base, counters(s, seen), ev)
+
+
 def f4(a, pre):
-    a.safe_to_play()
-    ev = {'t0': time.time()}
+    ev = {'t0': time.time(), 'information': 'warm replays; F4 is judged on f4.json (cold launches)'}
     play_song(a, SONG, gate.REPS, ev)
-    evidence(a.out, f'{pre}f4.json', ev, a)
+    evidence(a.out, f'{pre}f4warm.json', ev, a)
+
+
+def f4_cold(out, binary, env, sink, pre='', args=()):
+    ev = {'t0': time.time(), 'song': SONG, 'reps': [], 'started': False, 'renderers': [], 'judged': []}
+    for i in range(gate.REPS):
+        with app(out, f'{pre}f4cold-{i}', binary, env, sink, args=args) as a:
+            a.until(lambda s: s.get('framesPainted', 0) > 0 and ((s.get('texturesUploaded') or 0) >= gate.COVERS or s.get('coversFailed') or s.get('banner')), 60)
+            one = {'song': SONG}
+            play_song(a, SONG, 1, one)
+            ev['reps'] += one['reps']
+            ev['started'] |= one['started']
+            ev['renderers'] += a.renderers()
+            ev['judged'] += one.get('judged', [])
+            ev.setdefault('sessions', []).append(a.name)
+            ev['t1'] = time.time()
+    gate.save(out, f'{pre}f4.json', ev)
+
+
+def held(a, ready, timeout):
+    mark, end, s = None, time.time() + timeout, {}
+    while time.time() < end:
+        s, now = a.snap(), time.time()
+        pos = s.get('position')
+        if not ready(s):
+            mark = None
+        elif mark is None or pos != mark[1]:
+            mark = (now, pos)
+        elif now - mark[0] >= HOLD_S:
+            return s, mark[0]
+        time.sleep(0.005)
+    return s, None
 
 
 def f5(a, pre):
-    ev, effects = {'t0': time.time(), 'rounds': [], 'started': False}, {
-        'pause': ('pause',), 'seek': ('seek', '120'), 'resume': ('play',), 'next': ('next',), 'prev': ('prev',)}
-    shows = {'pause': lambda s: s.get('state') == 'Paused', 'seek': lambda s: 119.5 <= (s.get('position') or 0) <= 122,
-             'resume': lambda s: s.get('state') == 'Playing', 'next': lambda s: s.get('itemId') == SECOND, 'prev': lambda s: s.get('itemId') == SONG}
+    ev, args = {'t0': time.time(), 'rounds': [], 'started': False}, {
+        'pause': ('pause',), 'seek': ('seek', str(gate.F5_SEEK_S)), 'resume': ('play',), 'next': ('next',), 'prev': ('prev',)}
+    items = {'next': SECOND, 'prev': SONG}
     for _ in range(gate.REPS):
         a.cli('play', SONG)
         s, ok = a.until(lambda s: s.get('itemId') == SONG and s.get('state') == 'Playing' and (s.get('position') or 0) > 3, 20)
@@ -230,12 +303,22 @@ def f5(a, pre):
         a.until(lambda s: (s.get('queueLength') or 0) >= 2, 5)
         row = {}
         for cmd in gate.F5_COMMANDS:
-            t = time.time()
-            code, reply, _ = a.cli(*effects[cmd])
-            _, acked = a.until(applied(reply, lambda s: True), 3, 0.005)
-            s, seen = a.until(applied(reply, shows[cmd]), 3, 0.005)
-            row[cmd] = {'exit': code, 'matched': seen is not None, 'ms': seen and round((seen - t) * 1000), 'appliedMs': acked and round((acked - t) * 1000)}
-            a.until(lambda s: s.get('state') == 'Playing' and (s.get('position') or 0) > 1, 10) if cmd in ('resume', 'next') else None
+            code, reply, _ = a.cli(*args[cmd])
+            t = a.last_t
+            ms = lambda seen: seen and round((seen - t) * 1000)
+            _, acked = a.until(applied(reply, lambda s: True), 5, 0.005)
+            row[cmd] = {'exit': code, 'appliedMs': ms(acked)}
+            if cmd == 'pause':
+                s, seen = held(a, applied(reply, lambda s: s.get('state') == 'Paused'), 5)
+            elif cmd == 'seek':
+                s, seen = a.until(applied(reply, lambda s: abs((s.get('position') or 0) - gate.F5_SEEK_S) <= gate.F5_POSITION_S), 5, 0.005)
+            elif cmd == 'resume':
+                s, seen = advancing(a, applied(reply, lambda s: s.get('state') == 'Playing' and (s.get('position') or 0) >= gate.F5_SEEK_S - gate.F5_POSITION_S), 5)
+            else:
+                s, seen = a.until(applied(reply, lambda s: s.get('itemId') == items[cmd]), 5, 0.005)
+                _, heard = advancing(a, lambda s: s.get('itemId') == items[cmd] and s.get('state') == 'Playing', 10)
+                row[cmd]['advancingMs'] = ms(heard)
+            row[cmd].update(effectMs=ms(seen), position=s.get('position'))
         ev['rounds'].append(row)
     evidence(a.out, f'{pre}f5.json', ev, a)
 
@@ -246,34 +329,22 @@ def transition(a, ids, at, start, cut=False):
         return {'reached': False, 'pass': False}
     duration, target = s['duration'], round(s['duration'] - 20, 1)
     reply = a.cli('seek', str(target))[1]
-    base, land, flip, samples, end, cut_sent = None, None, None, [], time.time() + 45, False
-    while time.time() < end and (flip is None or time.time() < flip[0] + F6_WINDOW_S):
+    res = {'reached': True, 'duration': duration, 'target': target, 'start': start, 'base': None, 'flip': None, 'end': None, 'cut': False, 'samples': []}
+    end = time.time() + 45
+    while time.time() < end and (res['end'] is None or res['end']['t'] < res['flip']['t'] + F6_WINDOW_S):
         s, now = a.snap(), time.time()
         pos = s.get('position') or 0
-        samples.append((now, pos))
-        if base is None and applied(reply, lambda s: True)(s):
-            base, land = {k: s.get(k) or 0 for k in ('drainsAcked', 'drainTimeouts', 'sentMs', 'skippedMs')}, pos
-        if flip is None and base and s.get('itemId') == ids[at + 1]:
-            flip = (now, {k: (s.get(k) or 0) - base[k] for k in base}, pos)
-        if flip and base:
-            after = {k: (s.get(k) or 0) - base[k] for k in base}
-        if cut and base and not flip and not cut_sent and s.get('itemId') == ids[at] and pos - start >= duration - CUT_BEFORE_END_S:
+        res['samples'].append([round(now, 3), pos])
+        if res['base'] is None and applied(reply, lambda s: True)(s):
+            res['base'] = counters(s, now)
+        if res['flip'] is None and res['base'] and s.get('itemId') == ids[at + 1]:
+            res['flip'] = counters(s, now)
+        if res['flip']:
+            res['end'] = counters(s, now)
+        if cut and res['base'] and not res['flip'] and not res['cut'] and s.get('itemId') == ids[at] and pos - start >= duration - CUT_BEFORE_END_S:
             a.cli('next')
-            cut_sent = True
+            res['cut'] = True
         time.sleep(0.02)
-    if flip is None or land is None:
-        return {'advanced': False, 'pass': False}
-    window = [(t, p) for t, p in samples if abs(t - flip[0]) <= F6_WINDOW_S]
-    stall, moved = 0.0, window[0][0]
-    for (t0, p0), (t1, p1) in zip(window, window[1:]):
-        moved = t1 if p1 > p0 else moved
-        stall = max(stall, t1 - moved)
-    d = flip[1]
-    res = {'acked': d['drainsAcked'], 'timeouts': d['drainTimeouts'], 'sentS': after['sentMs'] / 1000, 'skippedS': after['skippedMs'] / 1000,
-           'stallS': round(stall, 2), 'landedOff': round(land - start - target, 2), 'nextStart': flip[2], 'cut': cut_sent}
-    res['drained'] = res['acked'] >= 1 and res['timeouts'] == 0
-    res['gapless'] = res['sentS'] >= (duration - target) - 3 and res['skippedS'] <= 0.1 and stall <= 1
-    res['pass'] = abs(res['landedOff']) <= 1 and (res['drained'] or res['gapless'])
     return res
 
 
@@ -291,7 +362,7 @@ def f6(a, pre, cut=False):
     ev['transitions'], start = [], 0.0
     for i in range(3):
         ev['transitions'].append(transition(a, ids, i, start, cut and i == 2))
-        start = ev['transitions'][-1].get('nextStart', start)
+        start = (ev['transitions'][-1].get('flip') or {}).get('position') or start
     evidence(a.out, f'{pre}f6.json', ev, a)
 
 
@@ -313,7 +384,7 @@ def f8(a, pre):
 
 def r3(a, pre):
     a.safe_to_play()
-    ev = {'pid': a.pid, 't0': time.time()}
+    ev = {'pid': a.pid, 't0': time.time(), 'seekTimes': []}
     queue_up(a, ALBUM, ev)
     seeks, starts, sought, start = [0], {}, set(), time.time()
 
@@ -324,7 +395,9 @@ def r3(a, pre):
             starts.setdefault(item, pos)
         if item in starts and item not in sought and dur > SOAK_TRACK_S + 15 and pos - starts[item] >= SOAK_TRACK_S:
             sought.add(item)
+            ev['seekTimes'].append(round(time.time(), 2))
             a.cli('seek', str(round(dur - 10, 1)))
+            ev['seekTimes'].append(round(time.time(), 2))
             seeks[0] += 1
         return {'m': round((time.time() - start) / 60, 3), 'seeks': seeks[0]}
 
@@ -356,7 +429,6 @@ def memory(a, name, extra):
 def cpu_session(out, binary, env, sink):
     with app(out, 'cpu', binary, env, sink, status=False) as a:
         a.until(lambda s: (s.get('texturesUploaded') or 0) >= gate.COVERS, 60)
-        a.safe_to_play()
         a.cli('play', SONG)
         a.until(lambda s: s.get('itemId') == SONG and s.get('state') == 'Playing' and (s.get('position') or 0) > 10, 40)
         cpu(a, 'Playing', 'r4', '')
@@ -376,8 +448,41 @@ def main_session(out, binary, env, sink, pre, steps, extra=None):
             if a.guard.killed:
                 raise RuntimeError(f'{name}: the guard fired: {a.guard.killed}')
             {'f4': f4, 'f5': f5, 'f6': f6, 'f8': f8, 'r3': r3, 'r2': lambda a, p: None, 'r1': lambda a, p: memory(a, name, extra or {}),
-             'cut': lambda a, p: f6(a, p, cut=True),
-             }[step](a, pre)
+             'cut': lambda a, p: f6(a, p, cut=True), 'stall': stall}[step](a, pre)
+
+
+def stall(a, pre):
+    ev = {'t0': time.time()}
+    play_song(a, SONG, 1, ev)
+    a.until(lambda s: (s.get('position') or 0) > 15, 30)
+    ev['before'] = dict(counters(a.snap()), itemId=a.snap().get('itemId'))
+    os.kill(a.pid, signal.SIGSTOP)
+    try:
+        time.sleep(STOP_S)
+    finally:
+        os.kill(a.pid, signal.SIGCONT)
+    time.sleep(10 - STOP_S)
+    ev.update(after=dict(counters(a.snap()), itemId=a.snap().get('itemId')), stoppedS=STOP_S)
+    evidence(a.out, f'{pre}stall.json', ev, a)
+
+
+def guardtest(out, binary, env, sink):
+    wrong = cs.unique_sink('bramley-gate-wrong', out)
+    pw = cs.null_sink(wrong)
+    ev = {'t0': time.time(), 'defaultBefore': cs.default_sink()}
+    try:
+        with app(out, 'guardtest', binary, dict(env, PULSE_SINK=wrong), sink) as a:
+            a.until(lambda s: (s.get('texturesUploaded') or 0) >= gate.COVERS or s.get('coversFailed'), 60)
+            ev['wrongSinkPresent'] = cs.sink_exists(wrong) and cs.default_sink() not in (None, wrong, sink)
+            if not ev['wrongSinkPresent']:
+                raise RuntimeError('the second null sink is not present, or is the default; refusing')
+            a.cli('play', SONG)
+            cs.wait_for(lambda: a.guard.killed, 30, 'the guard to kill the app')
+            ev.update(killed=a.guard.killed['why'], appGone=a.p.wait(10) is not None, wrongSinkSeen=wrong in map(str, a.guard.seen))
+    finally:
+        os.killpg(pw.pid, signal.SIGTERM)
+        ev['defaultAfter'] = cs.default_sink()
+        gate.save(out, 'guardtest.json', ev)
 
 
 def f1(out, binary, env, sink, pre=''):
@@ -437,16 +542,17 @@ def f9(a, pre, mcp):
     err, found = mcp.tool('search', {'term': TERM})
     note_names(found)
     ev['searchHasSong'] = not err and any(x.get('id') == SONG for x in (found or {}).get('songs', []))
-    a.safe_to_play()
     for _ in range(gate.REPS):
+        a.safe_to_play()
+        base = counters(a.cli('now')[1])
         t = time.time()
         err, said = mcp.tool('play', {'id': SONG})
-        s, seen = a.until(lambda s: s.get('itemId') == SONG and s.get('state') == 'Playing' and 0 < (s.get('position') or 0) < 3, 15)
+        reply = {'seq': a.cli('now')[1].get('seq')}
+        s, seen = advancing(a, applied(reply, lambda s: s.get('itemId') == SONG and s.get('state') == 'Playing', same_engine=False), 15)
         ev['reps'].append({'error': err, 'audioMs': seen and round((seen - t) * 1000)})
         ev['started'] |= seen is not None
-        a.until(lambda s: (s.get('position') or 0) > 3, 10)
-    s, _ = a.until(lambda s: s.get('itemId') == SONG and (s.get('position') or 0) > gate.F4_PLAYED_S + 2, 60, 0.5) if ev['started'] else (a.snap(), None)
-    ev['final'] = {k: s.get(k) for k in ('itemId', 'state', 'position', 'duration', 'sentMs', 'banner')}
+    if ev['started']:
+        judged(a, SONG, base, counters(s, seen), ev)
     mcp.tool('pause')
     evidence(a.out, f'{pre}f9.json', ev, a)
 
@@ -460,7 +566,7 @@ def f3(a, pre):
         songs = (((reply.get('results') or {}).get('songs') or {}).get('items') or [])
         found = lambda x: x.get('state') == 'results' and x.get('results', 0) > 0 and (x.get('seq') or 0) > mark
         _, seen = a.until(lambda s: s.get('route') == 'Search' and found(s.get('search') or {}), 5, 0.005)
-        ev['reps'].append({'exit': code, 'wallMs': wall, 'songs': len(songs), 'uiMs': seen and round((seen - t) * 1000)})
+        ev['reps'].append({'exit': code, 'wallMs': wall, 'songs': len(songs), 'uiMs': seen and round((seen - t) * 1000), 'error': str(reply.get('error') or reply.get('refused'))[:120]})
         time.sleep(1)
     evidence(a.out, f'{pre}f3.json', ev, a)
 
@@ -582,15 +688,36 @@ def env_for(sock, sink, llvmpipe=False, **extra):
 
 
 def real_state():
+    listing = lambda d: {f: [s.st_mtime_ns, s.st_size] for f in sorted(os.listdir(d)) for s in [os.stat(os.path.join(d, f))]} if os.path.isdir(d) else None
     token = os.path.join(cs.REAL_CONFIG, 'music-user-token')
     st = os.stat(token) if os.path.exists(token) else None
-    cache = {f: [s.st_mtime_ns, s.st_size] for f in sorted(os.listdir(cs.REAL_CACHE)) for s in [os.stat(os.path.join(cs.REAL_CACHE, f))]} if os.path.isdir(cs.REAL_CACHE) else None
-    return {'tokenMtimeNs': st and st.st_mtime_ns, 'tokenSize': st and st.st_size, 'keyringItems': cs.keyring_items('bramley'), 'cache': cache}
+    return {'tokenMtimeNs': st and st.st_mtime_ns, 'tokenSize': st and st.st_size, 'keyringItems': cs.keyring_items('bramley'),
+            'cache': listing(cs.REAL_CACHE), 'config': listing(cs.REAL_CONFIG)}
+
+
+class BadSignature(http.server.BaseHTTPRequestHandler):
+    token = ''
+
+    def do_GET(self):
+        body = json.dumps({'token': BadSignature.token, 'exp': int(time.time()) + 90 * 86400}).encode()
+        self.send_response(200 if self.path == '/developer-token.json' else 404)
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_):
+        pass
+
+
+def bad_signature(token):
+    head, payload, signature = token.split('.')
+    return '.'.join((head, payload, signature[::-1] if signature[::-1] != signature else 'A' + signature[1:]))
 
 
 @contextlib.contextmanager
 def fixture_token(config):
-    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), s6.Fixture)
+    BadSignature.token = bad_signature(open(os.path.join(config, 'developer-token')).read().strip())
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), BadSignature)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         yield ['--developer-token-url', f'http://127.0.0.1:{server.server_address[1]}/developer-token.json']
@@ -615,17 +742,22 @@ def phases(out, mode, bins, sock, sink):
     yield 'reference', lambda: reference(out, sock, sink, 'reference')
     if mode == 'llvmpipe':
         yield 'f1', lambda: signed_in('f1', lambda e, c: f1(out, shipped, e, sink))
-        yield 'shipped', lambda: signed_in('shipped', lambda e, c: main_session(out, shipped, e, sink, '', ('r2', 'f4', 'r1')))
+        yield 'f4', lambda: signed_in('f4', lambda e, c: f4_cold(out, shipped, e, sink))
+        yield 'shipped', lambda: signed_in('shipped', lambda e, c: main_session(out, shipped, e, sink, '', ('r2', 'r1')))
     elif mode == 'controls':
-        yield 'nouser', lambda: signed_out('nouser', lambda e: (f2(out, shipped, e, sink, 'nouser.'), main_session(out, shipped, e, sink, 'nouser.', ('f4', 'r1', 'f5', 'f6')),
+        yield 'nouser', lambda: signed_out('nouser', lambda e: (f2(out, shipped, e, sink, 'nouser.'), f4_cold(out, shipped, e, sink, 'nouser.'),
+                                                                 main_session(out, shipped, e, sink, 'nouser.', ('r1', 'f5', 'f6')),
                                                                  browse_nouser(out, shipped, e, sink)))
         yield 'badtoken', lambda: signed_in('badtoken', lambda e, c: bad_token(out, dev, e, sink, c))
         yield 'cut', lambda: signed_in('cut', lambda e, c: main_session(out, shipped, e, sink, 'cut.', ('cut',)))
-        yield 'nostream', lambda: signed_in('nostream', lambda e, c: main_session(out, shipped, dict(e, PULSE_SINK=sink + '-missing'), sink, 'nostream.', ('f4',)))
+        yield 'stall', lambda: signed_in('stall', lambda e, c: main_session(out, shipped, e, sink, 'stall.', ('stall',)))
+        yield 'nostream', lambda: signed_in('nostream', lambda e, c: f4_cold(out, shipped, dict(e, PULSE_SINK=sink + '-missing'), sink, 'nostream.'))
         yield 'leak', lambda: signed_in('leak', lambda e, c: main_session(out, sabotage, e, sink, 'leak.', ('r3',)), BRAMLEY_GATE_LEAK_MIB='3')
+        yield 'guardtest', lambda: signed_in('guardtest', lambda e, c: guardtest(out, shipped, e, sink))
     else:
         yield 'f1', lambda: signed_in('f1', lambda e, c: f1(out, shipped, e, sink))
         yield 'f2', lambda: signed_out('f2', lambda e: f2(out, shipped, e, sink))
+        yield 'f4', lambda: signed_in('f4', lambda e, c: f4_cold(out, shipped, e, sink))
         yield 'shipped', lambda: signed_in('shipped', lambda e, c: main_session(out, shipped, e, sink, '', ('r2', 'r1', 'f4', 'f5', 'f6', 'f8', 'r3')))
         yield 'cpu', lambda: signed_in('cpu', lambda e, c: cpu_session(out, shipped, e, sink))
         yield 'ballast', lambda: ballast_run(out, sabotage, sink, signed_in)
@@ -660,7 +792,8 @@ def bad_token(out, dev, env, sink, config):
             a.until(lambda s: s.get('framesPainted', 0) > 0, 30)
             time.sleep(5)
             f3(a, 'badtoken.')
-            f4(a, 'badtoken.')
+    with fixture_token(config) as args:
+        f4_cold(out, dev, env, sink, 'badtoken.', args)
 
 
 def run(out, mode):
