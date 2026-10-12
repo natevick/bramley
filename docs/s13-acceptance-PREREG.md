@@ -158,3 +158,96 @@ The branch is rebased onto main at 8c6e77a, where S8, S9b and S10 are merged, so
 - **Evidence:** final-1 was VOIDed by a single sighting, at 00:32:02, of a `bramley` process that mapped no GPU library. s13-4 had the same one-poll signature at 23:08:26. A short-lived CLI process that exits between the watch reading its `comm` and walking its parent chain fails the "ours" test and is flagged. This could not be reproduced on demand: 285 polls under 4 continuous CLI spawners gave 0 sightings.
 - **Change:** a sighting whose process no longer exists at the end of its poll is dropped. An exited process holds no memory. A real co-tenant lives long enough to be seen on the next poll, 5 s later.
 - **Status of the earlier runs:** final-1 stays VOID as scored. The counted set is now `final-2` and `final-3` (consecutive), plus `final-controls` and `final-llvmpipe`, at the commit adding this amendment.
+
+## Amendment 4 (2026-10-12, review fix round; fixed before any further counted run)
+The review (`scratch/review-s13.md`) showed rules that could PASS a v1 missing the bar. acceptance.md's bars are unchanged. Everything below is method, and every number is fixed now.
+
+**Safety**
+- `acceptance.sh` holds an exclusive `flock` on `/run/user/<uid>/bramley-gpu-session.lock` (shared by every worktree) and refuses if it is held. `covers-session.session()` takes the same lock unless its parent holds it.
+- Null-sink names carry the run, the pid and a random suffix.
+- The pre-play routing check runs inside the `play`/`queue` CLI wrapper and before every MCP play, so no path skips it.
+- On abnormal exit, a trap removes this run's token copies and its `bramley-gate-<run>-*` keyring items.
+
+**Engine counts.** The shipped status now carries `decryptedMs` (decrypted media time), `underruns` (media-element starvation) and `decryptFails`. They are counts only; no audio reaches the harness.
+
+**F1:** every launch ≤ 500 ms, not the median.
+
+**F4: judged on cold plays.**
+- 5 fresh app launches (same isolated config), one `play` each.
+- **Audio start:** the snapshot shows `applied ≥ seq`, the asked item and Playing, and the position advancing by more than **0.05 s** between two snapshots. "0 < position" is no longer used.
+- Median ≤ 3 s, and every `play` exits 0.
+- Each launch's play is judged from the command to position > 37 s. **All of these must hold:**
+  - decrypted delta ≥ **35,000 ms**;
+  - `skippedMs` delta ≤ **100 ms**;
+  - `decryptFails` delta = **0**;
+  - |position moved − wall clock| ≤ **1.0 s**, measured from the first audible snapshot to the end;
+  - at the end: Playing the asked item, with no banner;
+  - catalog duration ≥ 300 s.
+- The five warm replays are kept as information only (`f4warm.json`).
+
+**F9:** the same audio-start and judged-play rules apply to its last play, and every MCP play must return no error.
+
+**F5: judged on the effect, with `applied ≥ seq` (and a matching `engine`) as a second condition.**
+- **pause:** Paused, and the position unchanged for **0.3 s**. The time is when that unchanged position was first seen.
+- **seek 120 (while paused):** |position − 120| ≤ **0.1 s**.
+- **resume:** Playing, and the position advancing by more than **0.05 s** between two snapshots, from ≥ 119.9.
+- **next / prev:** the item changes within the bar, and the new item's position advances (> 0.05 s) with a median ≤ **3,000 ms**.
+- **Bars:** pause and resume are every rep ≤ 500 ms; seek, next and prev are the median of 5 ≤ 500 ms. Every command must exit 0, and both `applied` and the effect must appear within 5 s.
+- **Known limit:** the engine snapshots every 250 ms, so an effect that needs two snapshots can read up to ~250–500 ms late. This can only add FAILs.
+
+**F6: computed in gate.py from raw counters.** drive.py records the counters at three points: the applied seek (base), the id flip, and the first snapshot at or after flip + 5 s (end).
+- **Branch (a):** read at the end: `drainsAcked` up ≥ 1 and `drainTimeouts` unchanged.
+- **Branch (b):**
+  - sent **base→flip** (outgoing track only) ≥ (duration − target) − **3 s**, so an early contiguous cut can't pass;
+  - skipped **base→end** ≤ **0.1 s**;
+  - no position stall > **1 s** within flip ± 5 s.
+- **Landing:** |landing − target| ≤ **1 s**.
+- The window must reach flip + 5 s.
+
+**R3**
+- `underruns` delta over the soak = **0**.
+- **Pacing:** between consecutive samples (~10 s apart) of the same Playing item, the position may not fall behind the wall clock by more than **1.0 s**. Only pairs with a harness seek inside [first sample − 1 s, second sample + 1 s] are excused, using recorded seek timestamps.
+- **Evidence:** a 3 s SIGSTOP left `underruns` at 0 (the counter tracks media-element starvation, not output starvation) but lagged the position by 2.87 s. Pacing is the check that sees it.
+
+**R4 / R5**
+- 30 bins of **10 s** (5 minutes): the median is judged and the mean is reported.
+- Ticks include `cutime`/`cstime`.
+- Every bin must have exactly 1 process.
+
+**Co-tenant watch:** the standing GPU clients are recorded **by pid** at the start. Any other pid that maps GPU libraries is flagged, whatever its name.
+
+**Leak grep**
+- `runFiles` > 0 is required.
+- **The self-test is a real file:** a needle is written under the run directory, and the same file walk must count exactly one more hit.
+- **Needles also include:** the largest library playlist's track names, and the album's track titles (F6, F8 and R3). They are held in memory only.
+- The committed docs are grepped again after the final RESULTS commit.
+- **Matching:** needles match on word boundaries.
+  - A name that also occurs as a whole word in the tracked tree, at main or HEAD, is not counted on either side. Such a name can't be told apart from our own code and prose.
+  - The number excluded is recorded.
+  - **Evidence:** in a smoke run, four plain-substring hits were ordinary words inside "worktrees", "planes", a CDM log word and a JSON key.
+
+**Gate**
+- Any phase error in `errors.json` is FAIL. The only exception is a phase skipped after a guard kill, which stays VOID through the guard rule.
+- realstate also records the real config directory listing, which covers the developer token.
+
+**Controls: each holds only on its stated reason.**
+
+| Control | Required |
+|---|---|
+| No user token | F2 PASS; F4 and F9 "playback never started" with every F4 rep's banner `SignInNeeded`; F5 "0 rounds"; F6 "0 of 3 transitions"; R1 "playback never started" |
+| Corrupted developer token | **New fixture:** a well-formed JWT, the real header and payload with the signature reversed, served from loopback to the dev build. F3 "did not return songs", with every rep's error containing "developer token was rejected" (Apple's 401). F4 "playback never started" with every rep's banner `SignInNeeded` |
+| No stream | F4 "playback never started", with every rep's banner containing "the audio output could not be opened" |
+| Cut tail | F6 "2 of 3 transitions"; exactly one cut transition failing with no drain, skipped > 0.1 s, and a landing within 1 s |
+| Leak | R3 FAIL with "USS growth" (zone 1 only); ≥ 4 changes after minute 5; the binary fails the shipped-feature check |
+| **Stall (new)** | SIGSTOP the playing app for 3 s, then compare snapshots 10 s apart on the same item: the R3 pacing rule must report a lag > 1.0 s |
+| **Guard kill (new)** | a **second, existing** null sink (unique name, confirmed present and not the default before play) is the app's `PULSE_SINK`, while the guard allows only the run's null sink. All of the following hold: the guard kills the app ("stream linked to" the second sink); the app is gone; the default sink is unchanged before and after |
+| Missing artifact | every check FAILs on an empty directory, and its first reason is missing evidence |
+
+**Probe results (smoke, not counted, 2026-10-12)**
+- F5: pause 19–30 ms; seek 521–781 ms; resume 277–282 ms; next 299–555 ms (advancing 552–808); prev 549 ms.
+- Cold F4: 2.0 s, with 38.7 s decrypted per play and a pace error of 0.05 s.
+- R4: 3.9 %. R5: 1.8 %.
+- The guard-kill and stall controls fired.
+- **App finding:** with a rejected developer token, the playback banner reads `SignInNeeded`; the developer-rejected banner is outranked in `app.rs` `banner()`. The control records that as the stated reason, and it is routed as an app finding.
+
+**Counted set:** two consecutive runs (`fix-1`, `fix-2`), then `fix-controls`, all at the commit adding this amendment. A VOID is re-run and reported.
