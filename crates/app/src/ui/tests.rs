@@ -80,6 +80,8 @@ fn the_back_stack_keeps_only_the_latest_routes() {
 
 #[test]
 fn a_scroll_waits_in_the_shell_until_a_route_change_or_back_drops_it() {
+    let playlist = |id: &str| Route::Playlist(id.into()).lists();
+    assert_eq!((playlist("p.1"), playlist("pl.u-1")), (true, false));
     let mut shell = Shell::default();
     for leave in [Nav::Go(Route::Songs), Nav::Back] {
         shell.apply(Nav::Scroll(Edge::End));
