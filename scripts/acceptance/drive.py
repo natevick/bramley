@@ -349,9 +349,11 @@ def transition(a, ids, at, start, cut=False):
 
 
 def queue_up(a, ids, ev):
-    ev['exits'] = [a.cli('play', ids[0])[0]]
+    sent = lambda r: (ev['exits'].append(r[0]), ev['replies'].append([r[1].get('seq'), r[1].get('applied')]))
+    ev.update(exits=[], replies=[])
+    sent(a.cli('play', ids[0]))
     ev['started'] = a.until(lambda s: s.get('itemId') == ids[0] and s.get('state') == 'Playing' and (s.get('position') or 0) > 1, 30)[1] is not None
-    ev['exits'] += [a.cli('queue', 'add', i)[0] for i in ids[1:]]
+    [sent(a.cli('queue', 'add', i)) for i in ids[1:]]
     a.until(lambda s: (s.get('queueLength') or 0) >= len(ids), 10)
     return ev['started']
 

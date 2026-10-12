@@ -251,3 +251,23 @@ The review (`scratch/review-s13.md`) showed rules that could PASS a v1 missing t
 - **App finding:** with a rejected developer token, the playback banner reads `SignInNeeded`; the developer-rejected banner is outranked in `app.rs` `banner()`. The control records that as the stated reason, and it is routed as an app finding.
 
 **Counted set:** two consecutive runs (`fix-1`, `fix-2`), then `fix-controls`, all at the commit adding this amendment. A VOID is re-run and reported.
+
+## Amendment 5 (2026-10-12, after fix-1; procedure only)
+fix-1 (at 5fae888) is reported under Amendment 4's rules. It does not count, because the F9 rule below changed.
+
+1. **F4/F9 skipped is read from the first audible snapshot to the end, not from the command.**
+   - **Evidence:** fix-1's F9 judged play read 1,513 ms skipped. It was 5,948 ms both at the first audible snapshot and at the end: all of it was queued audio of the *previous* MCP replay, flushed by this play. Nothing was skipped while the judged play was audible.
+   - The decrypted and decrypt-fail deltas are still read from the command.
+2. **Queue commands record their reply's `seq` and `applied`** (F6, F8, R3). This is evidence only; no rule reads it.
+   - **Why:** in fix-1, F8 saw only its first item, and R3 played nothing for 30 minutes. R3's `play` and 17 `queue add`s all exited 0, while `seq`/`applied` stayed at 85/85.
+   - A smoke repro of F6 → F8 → R3 passed, so the cause is unknown and intermittent. It is reported as an open finding.
+3. **F5 caveat (from S14b).** The engine's `position` counts frames handed to PulseAudio, not frames heard, so "advancing" can register up to ~200 ms before sound. This is a proxy limit:
+   - resume measures ~280 ms, so +200 ms stays under the 0.5 s bar;
+   - next/prev audibility is judged against 3 s.
+4. **F5 definitions, reconciled with S14b's probe.** Amendment 4's definitions stand for this harness; they were registered before any counted run. Where S14b's probe differs:
+   - **seek:** this harness accepts |position − 120| ≤ 0.1 s, against 0.01 s in S14b's, and does not separately require Paused. `seek` runs while paused, and pause is judged just before it.
+   - **pause:** both time it when the unchanged position is first seen, confirmed by a 0.3 s hold.
+   - **resume and next/prev:** identical, apart from the 0.05 s step. Both require `applied ≥ seq`.
+5. **Lock path:** `/run/user/<uid>/bramley-gpu-session.lock` (`flock`, exclusive). acceptance.sh and covers-session's `session()` hold it for a run's lifetime. Other harnesses may hold it around their own sessions; acceptance.sh then refuses with exit 2.
+
+**Counted set:** `fix-2` and `fix-3` (consecutive), then `fix-controls`, at the commit adding this amendment.

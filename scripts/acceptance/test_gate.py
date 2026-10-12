@@ -217,6 +217,8 @@ FUNCTIONAL = [
     ('F4 decrypted counted before the play', edit('f4.json', lambda d: d['judged'][2]['base'].__setitem__('decryptedMs', 10000)), 'F4', 'FAIL', 'decrypted 28000 ms'),
     ('F4 skipped over', edit('f4.json', lambda d: d['judged'][0]['end'].__setitem__('skippedMs', 101)), 'F4', 'FAIL', 'skipped 101 ms > 100'),
     ('F4 skipped at the bar', edit('f4.json', lambda d: d['judged'][0]['end'].__setitem__('skippedMs', 100)), 'F4', 'PASS', None),
+    ('F9 a previous play flushed before this one was heard', edit('f9.json', lambda d: [d['judged'][0]['heard'].__setitem__('skippedMs', 1513), d['judged'][0]['end'].__setitem__('skippedMs', 1513)]), 'F9', 'PASS', None),
+    ('F9 skipped while audible', edit('f9.json', lambda d: [d['judged'][0]['heard'].__setitem__('skippedMs', 1513), d['judged'][0]['end'].__setitem__('skippedMs', 1614)]), 'F9', 'FAIL', 'skipped 101 ms'),
     ('F4 a decrypt failure', edit('f4.json', lambda d: d['judged'][0]['end'].__setitem__('decryptFails', 1)), 'F4', 'FAIL', 'decrypt failures 1'),
     ('F4 position behind the wall clock', edit('f4.json', lambda d: d['judged'][1]['end'].__setitem__('t', 1039.1)), 'F4', 'FAIL', 'wall clock'),
     ('F4 position ahead of the wall clock', edit('f4.json', lambda d: d['judged'][1]['end'].__setitem__('t', 1035.9)), 'F4', 'FAIL', 'wall clock'),

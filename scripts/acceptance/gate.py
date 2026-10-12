@@ -260,8 +260,8 @@ def heard_play(j):
     why = []
     if delta(base, end, 'decryptedMs') < DECRYPTED_MS:
         why.append(f'decrypted {delta(base, end, "decryptedMs")} ms < {DECRYPTED_MS}')
-    if delta(base, end, 'skippedMs') > SKIPPED_MS:
-        why.append(f'skipped {delta(base, end, "skippedMs")} ms > {SKIPPED_MS}')
+    if delta(heard, end, 'skippedMs') > SKIPPED_MS:
+        why.append(f'skipped {delta(heard, end, "skippedMs")} ms > {SKIPPED_MS}')
     if delta(base, end, 'decryptFails') != 0:
         why.append(f'decrypt failures {delta(base, end, "decryptFails")}')
     if abs(delta(heard, end, 'position') - delta(heard, end, 't')) > PACE_S:
