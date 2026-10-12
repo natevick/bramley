@@ -127,6 +127,60 @@ The effect rules come from the coordinator's S13 review. They were checked by po
 - f8916d5 stays: it fixes race 1 and matches the HTML event-loop order.
 - I can't rule out that it widens race 3's window. The fix closes the window either way.
 
+## Review round (ee102d1 review)
+
+| Finding | Status | Evidence |
+|---|---|---|
+| B1: a dead pooled connection hangs for the full timeout | fixed (295d083) | See the B1 detail below. Tests: `a_silently_dead_pooled_connection_is_retried_once_for_get_and_never_for_post`, `a_transport_error_drops_the_pool_so_sibling_stale_connections_are_not_reused`. Both fail without their fix. |
+| M1: waiters ignore their own deadline | fixed (ca56d0f) | `wait_timeout` until the waiter's own deadline, then it fetches uncoalesced. `a_coalesced_waiter_gives_up_at_its_own_deadline_and_a_failed_leader_releases_it` asserts the deadline and the failed-leader release, bounded at < 1 s each. |
+| M2: only the first header line is read | fixed (ca56d0f) | Field lines are joined with ", ". Table row "a second Cache-Control line says no-store" and `a_vary_split_over_two_header_lines…` cover it. |
+| M3: request directives ignored | fixed (ca56d0f) | Table rows cover no-cache, no-store, max-age=0, Pragma and If-None-Match. Hand-rolled; the crate was not adopted, since it would add a dependency and licence check for ~40 lines saved. |
+| L1: cache survives sign-out; token headers | fixed (ca56d0f, 2eb21e4) | `Engine::new` clears the cache. A temporary name-only log over 3 soaks (never committed) showed MusicKit sends four token headers: `authorization`, `media-user-token`, `music-user-token` and `x-apple-music-user-token`. All four are treated like Authorization (table rows). |
+| L2: unbounded keys and headers | fixed (ca56d0f) | Bytes count URL, headers and body. 256-entry cap, expired entries purged on insert. `clearing_empties_the_cache_and_the_entry_count_and_expiry_are_bounded`. |
+| L3: bramley-play sleep | fixed (3bf489d) | Sleep is now `min(wait, 100 ms)`. |
+| L4: readiness departs from MSE | recorded | See L4 below. |
+| L5: a panicking http thread pins `in_flight` | fixed (295d083) | Drop guard; see L5 below. |
+| L5: aborted requests keep 5 ms polling | fixed (trivial) | `in_flight > aborted.len()`; see L5 below. `an_aborted_request_does_not_keep_the_engine_polling` fails without it. |
+| Widevine `next_timer` untested | fixed (11c91d9) | `an_idle_engine_wakes_for_the_cdm_s_next_timer`; fails if tick ignores the CDM deadline. |
+| B2: counted run and memory line | coordinator-owned | Not run; acceptance waits for S13 to merge. |
+
+**B1 detail:**
+- A 10 s receive-response timeout, capped at the request timeout.
+- Any transport error drops the shared pool.
+- GET and HEAD retry once on a fresh, non-pooled connection.
+- POST is never retried; it gains only from the pool drop.
+
+**L4: readiness deliberately departs from MSE.** MSE 2, Coded Frame Removal, says:
+
+> "If this object is in activeSourceBuffers, the current playback position is greater than or equal to start and less than the remove end timestamp, and HTMLMediaElement's readyState is greater than HAVE_METADATA, then set the HTMLMediaElement's readyState attribute to HAVE_METADATA and stall playback."
+
+e11055a does not do that. It keeps HAVE_FUTURE_DATA while queued, already-decoded output covers the playhead, and audio keeps playing. Reasoning, following the reviewer:
+- MusicKit trims `[0, X)` 0.06–0.34 s past `currentTime` whenever the buffer is at quota.
+- Following the spec literally gives a spurious `waiting`, an underrun count and a Loading state about 3 times a minute, with no audible gap.
+- `queued` is decoded audio, contiguous from `currentTime`.
+- It is zeroed by seek (`anchor(_, false)`), detach and `restart_output`, and it excludes Pulse's own buffer, which is conservative.
+- No early readiness was found.
+- Chromium is believed to behave the same way: it plays out its renderer's decoded queue. That is unverified here.
+
+This is a deliberate departure from the standard interface, recorded for compliance rule 2.
+
+**L5:**
+- **Panicking thread, fixed:** the http and script threads now hand back their completion through a Drop guard. A panic lands as an error completion, so `in_flight` is still decremented.
+- **Aborted requests, fixed:** the tick now counts live requests as `in_flight > aborted.len()`.
+  - This is safe because every JS abort path (fetch signal, XHR `abort()`, XHR timeout) calls `http_abort` only while the id is still in `httpPending`. So `aborted` only ever holds ids whose completion has not yet been handled, and `handle_completion` removes it and decrements `in_flight` together.
+
+### Race 3 regression after the review changes
+Three traced 4.5 min soaks, each holding the GPU-session lock, with its own null sink and the routing guard on. The binary is a trace build of ca56d0f + 295d083; the later commits don't touch coalescing.
+
+| Run | Stall | Duplicate playlists resolved | Lands |
+|---|---|---|---|
+| trr2-1 | no | 2 ms apart | before init |
+| trr2-2 | no | 1–2 ms apart (4 pairs) | before init |
+| trr2-3 | no | 2 ms apart | before init |
+
+- **Coalescing still holds.** The wiring test still fails with the cache unwired.
+- **Margins:** the new margins (second issue → init append) were 31 and 63 ms. That fits the residual estimate above.
+
 ## Full acceptance runs
 
 | Run | Commit | Result |
