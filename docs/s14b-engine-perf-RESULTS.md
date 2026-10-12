@@ -1,15 +1,17 @@
 # S14b engine latency and paused CPU: results (2026-10-12)
 
-Pre-registration: `docs/s14b-engine-perf-PREREG.md`, with Amendments 1–2.
+Pre-registration: `docs/s14b-engine-perf-PREREG.md`, with Amendments 1–3.
 - **Base:** b059db7 (S13).
-- **Code commits:** abf2b62, f8916d5, e11055a.
-- **Final code:** e11055a. edcc4b7 is docs only.
+- **Code commits:** abf2b62, f8916d5, e11055a, and 5438da1 (HTTP cache).
+- **Trace feature:** df89543 and its follow-up, not shipped.
+- **Final code:** 5438da1.
 
 ## Verdict
 - **R5 PASSes**, measured the new way.
-- **F5 PASSes on the effect for every control**, but only with pooled connections.
-- **Pooling exposes a MusicKit preload race:** a permanent stall at an item preload in 2 of 7 pooled soaks. Without pooling, seek FAILs F5 (median 523 ms).
-  - **This needs Nate's call.**
+- **F5 PASSes on the effect for every control.** It needs pooled connections; without them seek is 523 ms.
+- **Race 3 (preload stall) was ours and is fixed in 5438da1.**
+  - **Cause:** our fetch had no HTTP cache, so MusicKit's duplicate playlist request could land in a ~60 ms window that a browser's cache closes.
+  - **Pre-registered bar met:** 0 stalls in 12 pooled 4.5 min soaks on the fix, against 4 in 16 before it.
 - **Full acceptance:**
   - `s14b-1` FAILed on R3 because of an engine race, fixed in f8916d5.
   - `s14b-2` was stopped mid-soak on the coordinator's instruction, so it does not count.
@@ -59,9 +61,59 @@ The effect rules come from the coordinator's S13 review. They were checked by po
 |---|---|---|---|
 | 1 | A `SourceBuffer.remove()` queued from a media-event handler finished only after the next tick's network completions. A fast init segment then arrived while the buffer read `updating`, MusicKit never appended it, and the next segment decrypted against the previous track's init: decode errors, then a permanent stall. | ours | Fixed in f8916d5: queued tasks run after each completion and each media dispatch. Two regression tests. |
 | 2 | MusicKit trims `[0, X)` 0.06–0.34 s past `currentTime` whenever the buffer is at quota. Our readiness ignored the ~1.5 s already queued in the sink, so each trim fired `waiting`, counted an underrun and showed Loading. Base had 30 of these in 10 min. A 10 s sampler phase-locks onto them. | ours | Fixed in e11055a: queued output counts toward readiness. Probe builds showed 0 spurious blips over ~16.6 min, against Amendment 1's bar of ≤ 2 per 10 min; base had 30 per 10 min. The two raw `waiting` events in that time are the real run-outs at race-3 stalls. Phase control: soak-after4 read Playing at every sample for 13 min. One regression test. |
-| 3 | At a preload, MusicKit runs two loaders for the next item. When loader 2's playlist lands after loader 1's init append, neither loader calls the SourceBuffer again, and playback sits at Loading for good. There is no host exception, no unhandled rejection and no queue call of ours in that window. | MusicKit | **Open.** 2 of 7 pooled soaks after f8916d5 hit it (probeD, hunt-4), both at the same place: the track 2→3 preload at `ts_off 290.4168`, right after the 67 s track 2. That is the reproduction recipe, a 4.5 min soak. Traces: `target/s14b/hunt-4`, `soak-probeD`. |
+| 3 | At a preload, MusicKit runs two loaders for the next item. When loader 2's playlist lands after loader 1's init append, neither loader calls the SourceBuffer again, and playback sits at Loading for good. There is no host exception, no unhandled rejection and no queue call of ours in that window. | ours (platform) | **Fixed in 5438da1.** See below. |
 
-**Race 3 attribution is not settled.** Pooled runs *without* f8916d5 (s14b-1, soak1, probeA, probeC) all passed this preload. Only one unpooled run *with* f8916d5 exists (soak-nopool), and it was clean. The data cannot separate pooling from f8916d5's task ordering, which follows browser task semantics. Separating them needs pooled runs without f8916d5 and more unpooled runs with it.
+### Race 3: root cause
+
+**What happens (trace build; MusicKit read only to explain it, never patched):**
+1. At the item change MusicKit runs `prepareToPlay` twice: one trigger is the Preloader threshold, the other the queue change. Its `isPreparedToPlay` guard is only set once a preparation completes, so both run.
+2. As a result it fetches the next playlist twice, from the same URL (`Cache-Control: public, max-age≈1 y`), 5–97 ms apart.
+3. Preparation 1 does three things in order: `setNextManifest`; `transitionToNextManifest`, which sets `nextSeamlessTransition = 290.4168`; and init and media loading.
+4. Preparation 2 then calls `setNextManifest`, which sees a pending transition and runs `revertSeamlessTransition` → `clearBufferToEnd(290.4168)` → `safeSourceBufferRemove(290.4168, buffered.end)`.
+5. **The stall:** if preparation 2's playlist lands after the next track's init append but before its first media append, `buffered.end` is still 290.4168. The range is empty, so MusicKit only warns and never calls `remove()`. No `updateend` follows, so no transition and no loading. The media segment already in flight is dropped, because `segmentIndexToFetch` was reset to -1.
+   - In tr-6 the trace shows `buffered` [209.676-290.417] and `updating false` read right after the second playlist resolves, then no SourceBuffer call ever again.
+6. **When it survives:** if the playlist lands after a media append, the remove is valid and MusicKit recovers (tr-2).
+
+**Diff of stalled against passing traces:** the classifier `target/s14b/window.py` asks where the second playlist resolves.
+
+| Runs | Before the init append | Inside the init→media window | After a media append |
+|---|---|---|---|
+| 2 stalls (tr-6, tr-9) | – | 2 | – |
+| 7 clean (tr-1…5, 7, 8) | 4 | 0 | 1 (tr-2); 2 runs had no duplicate |
+
+**Where we deviate from a browser:**
+- A browser's `fetch` for cache mode "default" goes through its HTTP cache: Fetch Standard, "HTTP-network-or-cache fetch", serving fresh stored responses per RFC 9111 §4 and §4.2.
+- Chromium (the HTTP cache's writer lock) and Firefox (cache-entry sharing) also make a second identical in-flight GET wait for the first.
+- So both playlists resolve together, before the init fetch has even started. MusicKit's revert then lands while the range is either empty and harmless, or never reached.
+- We had no HTTP cache, so the duplicate kept its own network timing.
+- Strictly, Fetch permits a user agent with no cache. The failure needs the browser behaviour that rule 2 asks host objects to have, not a step that is a MUST.
+- Pooling exposed it: it shrank the init and media fetches to ~17–60 ms, against ~100 ms each with a fresh TLS handshake.
+
+**Fix (5438da1):** an in-memory HTTP cache in `net`.
+- **In scope:** GETs with cache mode "default", no body and no Range header.
+- **Stored:** 200 responses, fresh by `max-age` less `Age`, keyed by URL plus the request headers named in `Vary`.
+- **Not stored:** `no-store`, `no-cache`, `Vary: *`, and `Authorization` without `public`.
+- **Coalescing:** a concurrent identical request waits for the first.
+- **Limits:** 512 KiB per entry, 2 MiB in total.
+- **Media segments are untouched:** they are 206 range requests.
+- **Tests:** 3 new; the wiring test fails without the fix (3 network requests against 2).
+
+**Did it run:** three traced soaks on the fix show the duplicate playlists resolving 2–3 ms apart, always before the init append. Before the fix they resolved 13–119 ms apart.
+
+### Race 3: soak table (4.5 min pooled soaks; stall per Amendment 3)
+
+| Build | Valid runs | Stalls | VOID |
+|---|---|---|---|
+| Before the fix: f8916d5 (+ e11055a for most), pooled, no cache. Runs: after3-1/2, after4, probeD, hunt-1/2/4, tr-1…9 | 16 | **4** (probeD, hunt-4, tr-6, tr-9) | 1 (hunt-3) |
+| **Fix 5438da1, shipped binary (fix-1…13)** | **12** | **0** | 1 (fix-10: SignInNeeded at start) |
+| Fix 5438da1, trace build (trfix-1…3) | 3 | 0 | 0 |
+| Confound: pooled, no f8916d5, with e11055a, no cache (conf-1…8) | 8 | 0 | 0 |
+
+**Confound:**
+- Pooled runs without f8916d5 had 0 stalls in 12: conf-1…8, plus s14b-1, soak1, probeA and probeC earlier. Runs with it had 4 in 16.
+- That difference is not significant (Fisher exact, one-sided p ≈ 0.09), and the mechanism above does not involve task ordering.
+- f8916d5 stays: it fixes race 1 and matches the HTML event-loop order.
+- I can't rule out that it widens race 3's window. The fix closes the window either way.
 
 ## Full acceptance runs
 
@@ -81,4 +133,4 @@ The effect rules come from the coordinator's S13 review. They were checked by po
 
 ## Not done
 - No counted acceptance run on the final commit. It waits for the coordinator.
-- Race 3 is MusicKit's. No workaround was added: no delays and no fetch serialization.
+- **F5 spot check on the fix:** eff11-fix gave 20 / 376 / 45 / 164 (audible 430) / 163 (audible 408). It overlapped another agent's session that ran without the lock, so it is indicative only.
