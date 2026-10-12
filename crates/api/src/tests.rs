@@ -234,15 +234,17 @@ fn an_artist_lists_its_albums_and_an_album_its_tracks_and_none_is_empty() {
     let artists = r#"{"data": [{"id": "r.A", "type": "library-artists", "attributes": {"name": "N"}}],
                       "next": "/v1/me/library/artists?offset=1", "meta": {"total": 2}}"#;
     let albums = r#"{"data": [{"id": "l.B", "type": "library-albums"}], "meta": {"total": 1}}"#;
-    let none =
-        r#"{"errors": [{"status": "404", "detail": "No related resources found for albums"}]}"#;
+    let none = |what: &str| {
+        let body =
+            format!(r#"{{"errors": [{{"detail": "No related resources found for {what}"}}]}}"#);
+        vec![(404, String::new(), body.into_bytes())]
+    };
     let server = serve(vec![
         ("/v1/me/library/artists", vec![ok(artists)]),
         ("/v1/me/library/artists/r.A/albums", vec![ok(albums)]),
-        (
-            "/v1/me/library/artists/r.Z/albums",
-            vec![(404, String::new(), none.into())],
-        ),
+        ("/v1/me/library/artists/r.Z/albums", none("albums")),
+        ("/v1/me/library/artists/r.Y/albums", none("tracks")),
+        ("/v1/me/library/artists/r.A", vec![ok(artists)]),
         ("/v1/me/library/albums/l.B/tracks", vec![ok(albums)]),
     ]);
     let api = client(&server, Some(USER));
@@ -258,6 +260,10 @@ fn an_artist_lists_its_albums_and_an_album_its_tracks_and_none_is_empty() {
     assert_eq!(api.artist_albums("r.A").unwrap().items[0].id, "l.B");
     assert_eq!(api.album_tracks("l.B").unwrap().total, Some(1));
     assert_eq!(api.artist_albums("r.Z").unwrap().total, Some(0));
+    let other = api.artist_albums("r.Y");
+    assert!(matches!(other, Err(Error::Http(404, _))), "{other:?}");
+    let named = api.library_artist("r.A").unwrap();
+    assert_eq!(named.items[0].name.as_deref(), Some("N"));
     assert_eq!(
         server.targets(),
         [
@@ -265,11 +271,14 @@ fn an_artist_lists_its_albums_and_an_album_its_tracks_and_none_is_empty() {
             "/v1/me/library/artists/r.A/albums?limit=100",
             "/v1/me/library/albums/l.B/tracks?limit=100",
             "/v1/me/library/artists/r.Z/albums?limit=100",
+            "/v1/me/library/artists/r.Y/albums?limit=100",
+            "/v1/me/library/artists/r.A",
         ]
     );
     for bad in ["../x", "r.A/albums"] {
         assert!(matches!(api.artist_albums(bad), Err(Error::Refused(_))));
         assert!(matches!(api.album_tracks(bad), Err(Error::Refused(_))));
+        assert!(matches!(api.library_artist(bad), Err(Error::Refused(_))));
     }
 }
 

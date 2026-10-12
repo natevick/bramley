@@ -420,12 +420,12 @@ fn an_artist_reads_its_albums_then_each_albums_tracks_in_turn_and_starts_afresh_
         Call::Next(next.into())
     );
     assert_eq!(lib.status()["artists"]["loaded"], 137);
-    let route = Route::Artist("r.A".into());
+    let route = Route::Artist("i.136".into());
     let tracks = "/v1/me/library/albums/l.0/tracks?offset=100";
-    let albums = "/v1/me/library/artists/r.A/albums?offset=1";
+    let albums = "/v1/me/library/artists/i.136/albums?offset=1";
     let steps = [
         (
-            Call::ArtistAlbums("r.A".into()),
+            Call::ArtistAlbums("i.136".into()),
             named(&["l.0"], Some(albums)),
         ),
         (Call::Next(albums.into()), named(&["l.1"], None)),
@@ -447,8 +447,17 @@ fn an_artist_reads_its_albums_then_each_albums_tracks_in_turn_and_starts_afresh_
     let sent = lib.tick(now, true, || {});
     assert_eq!(
         sent.iter().map(|j| &j.call).collect::<Vec<_>>(),
-        [&Call::ArtistAlbums("r.B".into())]
+        [
+            &Call::ArtistAlbums("r.B".into()),
+            &Call::LibraryArtist("r.B".into())
+        ],
+        "a deep link fetches the artist for its heading"
     );
+    let name = sent.into_iter().nth(1).unwrap();
+    (name.done)(Ok(named(&["r.B"], None)));
+    lib.receive(&ctx);
+    let shown = texts(&ctx, &mut lib, &Route::Artist("r.B".into()));
+    assert!(shown.iter().any(|t| t == "Secret Song 0"), "{shown:?}");
 }
 
 #[test]
@@ -501,11 +510,11 @@ fn an_artist_opens_its_view_and_its_songs_and_albums_play_in_context() {
 #[test]
 fn signing_out_clears_the_artists_and_a_403_on_an_artist_asks_for_sign_in() {
     let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
-    let route = Route::Artist("r.A".into());
+    let route = Route::Artist("i.0".into());
+    lib.lists[List::Artists as usize].items = (0..5).map(item).collect();
     frame(&ctx, &mut lib, &route, 600.0, vec![]);
     answer(&mut lib, &ctx, now, named(&["l.0"], None));
     answer(&mut lib, &ctx, now, page(0..10, None));
-    lib.lists[List::Artists as usize].items = (0..5).map(item).collect();
     let status = lib.status().to_string();
     assert!(
         !status.contains("Secret") && !status.contains("l.0"),
@@ -520,6 +529,120 @@ fn signing_out_clears_the_artists_and_a_403_on_an_artist_asks_for_sign_in() {
     (job.done)(Err(Error::SignInNeeded));
     lib.receive(&ctx);
     assert!(lib.denied && lib.tick(now + RETRY, true, || {}).is_empty());
+}
+
+fn texts(ctx: &egui::Context, lib: &mut Library, route: &Route) -> Vec<String> {
+    ctx.enable_accesskit();
+    let mut out = ctx.run_ui(RawInput::default(), |ui| {
+        show(ui, lib, route, (&mut vec![], &mut vec![]))
+    });
+    out.textures_delta.clear();
+    let nodes = out.platform_output.accesskit_update.expect("a tree").nodes;
+    let text = |n: &egui::accesskit::Node| n.label().or(n.value()).map(str::to_owned);
+    nodes.iter().filter_map(|(_, n)| text(n)).collect()
+}
+
+fn fail(lib: &mut Library, ctx: &egui::Context, now: Instant, why: Error) -> Vec<Call> {
+    let jobs = lib.tick(now, true, || {});
+    let calls = jobs.iter().map(|j| j.call.clone()).collect();
+    for job in jobs {
+        (job.done)(Err(why.clone()));
+    }
+    lib.receive(ctx);
+    calls
+}
+
+#[test]
+fn a_failing_albums_call_is_not_retried_once_the_artist_view_is_left() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    lib.lists[List::Artists as usize].items = (0..5).map(item).collect();
+    frame(&ctx, &mut lib, &Route::Artist("i.0".into()), 600.0, vec![]);
+    let mut sent = Vec::new();
+    for window in 0..30 {
+        let at = Instant::now() + (RETRY + Duration::from_millis(5)) * window;
+        sent.extend(fail(&mut lib, &ctx, at, Error::Http(500, "x".into())));
+    }
+    assert_eq!(sent, [Call::ArtistAlbums("i.0".into())]);
+}
+
+#[test]
+fn an_unreadable_album_is_skipped_and_counted_while_a_network_error_is_retried() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    let route = Route::Artist("i.0".into());
+    lib.lists[List::Artists as usize].items = (0..5).map(item).collect();
+    frame(&ctx, &mut lib, &route, 600.0, vec![]);
+    answer(&mut lib, &ctx, now, named(&["l.0", "l.1", "l.2"], None));
+    let step = |lib: &mut Library, at: Instant, why: Error| {
+        frame(&ctx, lib, &route, 600.0, vec![]);
+        fail(lib, &ctx, at, why)
+    };
+    let gone = Error::Http(404, "Resource Not Found".into());
+    assert_eq!(step(&mut lib, now, gone), [Call::AlbumTracks("l.0".into())]);
+    let down = Error::Network("down".into());
+    assert_eq!(
+        step(&mut lib, now, down.clone()),
+        [Call::AlbumTracks("l.1".into())]
+    );
+    assert_eq!(step(&mut lib, Instant::now(), down), []);
+    frame(&ctx, &mut lib, &route, 600.0, vec![]);
+    let retried = answer(&mut lib, &ctx, Instant::now() + RETRY, page(0..3, None));
+    assert_eq!(retried, Call::AlbumTracks("l.1".into()));
+    let decode = Error::Decode("bad".into());
+    assert_eq!(
+        step(&mut lib, now, decode),
+        [Call::AlbumTracks("l.2".into())]
+    );
+    let songs = &lib.status()["artistSongs"];
+    assert_eq!(
+        (songs["loaded"].as_u64(), songs["skipped"].as_u64()),
+        (Some(3), Some(2))
+    );
+    assert_eq!(songs["more"], false);
+    assert!(
+        texts(&ctx, &mut lib, &route)
+            .iter()
+            .any(|t| t == "2 albums couldn't be read.")
+    );
+}
+
+#[test]
+fn a_rate_limit_waits_its_retry_after_but_never_less_than_the_retry() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+    for (seconds, wait) in [(60, Duration::from_secs(60)), (1, RETRY)] {
+        let now = Instant::now();
+        assert_eq!(
+            fail(&mut lib, &ctx, now, Error::RateLimited(seconds)).len(),
+            1
+        );
+        assert!(
+            lib.tick(now + wait - Duration::from_millis(50), true, || {})
+                .is_empty()
+        );
+        lib.lists[List::Songs as usize].wanted = true;
+        assert_eq!(
+            lib.tick(now + wait + Duration::from_millis(50), true, || {})
+                .len(),
+            1
+        );
+        (
+            lib.lists[List::Songs as usize].busy_until,
+            lib.lists[List::Songs as usize].wanted,
+        ) = (None, true);
+    }
+}
+
+#[test]
+fn rows_built_counts_both_artist_views_in_the_frame() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    lib.lists[List::Artists as usize].items = (0..5).map(item).collect();
+    let route = Route::Artist("i.0".into());
+    frame(&ctx, &mut lib, &route, 1000.0, vec![]);
+    lib.lists[List::ArtistAlbums as usize].items = (100..110).map(item).collect();
+    lib.lists[List::ArtistSongs as usize].items = (0..60).map(item).collect();
+    frame(&ctx, &mut lib, &route, 1000.0, vec![]);
+    assert!(lib.art.shown > 10, "both views drew");
+    assert_eq!((lib.built.0, lib.built.1), (lib.art.shown, lib.art.shown));
 }
 
 #[test]

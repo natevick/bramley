@@ -815,6 +815,7 @@ fn the_api_base_override_and_screenshots_are_refused_outside_dev() {
         "--size",
         "--search",
         "--scroll-end",
+        "--click-row",
     ] {
         let args = [flag, "1"].map(String::from);
         assert!(crate::parse_args(args.into_iter()).is_err(), "{flag}");

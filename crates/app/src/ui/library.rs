@@ -42,9 +42,10 @@ pub enum List {
     Artists,
     ArtistAlbums,
     ArtistSongs,
+    ArtistName,
 }
 
-const LISTS: [List; 7] = [
+const LISTS: [List; 8] = [
     List::Playlists,
     List::Albums,
     List::Songs,
@@ -52,6 +53,7 @@ const LISTS: [List; 7] = [
     List::Artists,
     List::ArtistAlbums,
     List::ArtistSongs,
+    List::ArtistName,
 ];
 
 #[derive(Default)]
@@ -65,6 +67,7 @@ pub struct Paged {
     wanted: bool,
     failed: bool,
     read: usize,
+    skipped: usize,
 }
 
 impl Paged {
@@ -81,6 +84,7 @@ impl Paged {
             List::Artists => Some(Call::Library(Shelf::Artists)),
             List::Tracks => owner.map(Call::PlaylistTracks),
             List::ArtistAlbums => owner.map(Call::ArtistAlbums),
+            List::ArtistName => owner.map(Call::LibraryArtist),
         }
     }
 
@@ -113,7 +117,7 @@ struct Follow {
 
 #[derive(Default)]
 pub struct Library {
-    lists: [Paged; 7],
+    lists: [Paged; 8],
     follow: Option<Follow>,
     pub top_up_failed: bool,
     playlist: String,
@@ -150,7 +154,7 @@ impl Library {
     fn owner(&self, list: List) -> &str {
         match list {
             List::Tracks => &self.playlist,
-            List::ArtistAlbums | List::ArtistSongs => &self.artist,
+            List::ArtistAlbums | List::ArtistSongs | List::ArtistName => &self.artist,
             _ => "",
         }
     }
@@ -187,9 +191,6 @@ impl Library {
         }
         if self.denied {
             return Vec::new();
-        }
-        if self.list(List::ArtistSongs).wanted && !self.list(List::ArtistAlbums).complete() {
-            self.lists[List::ArtistAlbums as usize].wanted = true;
         }
         let mut jobs = Vec::new();
         for list in LISTS {
@@ -238,9 +239,17 @@ impl Library {
                 Err(Error::SignInNeeded) => {
                     (paged.busy_until, paged.failed, self.denied) = (None, true, true);
                 }
-                _ => {
-                    (paged.busy_until, paged.failed) = (Some(Instant::now() + RETRY), true);
-                    ctx.request_repaint_after(RETRY);
+                Err(e) if list == List::ArtistSongs && permanent(&e) => {
+                    (paged.next, paged.busy_until) = (None, None);
+                    (paged.read, paged.skipped) = (paged.read + 1, paged.skipped + 1);
+                }
+                failed => {
+                    let wait = match failed {
+                        Err(Error::RateLimited(s)) => RETRY.max(Duration::from_secs(s)),
+                        _ => RETRY,
+                    };
+                    (paged.busy_until, paged.failed) = (Some(Instant::now() + wait), true);
+                    ctx.request_repaint_after(wait);
                 }
             }
         }
@@ -260,8 +269,10 @@ impl Library {
             artists,
             artist_albums,
             mut artist_songs,
+            _,
         ] = self.lists.each_ref().map(list);
         let by_artist = self.list(List::ArtistAlbums);
+        artist_songs["skipped"] = json!(self.list(List::ArtistSongs).skipped);
         artist_songs["more"] = json!(
             !by_artist.complete() || self.unread_album().is_some() || artist_songs["more"] == true
         );
@@ -354,10 +365,18 @@ impl Library {
     }
 }
 
+fn permanent(e: &Error) -> bool {
+    match e {
+        Error::Http(status, _) => (400..500).contains(status) && *status != 429,
+        Error::Decode(_) | Error::Refused(_) | Error::TooLarge => true,
+        _ => false,
+    }
+}
+
 pub fn play(list: List, items: &[Item], index: usize) -> Option<Action> {
     let item = items.get(index)?;
     Some(match list {
-        List::Playlists | List::Artists => return None,
+        List::Playlists | List::Artists | List::ArtistName => return None,
         List::Albums | List::ArtistAlbums => Action::PlayIn(Queue::Album(item.id.clone()), 0),
         List::Songs | List::Tracks | List::ArtistSongs => {
             let ahead = &items[index..items.len().min(index + QUEUE_AHEAD)];
@@ -543,6 +562,7 @@ pub fn show(
     route: &Route,
     (actions, navs): (&mut Vec<Action>, &mut Vec<Nav>),
 ) {
+    lib.built.0 = 0;
     let (list, verb) = match route {
         Route::Artists => (List::Artists, "Open artist"),
         Route::Artist(id) => return artist(ui, lib, id, (actions, navs)),
@@ -569,10 +589,18 @@ fn artist(
         lib.artist = id.to_owned();
         lib.lists[List::ArtistAlbums as usize] = Paged::default();
         lib.lists[List::ArtistSongs as usize] = Paged::default();
+        lib.lists[List::ArtistName as usize] = Paged::default();
     }
-    let named = lib.list(List::Artists).items.iter().find(|a| a.id == id);
-    if let Some(name) = named.and_then(|a| a.name.as_deref()) {
-        ui.label(egui::RichText::new(name).heading());
+    let listed = lib.list(List::Artists).items.iter().find(|a| a.id == id);
+    let named = listed.or(lib.list(List::ArtistName).items.first());
+    match named.and_then(|a| a.name.as_deref()) {
+        Some(name) => drop(ui.label(egui::RichText::new(name).heading())),
+        None => lib.lists[List::ArtistName as usize].wanted = true,
+    }
+    let skipped = lib.list(List::ArtistSongs).skipped;
+    if skipped > 0 {
+        let albums = if skipped == 1 { "album" } else { "albums" };
+        super::notice(ui, &format!("{skipped} {albums} couldn't be read."));
     }
     let albums_pt = 2.0 * (CELL_PT + 30.0);
     view(
@@ -590,6 +618,9 @@ fn artist(
         f32::INFINITY,
         (actions, navs),
     );
+    if lib.list(List::ArtistSongs).wanted && !lib.list(List::ArtistAlbums).complete() {
+        lib.lists[List::ArtistAlbums as usize].wanted = true;
+    }
 }
 
 fn view(
@@ -650,7 +681,8 @@ fn view(
                 }
             });
         }
-        lib.built = (built, lib.built.1.max(built), range.end);
+        let total = lib.built.0 + built;
+        lib.built = (total, lib.built.1.max(total), range.end);
     });
     #[cfg(feature = "dev")]
     if hooked
@@ -683,7 +715,10 @@ fn view(
 
 fn name_row(ui: &mut egui::Ui, item: &Item, width: f32, verb: &str) -> egui::Response {
     let name = item.name.as_deref().unwrap_or("Untitled");
-    let row = egui::Button::new(name).right_text("").frame(false).truncate();
+    let row = egui::Button::new(name)
+        .right_text("")
+        .frame(false)
+        .truncate();
     let response = ui.add(row.min_size(egui::vec2(width, ROW_PT + 4.0)));
     labeled(response, WidgetType::Button, &format!("{verb} {name}"))
 }

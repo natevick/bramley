@@ -84,6 +84,7 @@ pub struct Args {
     click_cover: Option<usize>,
     #[cfg(feature = "dev")]
     click_track: Vec<usize>,
+    #[cfg(feature = "dev")]
     click_row: Option<usize>,
     #[cfg(feature = "dev")]
     jump_to: Option<usize>,
@@ -134,6 +135,7 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
                 let clicks: Result<Vec<usize>, _> = value()?.split(',').map(str::parse).collect();
                 a.click_track = clicks.context("--click-track takes numbers")?;
             }
+            #[cfg(feature = "dev")]
             "--click-row" => a.click_row = Some(value()?.parse()?),
             #[cfg(feature = "dev")]
             "--jump-to" => a.jump_to = Some(value()?.parse()?),

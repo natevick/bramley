@@ -199,6 +199,10 @@ impl Session<'_> {
         self.related("playlists", id, "tracks")
     }
 
+    pub fn library_artist(&self, id: &str) -> Result<Page> {
+        self.json(&format!("{LIBRARY}artists/{}", id_segment(id)?), &[])
+    }
+
     pub fn album_tracks(&self, id: &str) -> Result<Page> {
         self.related("albums", id, "tracks")
     }
@@ -356,6 +360,7 @@ pub(crate) fn allowed(path: &str) -> bool {
         ["v1", "me", "storefront"]
             | ["v1", "me", "library", "playlists" | "albums" | "songs"]
             | ["v1", "me", "library", "artists"]
+            | ["v1", "me", "library", "artists", _]
             | ["v1", "me", "library", "playlists" | "albums", _, "tracks"]
             | ["v1", "me", "library", "artists", _, "albums"]
             | ["v1", "catalog", _, "search"]
