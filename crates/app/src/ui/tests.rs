@@ -53,7 +53,6 @@ fn navigation_pushes_the_route_left_and_back_returns_to_it() {
     assert!(!shell.can_go_back());
 }
 
-#[cfg(feature = "dev")]
 #[test]
 fn artist_routes_parse_and_their_title_never_names_the_artist() {
     assert_eq!(Route::parse("artists"), Some(Route::Artists));

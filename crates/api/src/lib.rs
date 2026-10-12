@@ -12,7 +12,7 @@ use std::time::Instant;
 #[used]
 static LOOPBACK_MARKER: &str = "bramley-unshipped-feature:api/loopback\0";
 
-pub use client::{API_BASE, Client, Error, Result, Session, Shelf, Tokens};
+pub use client::{API_BASE, Client, Error, Result, Session, Shelf, Tokens, retry_after, segment};
 pub use models::{Detail, Item, Kind, Page, SearchResults, art_url};
 
 #[derive(Clone, Debug, PartialEq)]

@@ -26,6 +26,7 @@ const REPAINT_EVERY: Duration = Duration::from_secs(1);
 const MEMORY_ONLY: [&str; 5] = ["title", "artist", "queue", "queuePosition", "queueLength"];
 const QUEUE_FIRST: &str = "Play something first; the queue starts with it.";
 const TOP_UP_FAILED: &str = "More songs from your library could not be added to the queue.";
+const NOT_A_LIST: &str = "scroll works in a library list: open playlists, albums, songs, artists, a library playlist or an artist first";
 const STILL_CLEARING: &str =
     "signed out here, but the stored sign-in is still being removed; run sign-out again to check";
 
@@ -117,6 +118,8 @@ pub struct App {
     #[cfg(feature = "dev")]
     jump_to: Option<usize>,
     #[cfg(feature = "dev")]
+    scroll_end: Option<Instant>,
+    #[cfg(feature = "dev")]
     queue_fixture: bool,
     frames: u64,
     renderer: Option<String>,
@@ -158,7 +161,6 @@ impl App {
         let mut library = Library::new(source.as_ref().and_then(|s| s.art_prefix.clone()));
         #[cfg(feature = "dev")]
         {
-            library.scroll_end = args.scroll_end.map(|after| Instant::now() + after);
             library.click_last = args.click_last;
         }
         #[allow(unused_mut)]
@@ -208,6 +210,8 @@ impl App {
             }),
             #[cfg(feature = "dev")]
             jump_to: args.jump_to,
+            #[cfg(feature = "dev")]
+            scroll_end: args.scroll_end.map(|after| Instant::now() + after),
             #[cfg(feature = "dev")]
             queue_fixture: args.queue_fixture,
             frames: 0,
@@ -383,6 +387,13 @@ impl App {
                     }
                     continue;
                 }
+                Request::Nav(Nav::Scroll(_)) if !self.shell.route.lists() => {
+                    Some(("error", NOT_A_LIST))
+                }
+                Request::Nav(nav) => {
+                    self.shell.apply(nav);
+                    None
+                }
                 request => cli::command(&mut self.playback, request, deadline),
             };
             if show && outcome.is_none() {
@@ -524,6 +535,8 @@ impl App {
         }
         self.covers.follow(ctx, covers_allowed(&self.playback));
         let (now, waker) = (Instant::now(), ctx.clone());
+        let home = self.shell.route == ui::nav::Route::Home;
+        self.covers.retry(ctx, now, home);
         let wake = move || waker.request_repaint();
         if let Some(job) = self.search.tick(now, covers_allowed(&self.playback), wake) {
             self.send_api(job);
@@ -540,6 +553,11 @@ impl App {
         let wake = move || waker.request_repaint();
         if let Some(job) = (self.detail).tick(now, covers_allowed(&self.playback), route, wake) {
             self.send_api(job);
+        }
+        #[cfg(feature = "dev")]
+        if self.scroll_end.is_some_and(|at| now >= at) {
+            self.shell.apply(Nav::Scroll(ui::nav::Edge::End));
+            self.scroll_end = None;
         }
         #[cfg(feature = "dev")]
         if let Some(id) = self.click_cover.and_then(|n| self.covers.album(n)) {

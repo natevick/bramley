@@ -27,7 +27,16 @@ impl Route {
         }
     }
 
-    #[cfg(feature = "dev")]
+    pub fn lists(&self) -> bool {
+        match self {
+            Route::Artists | Route::Artist(_) | Route::Playlists | Route::Albums | Route::Songs => {
+                true
+            }
+            Route::Playlist(id) => id.starts_with("p."),
+            _ => false,
+        }
+    }
+
     pub fn parse(name: &str) -> Option<Route> {
         if let Some(id) = name.strip_prefix("album:") {
             return Some(Route::Album(id.to_owned()));
@@ -57,6 +66,13 @@ pub enum Nav {
     Back,
     ToggleQueue,
     FocusSearch,
+    Scroll(Edge),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edge {
+    Top,
+    End,
 }
 
 pub const BACK_LIMIT: usize = 32;
@@ -68,6 +84,7 @@ pub struct Shell {
     pub queue_open: bool,
     pub focus_search: bool,
     pub query: String,
+    pub scroll: Option<Edge>,
 }
 
 impl Shell {
@@ -82,11 +99,12 @@ impl Shell {
                     self.back.remove(0);
                 }
                 self.back.push(std::mem::replace(&mut self.route, route));
+                self.scroll = None;
             }
             Nav::Go(_) => {}
             Nav::Back => {
                 if let Some(route) = self.back.pop() {
-                    self.route = route;
+                    (self.route, self.scroll) = (route, None);
                 }
             }
             Nav::ToggleQueue => self.queue_open = !self.queue_open,
@@ -94,6 +112,7 @@ impl Shell {
                 self.apply(Nav::Go(Route::Search));
                 self.focus_search = true;
             }
+            Nav::Scroll(edge) => self.scroll = Some(edge),
         }
     }
 }

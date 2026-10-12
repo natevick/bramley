@@ -12,7 +12,7 @@ ADVANCE_EPS_S, F5_SEEK_S, F5_POSITION_S, F5_ADVANCING_MS = 0.05, 120.0, 0.1, 300
 DECRYPTED_MS, SKIPPED_MS, PACE_S = 35000, 100, 1.0
 F6_SENT_SLACK_S, F6_SKIPPED_S, F6_STALL_S, F6_LAND_S, F6_WINDOW_S = 3.0, 0.1, 1.0, 1.0, 5.0
 BAD_TOKEN_SEARCH, BAD_TOKEN_PLAY, NO_OUTPUT = 'developer token was rejected', 'SignInNeeded', 'the audio output could not be opened'
-TOOLS = sorted('search play pause resume next previous seek queue_add now_playing library_playlists'.split())
+TOOLS = sorted('search play pause resume next previous seek queue_add now_playing library_playlists open scroll'.split())
 CHECKS = ('F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6')
 EVIDENCE = {'F1': ('f1',), 'F2': ('f2',), 'F3': ('f3',), 'F4': ('f4',), 'F5': ('f5',), 'F6': ('f6',), 'F7': ('f7',), 'F8': ('f8',), 'F9': ('f9',),
             'F10': ('f10-badid', 'f10-net'), 'R3': ('r3',), 'R4': ('r4',), 'R5': ('r5',)}

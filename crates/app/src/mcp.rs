@@ -91,6 +91,16 @@ const TOOLS: &[Spec] = &[
         description: "The user's own Apple Music library playlists: the total count and the first 100 names and ids. This is the user's personal data; call it only when they ask about their library.",
         args: &[],
     },
+    Spec {
+        name: "open",
+        description: "Show a view in Bramley's window, as clicking it would: home, search, playlists, albums, songs, artists, or playlist:<id>, album:<id> or artist:<id> with an id from search or library_playlists. Returns only the kind of view now shown; nothing in it is sent back.",
+        args: &[("view", "string")],
+    },
+    Spec {
+        name: "scroll",
+        description: "Scroll the library list in Bramley's window to its top or end (`to`: \"top\" or \"end\"). Scrolling to the end keeps loading pages until the whole list is shown. Refused unless a library list is open (playlists, albums, songs, artists, a library playlist or an artist). Returns only the kind of view shown.",
+        args: &[("to", "string")],
+    },
 ];
 
 fn schema(spec: &Spec) -> JsonObject {
@@ -145,6 +155,8 @@ fn words(spec: &Spec, args: &JsonObject) -> Result<Vec<String>, String> {
             Some(s) => vec!["seek".into(), s.to_string()],
             None => return Err("`seconds` must be a number".into()),
         },
+        "open" => vec!["open".into(), text(args, "view")?],
+        "scroll" => vec!["scroll".into(), text(args, "to")?],
         "resume" => vec!["play".into()],
         "previous" => vec!["prev".into()],
         "now_playing" => vec!["now".into()],
@@ -266,6 +278,7 @@ pub fn call(channel: &Channel, name: &str, args: &JsonObject) -> Result<CallTool
     Ok(CallToolResult::structured(match name {
         "search" => found(&reply, &kinds),
         "library_playlists" => playlists(&reply),
+        "open" | "scroll" => json!({ "view": reply["route"] }),
         _ => now_playing(&reply),
     }))
 }
@@ -392,6 +405,8 @@ mod tests {
             ("queue_add", r#"{"id":"678107"}"#, "queue add 678107"),
             ("now_playing", "{}", "now"),
             ("library_playlists", "{}", "library playlists"),
+            ("open", r#"{"view":"playlist:p.1"}"#, "open playlist:p.1"),
+            ("scroll", r#"{"to":"end"}"#, "scroll end"),
             (
                 "search",
                 r#"{"term":"bohemian rhapsody"}"#,
@@ -405,6 +420,15 @@ mod tests {
         assert_eq!(*sent.lock().unwrap(), expected);
         let (_, now) = run(&channel, "now_playing", "{}");
         assert!(now["itemId"] == "6781024437" && !now.to_string().contains("keyring"));
+        let (channel, _) = fake(Ok(r#"{"seq":1,"route":"Playlist","title":"Secret"}"#));
+        assert_eq!(
+            run(&channel, "open", r#"{"view":"playlist:p.1"}"#).1,
+            json!({"view": "Playlist"})
+        );
+        assert_eq!(
+            run(&channel, "scroll", r#"{"to":"top"}"#).1,
+            json!({"view": "Playlist"})
+        );
     }
 
     #[test]
@@ -429,6 +453,13 @@ mod tests {
             ),
             ("pause", r#"{"now":true}"#, "pause takes no argument `now`"),
             ("search", r#"{"term":"qqqq"}"#, "over 512 characters"),
+            ("open", r#"{"view":"playlist:"}"#, "open needs home"),
+            (
+                "open",
+                r#"{"route":"home"}"#,
+                "open takes no argument `route`",
+            ),
+            ("scroll", r#"{"to":"down"}"#, "scroll top|end"),
         ];
         let long = format!(r#"{{"term":"{}"}}"#, "q".repeat(MAX_TERM + 1));
         for (name, args, why) in bad {

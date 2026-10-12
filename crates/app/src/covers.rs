@@ -4,7 +4,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 pub use bramley_api::art_url;
@@ -12,6 +12,7 @@ use bramley_engine::{redact, user_agent};
 use egui::{ColorImage, TextureHandle, TextureOptions};
 use serde_json::Value;
 
+use crate::ui::library::TOP_UP_RETRIES as BACKOFF;
 use crate::ui::nav::{Nav, Route};
 
 pub const COVER_PT: f32 = 96.0;
@@ -36,9 +37,25 @@ impl std::fmt::Display for DeveloperTokenRejected {
 
 impl std::error::Error for DeveloperTokenRejected {}
 
+#[derive(Debug)]
+struct Refused {
+    status: u16,
+    wait: Duration,
+    why: String,
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.why)
+    }
+}
+
+impl std::error::Error for Refused {}
+
 pub enum Loaded {
     Cover(usize, String, ColorImage),
     Failed(String, usize),
+    Retry(Duration),
     SignInNeeded,
     DeveloperRejected,
 }
@@ -101,7 +118,7 @@ fn get(
     url: &str,
     headers: &[(&str, &str)],
     tally: &Tally,
-) -> Result<(u16, Vec<u8>)> {
+) -> Result<(u16, Vec<u8>, Duration)> {
     if tally.cancel.load(Ordering::SeqCst) {
         bail!("cancelled");
     }
@@ -111,21 +128,23 @@ fn get(
         .fold(agent.get(url), |r, (k, v)| r.header(*k, *v));
     let mut response = request.call()?;
     let status = response.status().as_u16();
+    let wait = bramley_api::retry_after(response.headers());
     let body = response
         .body_mut()
         .with_config()
         .limit(MAX_BODY_BYTES)
         .read_to_vec()?;
-    Ok((status, body))
+    Ok((status, body, wait))
 }
 
-fn apple_error(status: u16, body: &[u8]) -> anyhow::Error {
-    let body: Value = serde_json::from_slice(body).unwrap_or_default();
+fn apple_error((status, body, wait): (u16, Vec<u8>, Duration)) -> anyhow::Error {
+    let body: Value = serde_json::from_slice(&body).unwrap_or_default();
     let detail = &body["errors"][0];
-    match detail["detail"].as_str().or(detail["title"].as_str()) {
-        Some(why) => anyhow!("HTTP {status}: {why}"),
-        None => anyhow!("HTTP {status}"),
-    }
+    let why = match detail["detail"].as_str().or(detail["title"].as_str()) {
+        Some(why) => format!("HTTP {status}: {why}"),
+        None => format!("HTTP {status}"),
+    };
+    anyhow!(Refused { status, wait, why })
 }
 
 fn signed_in(
@@ -144,10 +163,10 @@ fn signed_in(
     )
     .context("sign-in check")?
     {
-        (200, _) => Ok(true),
-        (401, _) => Err(anyhow!(DeveloperTokenRejected)),
-        (403, _) => Ok(false),
-        (status, body) => Err(apple_error(status, &body).context("sign-in check")),
+        (200, ..) => Ok(true),
+        (401, ..) => Err(anyhow!(DeveloperTokenRejected)),
+        (403, ..) => Ok(false),
+        refused => Err(apple_error(refused).context("sign-in check")),
     }
 }
 
@@ -158,7 +177,7 @@ fn chart(
     px: u32,
     tally: &Tally,
 ) -> Result<Chart> {
-    let (status, body) = get(
+    let (status, body, wait) = get(
         agent,
         &format!("{}{CHART}", source.api),
         &[("Authorization", bearer)],
@@ -166,7 +185,7 @@ fn chart(
     )
     .context("chart")?;
     if status != 200 {
-        return Err(apple_error(status, &body).context("chart"));
+        return Err(apple_error((status, body, wait)).context("chart"));
     }
     let body: Value = serde_json::from_slice(&body).context("chart")?;
     let albums = body["results"]["albums"][0]["data"]
@@ -186,7 +205,7 @@ fn chart(
 }
 
 pub(crate) fn cover(agent: &ureq::Agent, url: &str, px: u32, tally: &Tally) -> Result<ColorImage> {
-    let (status, bytes) = get(agent, url, &[], tally)?;
+    let (status, bytes, _) = get(agent, url, &[], tally)?;
     match status {
         200 => {}
         300..=399 => bail!("redirected (HTTP {status}); redirects are not followed"),
@@ -224,12 +243,15 @@ fn load_chart(
             ok.then(|| chart(agent, source, &bearer, px, tally))
                 .transpose()
         });
-        checked.map_err(|e| match e.is::<DeveloperTokenRejected>() {
-            true => e,
-            false => anyhow!(
-                "{}",
-                redact(&format!("{e:#}"), &[developer.into(), user.clone()])
-            ),
+        checked.map_err(|e| {
+            if e.is::<DeveloperTokenRejected>() {
+                return e;
+            }
+            let why = redact(&format!("{e:#}"), &[developer.into(), user.clone()]);
+            match e.downcast_ref::<Refused>() {
+                Some(&Refused { status, wait, .. }) => anyhow!(Refused { status, wait, why }),
+                None => anyhow!("{why}"),
+            }
         })
     };
     match attempt(&developer) {
@@ -256,7 +278,14 @@ pub fn fetch(
                 Err(e) if e.is::<DeveloperTokenRejected>() => {
                     drop(tx.send(Loaded::DeveloperRejected))
                 }
-                Err(e) => drop(tx.send(Loaded::Failed(format!("{e:#}"), COUNT))),
+                Err(e) => {
+                    let refused = e.downcast_ref::<Refused>();
+                    if refused.is_none_or(|r| r.status != 403) {
+                        let wait = refused.map_or(Duration::ZERO, |r| r.wait);
+                        let _ = tx.send(Loaded::Retry(wait));
+                    }
+                    let _ = tx.send(Loaded::Failed(format!("{e:#}"), COUNT));
+                }
                 Ok(Some((urls, skipped))) => {
                     if skipped > 0 {
                         let why = format!("chart: {skipped} albums had no usable artwork");
@@ -324,6 +353,8 @@ pub struct Grid {
     failures: usize,
     rejected: bool,
     developer_rejected: bool,
+    tries: usize,
+    retry_at: Option<Instant>,
     #[cfg(feature = "gate-sabotage")]
     kept: Vec<ColorImage>,
 }
@@ -352,8 +383,19 @@ impl Grid {
         let Some(source) = self.source.clone().filter(|_| self.px != px) else {
             return;
         };
+        self.start(ctx, source, px, 0);
+    }
+
+    pub fn retry(&mut self, ctx: &egui::Context, now: Instant, visible: bool) {
+        let due = self.retry_at.is_some_and(|at| visible && now >= at);
+        if let Some(source) = self.source.clone().filter(|_| due) {
+            self.start(ctx, source, self.px, self.tries);
+        }
+    }
+
+    fn start(&mut self, ctx: &egui::Context, source: Source, px: u32, tries: usize) {
         self.reset();
-        self.px = px;
+        (self.px, self.tries) = (px, tries);
         let waker = ctx.clone();
         self.rx = Some(fetch(source, px, self.tally.clone(), move || {
             waker.request_repaint()
@@ -378,6 +420,11 @@ impl Grid {
                 Loaded::Failed(why, covers) => {
                     self.failed.get_or_insert(why);
                     self.failures += covers;
+                }
+                Loaded::Retry(after) => {
+                    let wait = BACKOFF[self.tries.min(BACKOFF.len() - 1)].max(after);
+                    (self.retry_at, self.tries) = (Some(Instant::now() + wait), self.tries + 1);
+                    ctx.request_repaint_after(wait);
                 }
                 Loaded::SignInNeeded => self.rejected = true,
                 Loaded::DeveloperRejected => self.developer_rejected = true,

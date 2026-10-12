@@ -326,7 +326,7 @@ impl Session<'_> {
     }
 }
 
-fn retry_after(headers: &ureq::http::HeaderMap) -> Duration {
+pub fn retry_after(headers: &ureq::http::HeaderMap) -> Duration {
     let value = headers.get("retry-after").and_then(|v| v.to_str().ok());
     Duration::from_secs(value.and_then(|v| v.trim().parse().ok()).unwrap_or(1))
 }
@@ -338,7 +338,7 @@ fn apple_detail(body: &[u8]) -> String {
     why.unwrap_or("Apple Music returned an error").to_owned()
 }
 
-fn segment(s: &str) -> bool {
+pub fn segment(s: &str) -> bool {
     let id_char = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_');
     !s.is_empty() && s.chars().all(id_char) && s.chars().any(|c| c != '.')
 }

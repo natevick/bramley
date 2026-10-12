@@ -14,6 +14,7 @@ use crate::covers::{self, Grid, Source};
 use crate::credentials::Credentials;
 use crate::devtoken::DeveloperToken;
 use crate::playback::{Action, Banner, HOLD_LIMIT, Link, Playback, SignedOut, Spawn};
+use crate::ui::nav::{Edge, Nav, Route};
 
 type Ends = Rc<RefCell<Vec<(Receiver<Command>, Sender<Snapshot>)>>>;
 
@@ -525,6 +526,22 @@ fn cli_arguments_parse_into_requests_and_bad_ones_are_usage_errors() {
         ),
         ("sign-in", Request::SignIn),
         ("sign-out", Request::SignOut),
+        ("open home", Request::Nav(Nav::Go(Route::Home))),
+        ("open songs", Request::Nav(Nav::Go(Route::Songs))),
+        (
+            "open playlist:p.1",
+            Request::Nav(Nav::Go(Route::Playlist("p.1".into()))),
+        ),
+        (
+            "open album:1440",
+            Request::Nav(Nav::Go(Route::Album("1440".into()))),
+        ),
+        (
+            "open artist:r.1",
+            Request::Nav(Nav::Go(Route::Artist("r.1".into()))),
+        ),
+        ("scroll end", Request::Nav(Nav::Scroll(Edge::End))),
+        ("scroll top", Request::Nav(Nav::Scroll(Edge::Top))),
     ];
     for (line, request) in cases {
         assert_eq!(parse(&words(line)).unwrap(), request, "{line:?}");
@@ -544,6 +561,15 @@ fn cli_arguments_parse_into_requests_and_bad_ones_are_usage_errors() {
         "library",
         "library albums",
         "stop",
+        "open",
+        "open queue",
+        "open album",
+        "open playlist:",
+        "open album:1;rm",
+        "open artist:..",
+        "open home now",
+        "scroll",
+        "scroll down",
     ] {
         assert!(parse(&words(line)).is_err(), "{line:?} parsed");
     }
@@ -860,6 +886,7 @@ struct Serve {
     redirect: bool,
     bad_albums: bool,
     slow_chart: bool,
+    chart_fails: usize,
 }
 
 const SERVE: Serve = Serve {
@@ -870,6 +897,7 @@ const SERVE: Serve = Serve {
     redirect: false,
     bad_albums: false,
     slow_chart: false,
+    chart_fails: usize::MAX,
 };
 
 struct Fixture {
@@ -943,8 +971,19 @@ fn fixture(serve: Serve) -> Fixture {
                     })
                     .collect();
                 let chart = json!({"results": {"albums": [{"data": albums}]}});
-                let body = if serve.chart == 200 { chart } else { refusal };
-                (serve.chart, String::new(), body.to_string().into_bytes())
+                let charts = seen.lock().unwrap().iter().filter(|r| r.0 == path).count();
+                let status = if charts > serve.chart_fails {
+                    200
+                } else {
+                    serve.chart
+                };
+                let body = if status == 200 { chart } else { refusal };
+                let wait = if status == 429 {
+                    "Retry-After: 45\r\n"
+                } else {
+                    ""
+                };
+                (status, wait.into(), body.to_string().into_bytes())
             } else if serve.redirect && path.starts_with("/art/9/") {
                 (
                     302,
@@ -1215,6 +1254,66 @@ fn losing_sign_in_mid_load_cancels_every_later_request() {
         "{:?}",
         fx.paths()
     );
+}
+
+fn charts(fx: &Fixture) -> usize {
+    fx.paths()
+        .iter()
+        .filter(|p| p.starts_with("/v1/catalog"))
+        .count()
+}
+
+fn charts_after(fx: &Fixture, grid: &mut Grid, ctx: &egui::Context, probe: (u64, bool)) -> usize {
+    let at = Instant::now() + Duration::from_secs(probe.0);
+    grid.retry(ctx, at, probe.1);
+    std::thread::sleep(Duration::from_millis(300));
+    charts(fx)
+}
+
+#[test]
+fn a_failed_chart_is_retried_after_5_then_30_then_60_s_only_while_home_shows() {
+    let fx = fixture(Serve {
+        chart: 503,
+        chart_fails: 4,
+        ..SERVE
+    });
+    let (source, config) = fixture_source(&fx, true);
+    let ctx = egui::Context::default();
+    let mut grid = Grid::new(Some(source));
+    grid.follow(&ctx, true);
+    for (tries, wait) in [(1, 5), (2, 30), (3, 60), (4, 60)] {
+        settle(&mut grid, &ctx);
+        assert_eq!((grid.uploaded(), charts(&fx)), (0, tries));
+        assert_eq!(charts_after(&fx, &mut grid, &ctx, (wait - 1, true)), tries);
+        assert_eq!(charts_after(&fx, &mut grid, &ctx, (wait, false)), tries);
+        assert_eq!(charts_after(&fx, &mut grid, &ctx, (wait, true)), tries + 1);
+    }
+    settle(&mut grid, &ctx);
+    assert_eq!((grid.uploaded(), grid.failed()), (50, None));
+    assert_eq!(charts_after(&fx, &mut grid, &ctx, (3600, true)), 5);
+    std::fs::remove_dir_all(&config).unwrap();
+}
+
+#[test]
+fn a_chart_retry_waits_out_retry_after_and_stops_on_a_403_or_sign_out() {
+    let serve = |me, chart| Serve { me, chart, ..SERVE };
+    let (mut limited, fx, ctx) = load_covers(serve(200, 429), true);
+    let config = fixture_source(&fx, true).1;
+    assert_eq!(charts_after(&fx, &mut limited, &ctx, (44, true)), 1);
+    assert_eq!(charts_after(&fx, &mut limited, &ctx, (45, true)), 2);
+    std::fs::remove_dir_all(&config).unwrap();
+    let mut asked = Vec::new();
+    for (me, chart, sign_out) in [(200, 403, false), (403, 200, false), (200, 503, true)] {
+        let (mut grid, fx, ctx) = load_covers(serve(me, chart), true);
+        let config = fixture_source(&fx, true).1;
+        if sign_out {
+            grid.follow(&ctx, false);
+        }
+        charts_after(&fx, &mut grid, &ctx, (3600, true));
+        std::fs::remove_dir_all(&config).unwrap();
+        asked.push(fx.paths().len());
+    }
+    assert_eq!(asked, [2, 1, 2]);
 }
 
 #[test]
@@ -2194,6 +2293,47 @@ fn cli_search_is_handed_to_the_api_worker_and_its_results_relayed() {
     let parsed: serde_json::Value = serde_json::from_str(&reply).unwrap();
     assert_eq!(parsed["results"]["songs"]["items"][0]["id"], "6781024437");
     assert_eq!(crate::cli::outcome(&reply), Ok(()));
+}
+
+#[test]
+fn cli_open_moves_the_window_like_a_click_and_scroll_is_refused_outside_a_list() {
+    use crate::cli::Request;
+    let (inbox_tx, inbox) = channel();
+    let ctx = egui::Context::default();
+    let spawn = spawning(|| Err(anyhow!("no player in this test")));
+    let config =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/no-config");
+    let user = (mock_user(&config), false);
+    let mut app = crate::app::App::new(
+        &ctx,
+        crate::Args::default(),
+        spawn,
+        user,
+        (inbox, true),
+        None,
+    );
+    let mut ask = |request| {
+        let (reply, answered) = channel();
+        inbox_tx
+            .send((request, Instant::now() + Duration::from_secs(5), reply))
+            .unwrap();
+        app.pump(&ctx);
+        let reply: serde_json::Value = serde_json::from_str(&answered.recv().unwrap()).unwrap();
+        (
+            reply["route"].clone(),
+            reply["error"]
+                .as_str()
+                .map(|e| e.starts_with("scroll works")),
+        )
+    };
+    let refused = ask(Request::Nav(Nav::Scroll(Edge::End)));
+    let opened = ask(Request::Nav(Nav::Go(Route::Playlist("p.1".into()))));
+    let scrolled = ask(Request::Nav(Nav::Scroll(Edge::End)));
+    assert_eq!(refused, (json!("Home"), Some(true)));
+    assert_eq!(
+        (opened, scrolled),
+        ((json!("Playlist"), None), (json!("Playlist"), None))
+    );
 }
 
 #[test]

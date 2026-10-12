@@ -9,7 +9,7 @@ use egui::{ColorImage, TextureHandle, WidgetType};
 use serde_json::{Value, json};
 
 use super::labeled;
-use super::nav::{Nav, Route};
+use super::nav::{Edge, Nav, Route};
 use crate::covers::{self, Tally, allowed_art, art_url};
 use crate::playback::Action;
 
@@ -128,8 +128,6 @@ pub struct Library {
     built: (usize, usize, usize),
     pub denied: bool,
     #[cfg(feature = "dev")]
-    pub scroll_end: Option<Instant>,
-    #[cfg(feature = "dev")]
     pub click_last: bool,
     #[cfg(feature = "dev")]
     pub click_row: Option<usize>,
@@ -156,6 +154,17 @@ impl Library {
             List::Tracks => &self.playlist,
             List::ArtistAlbums | List::ArtistSongs | List::ArtistName => &self.artist,
             _ => "",
+        }
+    }
+
+    fn more(&self, list: List) -> bool {
+        match list {
+            List::ArtistSongs => {
+                !self.list(List::ArtistAlbums).complete()
+                    || self.unread_album().is_some()
+                    || self.list(list).next.is_some()
+            }
+            _ => !self.list(list).complete(),
         }
     }
 
@@ -271,11 +280,8 @@ impl Library {
             mut artist_songs,
             _,
         ] = self.lists.each_ref().map(list);
-        let by_artist = self.list(List::ArtistAlbums);
         artist_songs["skipped"] = json!(self.list(List::ArtistSongs).skipped);
-        artist_songs["more"] = json!(
-            !by_artist.complete() || self.unread_album().is_some() || artist_songs["more"] == true
-        );
+        artist_songs["more"] = json!(self.more(List::ArtistSongs));
         let (built, built_max, shown_to) = self.built;
         json!({ "playlists": playlists, "albums": albums, "songs": songs, "tracks": tracks,
                 "artists": artists, "artistAlbums": artist_albums, "artistSongs": artist_songs,
@@ -559,13 +565,13 @@ fn tile(
 pub fn show(
     ui: &mut egui::Ui,
     lib: &mut Library,
-    route: &Route,
+    (route, scroll): (&Route, &mut Option<Edge>),
     (actions, navs): (&mut Vec<Action>, &mut Vec<Nav>),
 ) {
     lib.built.0 = 0;
     let (list, verb) = match route {
         Route::Artists => (List::Artists, "Open artist"),
-        Route::Artist(id) => return artist(ui, lib, id, (actions, navs)),
+        Route::Artist(id) => return artist(ui, lib, (id, scroll), (actions, navs)),
         Route::Playlists => (List::Playlists, "Open playlist"),
         Route::Albums => (List::Albums, "Play album"),
         Route::Songs => (List::Songs, "Play"),
@@ -576,13 +582,19 @@ pub fn show(
         }
         _ => (List::Tracks, "Play"),
     };
-    view(ui, lib, (list, verb), f32::INFINITY, (actions, navs));
+    view(
+        ui,
+        lib,
+        (list, verb),
+        (f32::INFINITY, scroll),
+        (actions, navs),
+    );
 }
 
 fn artist(
     ui: &mut egui::Ui,
     lib: &mut Library,
-    id: &str,
+    (id, scroll): (&str, &mut Option<Edge>),
     (actions, navs): (&mut Vec<Action>, &mut Vec<Nav>),
 ) {
     if lib.artist != id {
@@ -607,7 +619,7 @@ fn artist(
         ui,
         lib,
         (List::ArtistAlbums, "Play album"),
-        albums_pt,
+        (albums_pt, &mut None),
         (actions, navs),
     );
     ui.separator();
@@ -615,7 +627,7 @@ fn artist(
         ui,
         lib,
         (List::ArtistSongs, "Play"),
-        f32::INFINITY,
+        (f32::INFINITY, scroll),
         (actions, navs),
     );
     if lib.list(List::ArtistSongs).wanted && !lib.list(List::ArtistAlbums).complete() {
@@ -627,7 +639,7 @@ fn view(
     ui: &mut egui::Ui,
     lib: &mut Library,
     (list, verb): (List, &str),
-    max_height: f32,
+    (max_height, scroll): (f32, &mut Option<Edge>),
     (actions, navs): (&mut Vec<Action>, &mut Vec<Nav>),
 ) {
     if lib.list(list).failed {
@@ -645,19 +657,26 @@ fn view(
         (ROW_PT + 4.0, ui.available_width())
     };
     let loaded = lib.list(list).items.len();
-    #[allow(unused_mut)]
     let mut area = egui::ScrollArea::vertical()
         .id_salt(list as usize)
         .max_height(max_height)
         .auto_shrink([false, max_height.is_finite()]);
+    if ui.input(|i| i.smooth_scroll_delta.y != 0.0) {
+        *scroll = None;
+    }
+    let end = loaded.div_ceil(columns) as f32 * (row_pt + ui.spacing().item_spacing.y);
+    match *scroll {
+        Some(Edge::Top) => (area, *scroll) = (area.vertical_scroll_offset(0.0), None),
+        Some(Edge::End) => {
+            area = area.vertical_scroll_offset(end);
+            if !lib.more(list) && lib.built.2 == loaded {
+                *scroll = None;
+            }
+        }
+        None => {}
+    }
     #[cfg(feature = "dev")]
     let hooked = list != List::ArtistAlbums;
-    #[cfg(feature = "dev")]
-    if hooked && lib.scroll_end.is_some_and(|at| Instant::now() >= at) {
-        let rows = loaded.div_ceil(columns) as f32;
-        area = area.vertical_scroll_offset(rows * (row_pt + ui.spacing().item_spacing.y));
-        ui.ctx().request_repaint();
-    }
     let mut hit = None;
     area.show_rows(ui, row_pt, loaded.div_ceil(columns), |ui, rows| {
         let range = rows.start * columns..(rows.end * columns).min(loaded);
@@ -684,6 +703,9 @@ fn view(
         let total = lib.built.0 + built;
         lib.built = (total, lib.built.1.max(total), range.end);
     });
+    if scroll.is_some() && lib.list(list).wanted {
+        ui.ctx().request_repaint();
+    }
     #[cfg(feature = "dev")]
     if hooked
         && lib.click_last

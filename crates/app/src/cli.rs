@@ -8,6 +8,7 @@ use fastframe_instance::Slot;
 use serde_json::{Value, json};
 
 use crate::playback::{Action, Banner, Playback, play_or_pause};
+use crate::ui::nav::{Edge, Nav, Route};
 
 pub const APP_ID: &str = "bramley";
 pub const USAGE: i32 = 2;
@@ -19,7 +20,7 @@ const LIBRARY_VIA_MCP: &str =
     "your library is shared only with an agent you connect through `bramley mcp`";
 const AGENT: &str = "mcp";
 const LATE: &str = "the app did not answer in time; the command was not applied";
-const COMMANDS: &str = "usage: bramley [play [id] | pause | toggle | next | prev | seek <seconds> | volume <0-100> | now | queue add <id> | search <term> | sign-in | sign-out | mcp]";
+const COMMANDS: &str = "usage: bramley [play [id] | pause | toggle | next | prev | seek <seconds> | volume <0-100> | now | queue add <id> | search <term> | open <view> | scroll top|end | sign-in | sign-out | mcp]";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Request {
@@ -31,6 +32,7 @@ pub enum Request {
     Agent,
     SignIn,
     SignOut,
+    Nav(Nav),
     Do(Action),
 }
 
@@ -63,10 +65,23 @@ pub fn parse(args: &[String]) -> Result<Request> {
         ["queue", "add", id] => Request::Do(Action::QueueAdd(catalog_id(id)?)),
         ["search", term @ ..] if !term.is_empty() => Request::Search(term.join(" ")),
         ["library", "playlists"] => Request::Library(bramley_api::Shelf::Playlists),
+        ["open", view] => Request::Nav(Nav::Go(route(view)?)),
+        ["scroll", "top"] => Request::Nav(Nav::Scroll(Edge::Top)),
+        ["scroll", "end"] => Request::Nav(Nav::Scroll(Edge::End)),
         ["sign-in"] => Request::SignIn,
         ["sign-out"] => Request::SignOut,
         _ => bail!("{COMMANDS}"),
     })
+}
+
+fn route(view: &str) -> Result<Route> {
+    let id = view.split_once(':').map(|(_, id)| id);
+    match Route::parse(view) {
+        Some(route) if id.is_none_or(bramley_api::segment) => Ok(route),
+        _ => bail!(
+            "open needs home, search, playlists, albums, songs, artists, playlist:<id>, album:<id> or artist:<id>, not {view:?}"
+        ),
+    }
 }
 
 pub(crate) fn catalog_id(id: &str) -> Result<String> {
@@ -213,9 +228,12 @@ pub fn command(
     let refused = |why| Some(("refused", why));
     let action = match request {
         _ if Instant::now() > deadline => return Some(("error", LATE)),
-        Request::Show | Request::Now | Request::SignIn | Request::SignOut | Request::Agent => {
-            return None;
-        }
+        Request::Show
+        | Request::Now
+        | Request::SignIn
+        | Request::SignOut
+        | Request::Agent
+        | Request::Nav(_) => return None,
         Request::Search(_) | Request::Library(_) => {
             return Some(("error", "API requests run on the API worker"));
         }

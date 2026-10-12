@@ -10,7 +10,7 @@ use egui::{Event, PointerButton, Pos2, RawInput, Rect, vec2};
 
 use super::{ART_CAP, DEADLINE, Library, List, QUEUE_CAP, RETRY, ROW_PT, show};
 use crate::playback::Action;
-use crate::ui::nav::{Nav, Route};
+use crate::ui::nav::{Edge, Nav, Route};
 
 fn item(i: usize) -> Item {
     Item {
@@ -42,6 +42,16 @@ fn frame(
     height: f32,
     events: Vec<Event>,
 ) -> (Vec<Action>, Vec<Nav>) {
+    scrolled(ctx, lib, (route, &mut None), height, events)
+}
+
+fn scrolled(
+    ctx: &egui::Context,
+    lib: &mut Library,
+    (route, scroll): (&Route, &mut Option<Edge>),
+    height: f32,
+    events: Vec<Event>,
+) -> (Vec<Action>, Vec<Nav>) {
     let (mut actions, mut navs) = (Vec::new(), Vec::new());
     let screen = Rect::from_min_size(Pos2::ZERO, vec2(800.0, height));
     let input = RawInput {
@@ -49,7 +59,9 @@ fn frame(
         events,
         ..RawInput::default()
     };
-    let mut out = ctx.run_ui(input, |ui| show(ui, lib, route, (&mut actions, &mut navs)));
+    let mut out = ctx.run_ui(input, |ui| {
+        show(ui, lib, (route, scroll), (&mut actions, &mut navs))
+    });
     out.textures_delta.clear();
     lib.art.flush(ctx);
     (actions, navs)
@@ -355,7 +367,7 @@ fn click(
 ) -> (Vec<Action>, Vec<Nav>) {
     ctx.enable_accesskit();
     let mut out = ctx.run_ui(RawInput::default(), |ui| {
-        show(ui, lib, route, (&mut vec![], &mut vec![]))
+        show(ui, lib, (route, &mut None), (&mut vec![], &mut vec![]))
     });
     out.textures_delta.clear();
     let nodes = out
@@ -534,7 +546,7 @@ fn signing_out_clears_the_artists_and_a_403_on_an_artist_asks_for_sign_in() {
 fn texts(ctx: &egui::Context, lib: &mut Library, route: &Route) -> Vec<String> {
     ctx.enable_accesskit();
     let mut out = ctx.run_ui(RawInput::default(), |ui| {
-        show(ui, lib, route, (&mut vec![], &mut vec![]))
+        show(ui, lib, (route, &mut None), (&mut vec![], &mut vec![]))
     });
     out.textures_delta.clear();
     let nodes = out.platform_output.accesskit_update.expect("a tree").nodes;
@@ -835,4 +847,43 @@ fn a_window_stops_following_a_playlist_that_was_replaced() {
         }
     }
     assert_eq!(lib.top_up(&window(95, 100, 95..100), LIVE, now), None);
+}
+
+#[test]
+fn scroll_end_pages_in_the_whole_list_then_lets_go_and_top_and_a_wheel_end_it() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    let (route, mut scroll) = (Route::Playlist("p.1".into()), Some(Edge::End));
+    let shown = |lib: &mut Library, scroll: &mut Option<Edge>, events| {
+        scrolled(&ctx, lib, (&route, scroll), 600.0, events);
+        lib.built.2
+    };
+    shown(&mut lib, &mut scroll, vec![]);
+    for (range, next) in [
+        (0..100, Some("n.1")),
+        (100..200, Some("n.2")),
+        (200..250, None),
+    ] {
+        answer(&mut lib, &ctx, now, page(range, next));
+        shown(&mut lib, &mut scroll, vec![]);
+    }
+    assert_eq!(scroll, Some(Edge::End), "let go before the end was shown");
+    assert_eq!((shown(&mut lib, &mut scroll, vec![]), scroll), (250, None));
+    scroll = Some(Edge::Top);
+    shown(&mut lib, &mut scroll, vec![]);
+    assert_eq!(
+        (shown(&mut lib, &mut scroll, vec![]) < 20, scroll),
+        (true, None)
+    );
+    scroll = Some(Edge::End);
+    let wheel = Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: vec2(0.0, 1.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: Default::default(),
+    };
+    shown(&mut lib, &mut scroll, vec![wheel]);
+    assert_eq!(
+        scroll, None,
+        "a wheel turn takes scrolling back from the pin"
+    );
 }
