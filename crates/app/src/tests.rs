@@ -2652,13 +2652,21 @@ fn a_cli_search_fills_the_search_view_but_an_agent_search_leaves_the_window_alon
         let search = crate::cli::Request::Search("bohemian rhapsody".into());
         inbox_tx.send((search, deadline, channel().0)).unwrap();
         let s = frames(&ctx, &mut app, 3);
-        (s["route"].clone(), s["search"]["state"].clone())
+        (
+            s["route"].clone(),
+            s["search"]["state"].clone(),
+            s["search"]["seq"].clone(),
+        )
     };
     let (cli, agent) = (shown(false), shown(true));
     std::fs::remove_dir_all(&dir).unwrap();
     assert_eq!(cli.0, "Search");
     assert_ne!(cli.1, "idle", "the view never ran the CLI's search");
-    assert_eq!(agent, (json!("Home"), json!("idle")));
+    assert!(
+        cli.2.as_u64() > Some(0),
+        "the view's search sequence did not move"
+    );
+    assert_eq!(agent, (json!("Home"), json!("idle"), json!(0)));
 }
 
 #[cfg(feature = "gate-sabotage")]

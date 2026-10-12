@@ -163,7 +163,8 @@ impl Search {
         let ms = self.took.map(|t| t.as_millis() as u64);
         let art = self.art.textures.values().flatten().count();
         json!({ "state": state, "error": error, "results": songs + albums + playlists,
-            "songs": songs, "albums": albums, "playlists": playlists, "ms": ms, "art": art })
+            "songs": songs, "albums": albums, "playlists": playlists, "ms": ms, "art": art,
+            "seq": self.seq })
     }
 }
 
