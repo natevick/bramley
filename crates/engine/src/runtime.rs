@@ -43,7 +43,7 @@ struct Native {
     http_bytes: u64,
     redact: Vec<String>,
     truncate_scripts: bool,
-    retired_output: [u64; 4],
+    retired_output: OutputCounts,
 }
 
 impl Native {
@@ -628,7 +628,7 @@ impl Engine {
             http_bytes: 0,
             redact: Vec::new(),
             truncate_scripts: false,
-            retired_output: [0; 4],
+            retired_output: [0; OUTPUT_COUNTS],
         }));
         let rt = Runtime::new()?;
         rt.set_max_stack_size(4 * 1024 * 1024);
@@ -782,7 +782,7 @@ impl Engine {
         self.n.borrow().medias.values().any(|m| m.output_failed())
     }
 
-    pub fn output_counts(&self) -> [u64; 4] {
+    pub fn output_counts(&self) -> OutputCounts {
         let st = self.n.borrow();
         let live = st.medias.values().map(|m| output_counts(&m.counters));
         live.fold(st.retired_output, add)
@@ -840,10 +840,22 @@ impl Engine {
     }
 }
 
-fn output_counts(c: &crate::media::Counters) -> [u64; 4] {
-    [c.drains_acked, c.drain_timeouts, c.sent_us, c.skipped_us]
+pub const OUTPUT_COUNTS: usize = 7;
+pub type OutputCounts = [u64; OUTPUT_COUNTS];
+
+fn output_counts(c: &crate::media::Counters) -> OutputCounts {
+    let decrypt_fails = c.decrypt_fail.values().sum();
+    [
+        c.drains_acked,
+        c.drain_timeouts,
+        c.sent_us,
+        c.skipped_us,
+        c.decrypted_us,
+        c.underruns,
+        decrypt_fails,
+    ]
 }
 
-fn add(a: [u64; 4], b: [u64; 4]) -> [u64; 4] {
+fn add(a: OutputCounts, b: OutputCounts) -> OutputCounts {
     std::array::from_fn(|i| a[i] + b[i])
 }

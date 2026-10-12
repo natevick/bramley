@@ -25,7 +25,7 @@ struct Fake {
     state: J,
     time: Option<f64>,
     output_failed: bool,
-    output: [u64; 4],
+    output: crate::runtime::OutputCounts,
 }
 
 #[derive(Clone, Default)]
@@ -70,7 +70,7 @@ impl Backend for FakeEngine {
     fn output_failed(&self) -> bool {
         self.0.lock().unwrap().output_failed
     }
-    fn output_counts(&self) -> [u64; 4] {
+    fn output_counts(&self) -> crate::runtime::OutputCounts {
         self.0.lock().unwrap().output
     }
     #[cfg(feature = "diagnostics")]
@@ -240,10 +240,11 @@ fn snapshots_use_native_time_and_map_errors_redacted() {
     );
     assert_eq!(s.artist.as_deref(), Some("A <redacted>"));
     assert_eq!((s.applied, s.preview_only), (3, true));
-    fake.0.lock().unwrap().output = [4, 1, 9, 2];
+    fake.0.lock().unwrap().output = [4, 1, 9, 2, 7, 3, 5];
     let s = wait_for(&rx, |s| s.drains_acked > 0);
     let counts = (s.drains_acked, s.drain_timeouts, s.sent_us, s.skipped_us);
     assert_eq!(counts, (4, 1, 9, 2));
+    assert_eq!((s.decrypted_us, s.underruns, s.decrypt_fails), (7, 3, 5));
     let cases = [
         (
             json!({"signInNeeded": format!("401 for {SECRET}")}),

@@ -120,6 +120,9 @@ pub struct Snapshot {
     pub drain_timeouts: u64,
     pub sent_us: u64,
     pub skipped_us: u64,
+    pub decrypted_us: u64,
+    pub underruns: u64,
+    pub decrypt_fails: u64,
     pub queue: Vec<QueueItem>,
     pub queue_position: Option<usize>,
     pub queue_length: usize,
@@ -153,7 +156,7 @@ pub(crate) trait Backend {
     fn eval_json(&self, expression: &str) -> Result<J>;
     fn current_time(&self) -> Option<f64>;
     fn output_failed(&self) -> bool;
-    fn output_counts(&self) -> [u64; 4];
+    fn output_counts(&self) -> crate::runtime::OutputCounts;
     #[cfg(feature = "diagnostics")]
     fn status(&self) -> J;
 }
@@ -174,7 +177,7 @@ impl Backend for Engine {
     fn output_failed(&self) -> bool {
         Engine::output_failed(self)
     }
-    fn output_counts(&self) -> [u64; 4] {
+    fn output_counts(&self) -> crate::runtime::OutputCounts {
         Engine::output_counts(self)
     }
     #[cfg(feature = "diagnostics")]
@@ -389,7 +392,15 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
     } else {
         text(&js["playbackError"]).map(PlayerError::Playback)
     };
-    let [drains_acked, drain_timeouts, sent_us, skipped_us] = b.output_counts();
+    let [
+        drains_acked,
+        drain_timeouts,
+        sent_us,
+        skipped_us,
+        decrypted_us,
+        underruns,
+        decrypt_fails,
+    ] = b.output_counts();
     Snapshot {
         item_id: text(&js["item"]["id"]),
         title: text(&js["item"]["title"]),
@@ -409,6 +420,9 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
         drain_timeouts,
         sent_us,
         skipped_us,
+        decrypted_us,
+        underruns,
+        decrypt_fails,
         queue: shown.collect(),
         queue_position: queue["position"].as_u64().map(|at| at as usize),
         queue_length: queue["length"].as_u64().unwrap_or(0) as usize,

@@ -55,6 +55,7 @@ pub struct Counters {
     pub drain_timeouts: u64,
     pub sent_us: u64,
     pub skipped_us: u64,
+    pub decrypted_us: u64,
     pub sink_restarts: u64,
 }
 
@@ -636,6 +637,7 @@ impl MediaEngine {
         let kept = (frames - skip) as u64;
         if encrypted {
             self.counters.decoded_decrypted_frames += kept;
+            self.counters.decrypted_us += frames_to_us(kept, rate).max(0) as u64;
         } else {
             self.counters.decoded_clear_frames += kept;
         }

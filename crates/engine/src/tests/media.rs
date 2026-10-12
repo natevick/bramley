@@ -670,3 +670,26 @@ fn a_failed_output_reopens_where_it_left_off_and_a_dead_one_is_an_error() {
     assert_eq!(sinks.borrow().len(), 3);
     assert!(m.events.contains(&"error"), "{:?}", m.events);
 }
+
+#[test]
+fn decrypted_time_counts_only_decrypted_frames_at_their_rate() {
+    let mut clear = Rig::new(5, false);
+    clear.m.play();
+    clear.play_for(0.3);
+    assert!(clear.m.counters.decoded_clear_frames > 0);
+    assert_eq!(clear.m.counters.decrypted_us, 0);
+    let mut r = Rig::new(5, false);
+    protect(r.sb());
+    r.cdm.0.borrow_mut().has_key = true;
+    r.m.set_keys(Some(KEYS));
+    r.m.play();
+    r.play_for(0.3);
+    let frames = r.m.counters.decoded_decrypted_frames;
+    let expected = frames * 1_000_000 / r.m.rate as u64;
+    assert!(frames > 0);
+    assert!(
+        r.m.counters.decrypted_us.abs_diff(expected) <= 1_000,
+        "{} vs {expected}",
+        r.m.counters.decrypted_us
+    );
+}
