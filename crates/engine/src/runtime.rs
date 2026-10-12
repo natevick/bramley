@@ -786,7 +786,7 @@ impl Engine {
         }
         let st = self.n.borrow();
         let active = busy
-            || st.in_flight > 0
+            || st.in_flight > st.aborted.len()
             || self.rt.is_job_pending()
             || st.medias.values().any(|m| !m.idle());
         if active {

@@ -285,3 +285,16 @@ fn a_task_queued_by_a_media_event_runs_before_the_next_completion_is_dispatched(
         serde_json::json!(["completion saw volumechange: true"])
     );
 }
+
+#[test]
+fn an_aborted_request_does_not_keep_the_engine_polling() {
+    use std::time::Duration;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (mut e, _sink) = engine();
+    e.eval_script("fetch.js", &format!("globalThis.ac = new AbortController(); fetch('http://127.0.0.1:{port}/', {{ signal: ac.signal }}).catch(() => {{}});")).unwrap();
+    assert_eq!(first_idle_wait(&mut e), Duration::from_millis(5));
+    e.eval_script("abort.js", "ac.abort();").unwrap();
+    assert!(first_idle_wait(&mut e) >= Duration::from_secs(1));
+    drop(listener);
+}
