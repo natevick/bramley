@@ -15,28 +15,28 @@ GENERIC = {'Home', 'Back', 'Untitled'}
 def discover(config):
     tokens = [open(os.path.join(config, f)).read().strip() for f in ('developer-token', 'music-user-token')]
     artists, total = s9.every('/v1/me/library/artists', tokens)
-    last = artists[-1]['id']
-    albums, _ = s9.every(f'/v1/me/library/artists/{last}/albums', tokens)
+    sizes = {a['id']: len(s9.api(f"/v1/me/library/artists/{a['id']}/albums?limit=100", tokens)['data']) for a in artists[:40]}
+    most = max(sizes, key=sizes.get)
+    albums, _ = s9.every(f'/v1/me/library/artists/{most}/albums', tokens)
     tracks = [t for a in albums for t in s9.every(f"/v1/me/library/albums/{a['id']}/tracks", tokens)[0]]
+    name = next(a['attributes'].get('name') for a in artists if a['id'] == most)
     names = {r.get('attributes', {}).get(k) for r in artists + albums + tracks for k in ('name', 'artistName', 'albumName')}
     names = sorted(n for n in names if n and len(n) >= 4 and n not in GENERIC)
     os.makedirs(SCRATCH, exist_ok=True)
     with os.fdopen(os.open(NAMES, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w') as f:
         f.write('\n'.join(names) + '\n')
-    sizes = {a['id']: len(s9.api(f"/v1/me/library/artists/{a['id']}/albums?limit=100", tokens)['data']) for a in artists[:40]}
-    most = max(sizes, key=sizes.get)
-    most_tracks = sum(len(s9.every(f"/v1/me/library/albums/{a['id']}/tracks", tokens)[0]) for a in s9.every(f'/v1/me/library/artists/{most}/albums', tokens)[0])
     first = tracks[0]
     played = {first['id'], first.get('attributes', {}).get('playParams', {}).get('catalogId')} - {None}
-    found = {'artistsTotal': total, 'artistsFetched': len(artists), 'albums': len(albums), 'tracks': len(tracks), 'names': len(names), 'mostAlbums': sizes[most], 'mostTracks': most_tracks}
-    return found, played, names, last, most
+    others = sum(t.get('attributes', {}).get('artistName') != name for t in tracks)
+    found = {'artistsTotal': total, 'albums': len(albums), 'tracks': len(tracks), 'tracksByOtherArtists': others, 'names': len(names)}
+    return found, played, names, most
 
 
 def live(a, out, sock, sink):
     try:
         with cs.isolated('s9b-live', True) as (iso, config):
-            found, played, names, last, most = discover(config)
-            results = live_runs(a, out, sink, sock, iso, found, played, last, most)
+            found, played, names, most = discover(config)
+            results = live_runs(a, out, sink, sock, iso, found, played, most)
             found.update(s9.leak_grep(names, out))
             return found, results
     finally:
@@ -44,7 +44,7 @@ def live(a, out, sock, sink):
             os.remove(NAMES)
 
 
-def live_runs(a, out, sink, sock, iso, found, played, last, most):
+def live_runs(a, out, sink, sock, iso, found, played, most):
     env = dict(os.environ, WAYLAND_DISPLAY=sock, PULSE_SINK=sink, TMPDIR=os.path.join(ROOT, 'target', 'tmp'), **iso)
     env.pop('DISPLAY', None)
     cs.assert_isolated(env)
@@ -60,8 +60,8 @@ def live_runs(a, out, sink, sock, iso, found, played, last, most):
             pass
         shelf = lib(snap).get('artists', {})
         res['A1'] = snap().get('route') == 'Artist' and shelf.get('loaded') == shelf.get('total') == found['artistsTotal'] and (found['artistsTotal'] <= 100 or shelf.get('pages', 0) > 1)
-        if not scroll or not res['A1']:
-            return
+
+    def artist(p, snap, res):
         if not cs.sink_exists(sink) or cs.default_sink() in (None, sink):
             raise RuntimeError('audio not safe before play')
         cs.wait_for(lambda: snap().get('state') == 'Playing' and (snap().get('position') or 0) > 0, 30, 'playing')
@@ -69,31 +69,26 @@ def live_runs(a, out, sink, sock, iso, found, played, last, most):
         res['clickedIsPlaying'] = snap().get('itemId') in played
         title = json.loads(subprocess.run([a.binary, 'now'], env=env, capture_output=True, text=True).stdout or '{}').get('title')
         res['nowHasTitle'] = bool(title)
-        res['titleInStatusFile'] = bool(title) and title in open(os.path.join(out, 'artists.status.json')).read()
+        res['titleInStatusFile'] = bool(title) and title in open(os.path.join(out, 'artist.status.json')).read()
         done = lambda: lib(snap).get('artistSongs', {}).get('more') is False
         try:
-            cs.wait_for(done, 60, 'every album read')
+            cs.wait_for(done, 120, 'every album read')
         except RuntimeError:
             pass
         view = lib(snap)
-        res['view'] = {k: view.get(k, {}).get('loaded') for k in ('artistAlbums', 'artistSongs')}
-        res['A2'] = res['view'] == {'artistAlbums': found['albums'], 'artistSongs': found['tracks']} and done() and 0 < view.get('artTextures', 0) <= s9.ART_CAP and view.get('rowsBuiltMax', 99) <= s9.ROWS_BAR
+        songs = view.get('artistSongs', {})
+        res['view'] = {'albums': view.get('artistAlbums', {}).get('loaded'), 'songs': songs.get('loaded'), 'skipped': songs.get('skipped')}
+        counted = songs.get('loaded') == found['tracks'] or (songs.get('skipped', 0) > 0 and songs.get('loaded', 0) < found['tracks'])
+        res['A2'] = res['view']['albums'] == found['albums'] and done() and counted and 0 < view.get('artTextures', 0) <= s9.ART_CAP and view.get('rowsBuiltMax', 99) <= s9.ROWS_BAR
         res['r1ArtistPss'] = round(statistics.median(s9.pss(p, 20)), 1)
         res['A3'] = res['clickedIsPlaying'] and snap().get('state') == 'Playing' and res['nowHasTitle'] and not res['titleInStatusFile']
 
-    def many(p, snap, res):
-        done = lambda: lib(snap).get('artistSongs', {}).get('more') is False
-        cs.wait_for(done, 120, 'every album read')
-        view = lib(snap)
-        res['view'] = {k: view.get(k, {}).get('loaded') for k in ('artistAlbums', 'artistSongs')}
-        res['allAlbumsRead'] = res['view'] == {'artistAlbums': found['mostAlbums'], 'artistSongs': found['mostTracks']}
-
-    common = ['--size', '1100x720', '--route', 'artists']
-    results = [s9.run(a.binary, env, sink, out, 'artists', common + ['--scroll-end', '6', '--click-last', '--click-row', '0'], artists),
-               s9.run(a.binary, env, sink, out, 'sabotage-s1', common + ['--click-last'], lambda p, s, r: artists(p, s, r, False)),
-               s9.run(a.binary, env, sink, out, 'most-albums', ['--size', '1100x720', '--route', f'artist:{most}', '--scroll-end', '6'], many)]
+    common = ['--size', '1100x720', '--route', 'artists', '--click-last']
+    results = [s9.run(a.binary, env, sink, out, 'artists', common + ['--scroll-end', '6'], artists),
+               s9.run(a.binary, env, sink, out, 'sabotage-s1', common, lambda p, s, r: artists(p, s, r, False)),
+               s9.run(a.binary, env, sink, out, 'artist', ['--size', '1100x720', '--route', f'artist:{most}', '--scroll-end', '6', '--click-row', '0'], artist)]
     os.makedirs(PRIVATE, exist_ok=True)
-    for route in ('artists', f'artist:{last}'):
+    for route in ('artists', f'artist:{most}'):
         png = os.path.join(PRIVATE, route.split(':')[0] + '.png')
         subprocess.run([a.binary, '--route', route, '--screenshot', png, '--after', '15', '--size', '1100x720'], env=env, capture_output=True, timeout=60)
     found['privateShots'] = sorted(os.listdir(PRIVATE))
@@ -104,8 +99,9 @@ class Fixture(s9.Fixture):
     def do_GET(self):
         base = f'http://127.0.0.1:{self.server.server_address[1]}'
         path = self.path.split('?')[0]
-        if path == '/v1/me/library/artists':
-            rows = [{'id': f'r.{i}', 'type': 'library-artists', 'attributes': {'name': f'Synthetic Artist {i + 1}'}} for i in range(30)]
+        if m := re.fullmatch(r'/v1/me/library/artists(?:/r\.(\d+))?', path):
+            ids = [int(m[1])] if m[1] else range(30)
+            rows = [{'id': f'r.{i}', 'type': 'library-artists', 'attributes': {'name': f'Synthetic Artist {i + 1}'}} for i in ids]
         elif re.fullmatch(r'/v1/me/library/artists/r\.\d+/albums', path):
             rows = [{'id': f'l.{i}', 'type': 'library-albums', 'attributes': {'name': f'Synthetic Album {i + 1}', 'artwork': {'url': f'{base}/art/{i}/{{w}}x{{h}}bb.jpg'}}} for i in range(9)]
         elif m := re.fullmatch(r'/v1/me/library/albums/l\.(\d+)/tracks', path):

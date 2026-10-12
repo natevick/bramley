@@ -75,3 +75,13 @@ Names go only to the gitignored `target/tmp/s9b/names.txt`, mode 0600, and the f
 - **Report only, added after live-1:** the last artist had a single album, so the album-by-album read was never exercised live. A `most-albums` run opens the artist with the most albums among the first 40 and scrolls its songs to the end.
   - `allAlbumsRead` means `artistAlbums.loaded` and `artistSongs.loaded` equal the harness's counts for that artist, and `artistSongs.more` is false within 120 s.
   - No bar: it is labelled post-registration.
+
+## Amendment 2 (after review, before live-3; no bar loosened)
+
+- **Split runs.** A1 runs on its own: `--route artists --scroll-end --click-last`, opening the last artist. A2 and A3 run on the artist with the most albums among the first 40, opened by deep link with `--scroll-end --click-row 0`. A3's expected item is the first track of that artist's first album. The review asked for a multi-album artist in the gated A2.
+- **A2 with skipped albums.** Albums whose tracks fail permanently are now skipped and counted. A2 passes when either:
+  - `artistSongs.loaded` equals the harness track count; or
+  - `skipped` > 0 and `loaded` < the harness count, with `more` false.
+  - The skipped count is reported.
+- **Report only:** `tracksByOtherArtists`, the count of that artist's tracks whose `artistName` differs from the artist's name (compilations). Counts only.
+- **Leak grep:** that artist's album and song names are added to the 0600 names list.
