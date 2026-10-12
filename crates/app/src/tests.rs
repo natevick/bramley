@@ -165,6 +165,13 @@ fn queue_actions_send_in_order_and_a_top_up_runs_in_the_background() {
         generation + 1,
         "every new queue is a new generation"
     );
+    p.apply(Action::Shuffle(Queue::Album("l.1".into())));
+    p.apply(Action::PlayIn(Queue::Playlist("p.1".into()), 3));
+    assert_eq!(
+        p.generation(),
+        generation + 3,
+        "so are a detail row's PlayIn and Shuffle"
+    );
 }
 
 #[test]

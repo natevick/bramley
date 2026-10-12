@@ -140,12 +140,10 @@ fn ids_are_passed_as_json_so_they_cannot_run_script() {
     }
     e.eval_script("command", &command_js(&Command::Seek(30.5)))
         .unwrap();
-    let later = Command::PlayLater(Queue::Songs(vec![evil.into()]));
-    e.eval_script("command", &command_js(&later)).unwrap();
-    e.eval_script("command", &command_js(&Command::Shuffle(true)))
-        .unwrap();
     for command in [
         Command::PlayLater(Queue::Songs(vec![evil.into()])),
+        Command::Shuffle(true),
+        Command::TopUp(Queue::Songs(vec![evil.into()])),
         Command::PlayNext(Queue::Songs(vec![evil.into()])),
         Command::JumpTo {
             index: 4,
@@ -164,6 +162,7 @@ fn ids_are_passed_as_json_so_they_cannot_run_script() {
             ["seek", [30.5]],
             ["playLater", [{"songs": [evil]}]],
             ["shuffle", [true]],
+            ["topUp", [{"songs": [evil]}]],
             ["playNext", [{"songs": [evil]}]],
             ["jumpTo", [[4, evil]]],
         ])
