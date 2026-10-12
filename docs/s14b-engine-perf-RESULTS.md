@@ -58,8 +58,10 @@ The effect rules come from the coordinator's S13 review. They were checked by po
 | # | What | Whose | Status |
 |---|---|---|---|
 | 1 | A `SourceBuffer.remove()` queued from a media-event handler finished only after the next tick's network completions. A fast init segment then arrived while the buffer read `updating`, MusicKit never appended it, and the next segment decrypted against the previous track's init: decode errors, then a permanent stall. | ours | Fixed in f8916d5: queued tasks run after each completion and each media dispatch. Two regression tests. |
-| 2 | MusicKit trims `[0, X)` 0.06–0.34 s past `currentTime` whenever the buffer is at quota. Our readiness ignored the ~1.5 s already queued in the sink, so each trim fired `waiting`, counted an underrun and showed Loading. Base had 30 of these in 10 min. A 10 s sampler phase-locks onto them. | ours | Fixed in e11055a: queued output counts toward readiness. 0 blips over the ~3.8 min a probe build covered. One regression test. |
-| 3 | At a preload, MusicKit runs two loaders for the next item. When loader 2's playlist lands after loader 1's init append, neither loader calls the SourceBuffer again, and playback sits at Loading for good. There is no host exception, no unhandled rejection and no queue call of ours in that window. | MusicKit | **Open.** 2 of 7 pooled soaks after f8916d5 hit it (probeD, hunt-4). 0 of 4 unpooled soaks did. Traces: `target/s14b/hunt-4`, `soak-probeD`. |
+| 2 | MusicKit trims `[0, X)` 0.06–0.34 s past `currentTime` whenever the buffer is at quota. Our readiness ignored the ~1.5 s already queued in the sink, so each trim fired `waiting`, counted an underrun and showed Loading. Base had 30 of these in 10 min. A 10 s sampler phase-locks onto them. | ours | Fixed in e11055a: queued output counts toward readiness. Probe builds showed 0 spurious blips over ~16.6 min, against Amendment 1's bar of ≤ 2 per 10 min; base had 30 per 10 min. The two raw `waiting` events in that time are the real run-outs at race-3 stalls. Phase control: soak-after4 read Playing at every sample for 13 min. One regression test. |
+| 3 | At a preload, MusicKit runs two loaders for the next item. When loader 2's playlist lands after loader 1's init append, neither loader calls the SourceBuffer again, and playback sits at Loading for good. There is no host exception, no unhandled rejection and no queue call of ours in that window. | MusicKit | **Open.** 2 of 7 pooled soaks after f8916d5 hit it (probeD, hunt-4), both at the same place: the track 2→3 preload at `ts_off 290.4168`, right after the 67 s track 2. That is the reproduction recipe, a 4.5 min soak. Traces: `target/s14b/hunt-4`, `soak-probeD`. |
+
+**Race 3 attribution is not settled.** Pooled runs *without* f8916d5 (s14b-1, soak1, probeA, probeC) all passed this preload. Only one unpooled run *with* f8916d5 exists (soak-nopool), and it was clean. The data cannot separate pooling from f8916d5's task ordering, which follows browser task semantics. Separating them needs pooled runs without f8916d5 and more unpooled runs with it.
 
 ## Full acceptance runs
 
@@ -67,6 +69,15 @@ The effect rules come from the coordinator's S13 review. They were checked by po
 |---|---|---|
 | s14b-1 | abf2b62 | **FAIL** on R3 (race 1) and F10 (s14a's Home recovery). PASS on F1–F9, R1, R2, R4 (4.0 %), R5 (0.5 %, old rule) and R6. F5 old rule: 19 / 371 / 59 / 180 / 241. Controls not run. |
 | s14b-2 | edcc4b7 | **Stopped** during R3 when the coordinator said to stop running `acceptance.sh`. Teardown was clean: sink gone, default sink unchanged. Does not count. |
+
+## Runs that don't count
+- **Playback never started:** hunt-3, and the very first base R5 run. The base binary does this too.
+- **dec2-nopool:** stopped after round 1 on `play: SERVER_ERROR`, a MusicKit error.
+- **s14b-2:** partial, stopped as above.
+- **Co-tenant overlap** with another agent's run (`probe-…` weston, s13 worktree), epoch windows:
+  - eff1's F5 tail, ~1791819770–1791819823;
+  - eff9's base R5, ~1791822060–1791822174.
+  - Neither is used in the tables above, except eff9's base R5 row, which is flagged there.
 
 ## Not done
 - No counted acceptance run on the final commit. It waits for the coordinator.
