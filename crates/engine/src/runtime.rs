@@ -709,6 +709,21 @@ impl Engine {
         self.drain();
     }
 
+    fn run_tasks(&self) -> (bool, Option<f64>) {
+        for ran in 0..500 {
+            let r: f64 = self.ctx.with(|ctx| {
+                call(&ctx, &self.n, "__platform", "runTimers", ())
+                    .and_then(|v| v.as_number())
+                    .unwrap_or(-1.0)
+            });
+            self.drain();
+            if r != -2.0 {
+                return (ran > 0, (r >= 0.0).then_some(r));
+            }
+        }
+        (true, None)
+    }
+
     pub fn tick(&mut self) -> Duration {
         if self.last_gc.elapsed() >= GC_INTERVAL {
             self.run_gc();
@@ -719,6 +734,7 @@ impl Engine {
             busy = true;
             self.ctx.with(|ctx| handle_completion(&ctx, &self.n, c));
             self.drain();
+            self.run_tasks();
         }
         let cdm_events: Vec<(u32, CdmEvent)> = self
             .n
@@ -732,20 +748,8 @@ impl Engine {
             self.ctx.with(|ctx| dispatch_cdm(&ctx, &self.n, id, e));
             self.drain();
         }
-        let mut next_ms = None;
-        for _ in 0..500 {
-            let r: f64 = self.ctx.with(|ctx| {
-                call(&ctx, &self.n, "__platform", "runTimers", ())
-                    .and_then(|v| v.as_number())
-                    .unwrap_or(-1.0)
-            });
-            self.drain();
-            if r != -2.0 {
-                next_ms = (r >= 0.0).then_some(r);
-                break;
-            }
-            busy = true;
-        }
+        let (ran, next_ms) = self.run_tasks();
+        busy |= ran;
         let now = Instant::now();
         let media_events: Vec<(u32, String)> = {
             let mut guard = self.n.borrow_mut();
@@ -773,6 +777,7 @@ impl Engine {
                 call(&ctx, &self.n, "__platform", "dispatchMedia", (id, payload));
             });
             self.drain();
+            self.run_tasks();
         }
         let st = self.n.borrow();
         let active = busy

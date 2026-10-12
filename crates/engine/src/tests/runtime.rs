@@ -215,3 +215,73 @@ fn a_request_in_flight_keeps_the_engine_polling_until_it_lands() {
     assert_eq!(e.eval_json("globalThis.got").unwrap(), 200);
     assert!(first_idle_wait(&mut e) >= Duration::from_secs(1));
 }
+
+#[test]
+fn a_task_queued_by_one_completion_runs_before_the_next_completion_is_dispatched() {
+    let (port, server) = serve(2, "x");
+    let (mut e, _sink) = engine();
+    e.eval_script(
+        "two.js",
+        &format!(
+            r#"
+            const audio = document.createElement("audio");
+            let fired = false, first = true;
+            audio.addEventListener("volumechange", () => {{ fired = true; }});
+            const landed = () => {{ if (first) {{ first = false; audio.volume = 0.5; L("first"); }} else L("second saw volumechange: " + fired); }};
+            for (const path of ["a", "b"]) fetch("http:\/\/127.0.0.1:{port}/" + path).then(landed);
+        "#
+        ),
+    )
+    .unwrap();
+    server.join().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    for _ in 0..200 {
+        e.tick();
+        if e.eval_json("log.length").unwrap() == 2 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert_eq!(
+        e.eval_json("log").unwrap(),
+        serde_json::json!(["first", "second saw volumechange: true"])
+    );
+}
+
+#[test]
+fn a_task_queued_by_a_media_event_runs_before_the_next_completion_is_dispatched() {
+    let (port, server) = serve(1, "x");
+    let (mut e, _sink) = engine();
+    e.eval_script(
+        "play.js",
+        r#"
+        const audio = document.createElement("audio");
+        globalThis.fired = false;
+        audio.addEventListener("volumechange", () => { fired = true; });
+        audio.addEventListener("play", () => { audio.volume = 0.5; });
+        audio.play().catch(() => {});
+    "#,
+    )
+    .unwrap();
+    e.tick();
+    e.eval_script(
+        "fetch.js",
+        &format!(
+            r#"fetch("http:\/\/127.0.0.1:{port}/").then(() => L("completion saw volumechange: " + fired));"#
+        ),
+    )
+    .unwrap();
+    server.join().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    for _ in 0..200 {
+        e.tick();
+        if e.eval_json("log.length").unwrap() == 1 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert_eq!(
+        e.eval_json("log").unwrap(),
+        serde_json::json!(["completion saw volumechange: true"])
+    );
+}
