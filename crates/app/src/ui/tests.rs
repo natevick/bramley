@@ -3,7 +3,7 @@ use std::sync::mpsc::channel;
 use egui::{Event, Key, Modifiers, RawInput};
 
 use super::content::search_id;
-use super::nav::{BACK_LIMIT, Nav, Route, Shell};
+use super::nav::{BACK_LIMIT, Edge, Nav, Route, Shell};
 use super::shortcuts;
 use crate::playback::Action;
 
@@ -76,6 +76,17 @@ fn the_back_stack_keeps_only_the_latest_routes() {
     }
     assert_eq!(backs, BACK_LIMIT);
     assert_eq!(shell.route, Route::Songs);
+}
+
+#[test]
+fn a_scroll_waits_in_the_shell_until_a_route_change_or_back_drops_it() {
+    let mut shell = Shell::default();
+    for leave in [Nav::Go(Route::Songs), Nav::Back] {
+        shell.apply(Nav::Scroll(Edge::End));
+        assert_eq!(shell.scroll, Some(Edge::End));
+        shell.apply(leave);
+        assert_eq!(shell.scroll, None);
+    }
 }
 
 #[test]
