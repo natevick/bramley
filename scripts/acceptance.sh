@@ -6,6 +6,11 @@ case "${2:-}" in "") MODE=counted ;; --llvmpipe) MODE=llvmpipe ;; --controls) MO
 OUT="$ROOT/target/acceptance/$RUN"
 BIN="$OUT/bin"
 [ -e "$OUT" ] && { echo "refusing: $OUT already exists" >&2; exit 2; }
+LOCK="/run/user/$(id -u)/bramley-gpu-session.lock"
+exec 9>"$LOCK"
+flock -n 9 || { echo "refusing: another acceptance or weston session holds $LOCK" >&2; exit 2; }
+export BRAMLEY_GPU_LOCK_HELD=1
+trap 'python3 -I "$ROOT/scripts/acceptance/drive.py" --cleanup "$RUN"' EXIT
 python3 -I "$ROOT/scripts/acceptance/gate.py" --preflight >&2 || exit 2
 mkdir -p "$BIN" "$ROOT/target/tmp"
 export TMPDIR="$ROOT/target/tmp"

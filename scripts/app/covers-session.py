@@ -1,4 +1,4 @@
-import contextlib, glob, json, os, re, shutil, signal, subprocess, threading, time
+import contextlib, fcntl, glob, json, os, re, secrets, shutil, signal, subprocess, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SONG = '6781024437'
@@ -147,23 +147,66 @@ def wait_for(pred, timeout, what):
     raise RuntimeError(f'timed out waiting for {what}')
 
 
+GPU_LOCK, LOCK_HELD = f'/run/user/{os.getuid()}/bramley-gpu-session.lock', 'BRAMLEY_GPU_LOCK_HELD'
+
+
+@contextlib.contextmanager
+def gpu_lock():
+    if os.environ.get(LOCK_HELD) == '1':
+        yield
+        return
+    fd = os.open(GPU_LOCK, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        raise RuntimeError(f'another weston session holds {GPU_LOCK}; refusing') from None
+    try:
+        yield
+    finally:
+        os.close(fd)
+
+
+def unique_sink(prefix, out):
+    run = re.sub(r'[^A-Za-z0-9_-]', '-', os.path.basename(os.path.abspath(out)))
+    return f'{prefix}-null-{run}-{os.getpid()}-{secrets.token_hex(3)}'
+
+
+def null_sink(name):
+    node = f'create-node adapter {{ factory.name=support.null-audio-sink node.name={name} node.description={name} media.class=Audio/Sink audio.position=[FL FR] priority.session=0 priority.driver=0 object.linger=false }}'
+    pw = subprocess.Popen(['bash', '-c', f"{{ echo '{node}'; exec sleep 100000; }} | pw-cli >/dev/null 2>&1"], start_new_session=True)
+    try:
+        wait_for(lambda: sink_exists(name), 10, f'null sink {name}')
+    except RuntimeError:
+        os.killpg(pw.pid, signal.SIGTERM)
+        raise
+    return pw
+
+
 @contextlib.contextmanager
 def session(out, prefix):
+    with gpu_lock():
+        with _session(out, prefix) as found:
+            yield found
+
+
+@contextlib.contextmanager
+def _session(out, prefix):
     os.environ['XDG_RUNTIME_DIR'] = f'/run/user/{os.getuid()}'
-    sock, sink = f'{prefix}-{os.getpid()}', f'{prefix}-null-{os.getpid()}'
+    sock, sink = f'{prefix}-{os.getpid()}', unique_sink(prefix, out)
     weston = subprocess.Popen(['weston', '--backend=headless', '--renderer=gl', f'--socket={sock}', '--width=1280', '--height=800', '--idle-time=0', f'--log={out}/weston.log'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-    node = f'create-node adapter {{ factory.name=support.null-audio-sink node.name={sink} node.description={sink} media.class=Audio/Sink audio.position=[FL FR] priority.session=0 priority.driver=0 object.linger=false }}'
-    pw = subprocess.Popen(['bash', '-c', f"{{ echo '{node}'; exec sleep 100000; }} | pw-cli >/dev/null 2>&1"], start_new_session=True)
+    pw = None
     summary = {'sink': sink}
     try:
+        pw = null_sink(sink)
         wait_for(lambda: os.path.exists(f"{os.environ['XDG_RUNTIME_DIR']}/{sock}"), 10, 'weston')
-        wait_for(lambda: sink_exists(sink), 10, 'null sink')
         summary['defaultAtStart'] = default_sink()
         if summary['defaultAtStart'] in (None, sink):
             raise RuntimeError(f"default sink is {summary['defaultAtStart']}; refusing")
         yield sock, sink, summary
     finally:
-        os.killpg(pw.pid, signal.SIGTERM)
+        if pw:
+            os.killpg(pw.pid, signal.SIGTERM)
         os.killpg(weston.pid, signal.SIGTERM)
         time.sleep(1.5)
         summary['sinkGone'] = not sink_exists(sink)

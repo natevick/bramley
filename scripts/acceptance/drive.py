@@ -1,4 +1,4 @@
-import argparse, contextlib, glob, hashlib, http.server, importlib.util, json, os, queue, shutil, signal, subprocess, sys, threading, time
+import argparse, contextlib, glob, hashlib, http.server, importlib.util, json, os, queue, re, shutil, signal, subprocess, sys, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
@@ -688,11 +688,26 @@ def run(out, mode):
     leak_grep(out)
 
 
+def cleanup(run):
+    for d in glob.glob(os.path.join(ROOT, 'target', 'tmp', f'config-{run}-*')):
+        shutil.rmtree(d, ignore_errors=True)
+    path = ['--object-path', '/org/freedesktop/secrets/aliases/default', '--method', 'org.freedesktop.DBus.Properties.Get']
+    listed = subprocess.run(cs.SECRETS + path + ['org.freedesktop.Secret.Collection', 'Items'], capture_output=True, text=True, timeout=10).stdout
+    for item in re.findall(r"'(/org/freedesktop/secrets/collection/[^']+)'", listed):
+        attrs = subprocess.run(cs.SECRETS + ['--object-path', item, '--method', 'org.freedesktop.DBus.Properties.Get', 'org.freedesktop.Secret.Item', 'Attributes'],
+                               capture_output=True, text=True, timeout=10).stdout
+        if re.search(rf"'service': <?'bramley-gate-{re.escape(run)}-", attrs):
+            subprocess.run(cs.SECRETS + ['--object-path', item, '--method', 'org.freedesktop.Secret.Item.Delete'], capture_output=True, timeout=10)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out')
     ap.add_argument('--mode', choices=('counted', 'llvmpipe', 'controls'), default='counted')
+    ap.add_argument('--cleanup')
     a = ap.parse_args()
+    if a.cleanup:
+        return cleanup(a.cleanup)
     run(a.out, a.mode)
 
 
