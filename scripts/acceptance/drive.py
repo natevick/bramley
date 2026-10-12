@@ -59,7 +59,7 @@ class Cotenants(threading.Thread):
 
     def run(self):
         while not self.stop:
-            found = gate.preflight(ours)
+            found = [f for f in gate.preflight(ours) if os.path.exists(f'/proc/{f.split()[0]}')]
             self.polls += 1
             if found:
                 self.seen.append([round(time.time(), 1), found])

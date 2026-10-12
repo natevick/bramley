@@ -153,3 +153,8 @@ The branch is rebased onto main at 8c6e77a, where S8, S9b and S10 are merged, so
 - s13-1 to s13-4, s13-controls and s13-llvmpipe ran on the pre-S9b base. They are reported but do not count.
 - The counted set is `final-1` and `final-2` (consecutive), `final-controls` and `final-llvmpipe`, all at the commit that adds this amendment.
 - The coordinator confirmed no other worktree will use weston or the GPU during these runs. The co-tenant watch still applies.
+
+## Amendment 3 (2026-10-12, after final-1; procedure only)
+- **Evidence:** final-1 was VOIDed by a single sighting, at 00:32:02, of a `bramley` process that mapped no GPU library. s13-4 had the same one-poll signature at 23:08:26. A short-lived CLI process that exits between the watch reading its `comm` and walking its parent chain fails the "ours" test and is flagged. This could not be reproduced on demand: 285 polls under 4 continuous CLI spawners gave 0 sightings.
+- **Change:** a sighting whose process no longer exists at the end of its poll is dropped. An exited process holds no memory. A real co-tenant lives long enough to be seen on the next poll, 5 s later.
+- **Status of the earlier runs:** final-1 stays VOID as scored. The counted set is now `final-2` and `final-3` (consecutive), plus `final-controls` and `final-llvmpipe`, at the commit adding this amendment.
