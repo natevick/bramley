@@ -124,6 +124,7 @@ pub struct CdmState {
     pub decrypts: u64,
     pub certificate: Vec<u8>,
     pub allow_persistent_state: Option<bool>,
+    pub next_timer: Option<std::time::Duration>,
 }
 
 #[derive(Clone, Default)]
@@ -132,6 +133,9 @@ pub struct FakeCdm(pub Rc<RefCell<CdmState>>);
 pub const KID: [u8; 16] = [7; 16];
 
 impl CdmBackend for FakeCdm {
+    fn next_timer(&self) -> Option<std::time::Duration> {
+        self.0.borrow().next_timer
+    }
     fn set_server_certificate(&mut self, promise: u32, cert: &[u8]) {
         let mut s = self.0.borrow_mut();
         s.certificate = cert.to_vec();

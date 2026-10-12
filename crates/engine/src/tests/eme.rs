@@ -377,3 +377,15 @@ fn media_element_relays_abort_range_and_index_errors() {
     );
     assert!(log.contains(&"remove:TypeError"));
 }
+
+#[test]
+fn an_idle_engine_wakes_for_the_cdm_s_next_timer() {
+    use std::time::Duration;
+    let (mut e, _sink, cdm) = engine_with_cdm(false);
+    run(&mut e, "globalThis.mk = await keys();");
+    cdm.0.borrow_mut().next_timer = Some(Duration::from_millis(250));
+    let wait = (0..20)
+        .map(|_| e.tick())
+        .find(|w| *w > Duration::from_millis(5));
+    assert_eq!(wait, Some(Duration::from_millis(250)));
+}
