@@ -222,7 +222,7 @@ fn main() -> Result<()> {
                 break;
             }
         }
-        std::thread::sleep(wait);
+        std::thread::sleep(wait.min(Duration::from_millis(100)));
     }
     write_status(&engine, &args, scenario.as_ref(), &tracks);
     Ok(())
