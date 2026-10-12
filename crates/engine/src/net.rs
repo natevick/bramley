@@ -1,3 +1,4 @@
+use std::sync::LazyLock;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
@@ -105,6 +106,25 @@ pub enum Completion {
     },
 }
 
+static AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
+    ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .user_agent(crate::user_agent())
+        .build()
+        .into()
+});
+
+fn run<S: ureq::AsSendBody>(
+    request: ureq::http::Request<S>,
+    timeout: Option<Duration>,
+) -> Result<ureq::http::Response<ureq::Body>, String> {
+    let request = AGENT
+        .configure_request(request)
+        .timeout_global(timeout)
+        .build();
+    AGENT.run(request).map_err(|e| e.to_string())
+}
+
 fn perform(req: &HttpRequest) -> HttpResponse {
     let mut out = HttpResponse {
         id: req.id,
@@ -115,12 +135,7 @@ fn perform(req: &HttpRequest) -> HttpResponse {
         body: Vec::new(),
         error: None,
     };
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .http_status_as_error(false)
-        .user_agent(crate::user_agent())
-        .timeout_global(Some(Duration::from_millis(req.timeout_ms.max(1000))))
-        .build()
-        .into();
+    let timeout = Some(Duration::from_millis(req.timeout_ms.max(1000)));
     let mut builder = ureq::http::Request::builder()
         .method(req.method.as_str())
         .uri(req.url.as_str());
@@ -135,11 +150,11 @@ fn perform(req: &HttpRequest) -> HttpResponse {
         Some(b) => builder
             .body(b.clone())
             .map_err(|e| e.to_string())
-            .and_then(|r| agent.run(r).map_err(|e| e.to_string())),
+            .and_then(|r| run(r, timeout)),
         None => builder
             .body(())
             .map_err(|e| e.to_string())
-            .and_then(|r| agent.run(r).map_err(|e| e.to_string())),
+            .and_then(|r| run(r, timeout)),
     };
     match result {
         Ok(mut resp) => {

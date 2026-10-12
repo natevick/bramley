@@ -152,3 +152,66 @@ fn failing_platform_callbacks_print_redacted_errors() {
         assert!(!c.stderr.contains("s3cr3t"), "{}", c.stderr);
     }
 }
+
+fn first_idle_wait(e: &mut crate::Engine) -> std::time::Duration {
+    let busy = std::time::Duration::from_millis(5);
+    (0..20)
+        .map(|_| e.tick())
+        .find(|w| *w > busy)
+        .unwrap_or(busy)
+}
+
+#[test]
+fn a_paused_element_sleeps_until_the_next_timer_and_a_playing_one_keeps_pumping() {
+    use std::time::Duration;
+    let (mut e, sink) = engine();
+    let body = r#"
+        const a = fresh();
+        audio.src = URL.createObjectURL(a.ms);
+        await fill(a.ms, a.opened, bytes);
+        await audio.play();
+        globalThis.el = audio;
+    "#;
+    run(&mut e, &sink, &super::element::script(body));
+    assert!(
+        e.tick() <= Duration::from_millis(5),
+        "a playing element must keep the 5 ms pump"
+    );
+    e.eval_script("pause.js", "el.pause(); setTimeout(() => {}, 400);")
+        .unwrap();
+    let wait = first_idle_wait(&mut e);
+    assert!(
+        wait > Duration::from_millis(300) && wait <= Duration::from_millis(400),
+        "{wait:?}"
+    );
+}
+
+#[test]
+fn a_request_in_flight_keeps_the_engine_polling_until_it_lands() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::time::Duration;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (mut e, _sink) = engine();
+    e.eval_script(
+        "fetch.js",
+        &format!("fetch('http://127.0.0.1:{port}/').then(r => {{ globalThis.got = r.status; }});"),
+    )
+    .unwrap();
+    assert_eq!(first_idle_wait(&mut e), Duration::from_millis(5));
+    let (mut sock, _) = listener.accept().unwrap();
+    let mut head = String::new();
+    let mut r = BufReader::new(sock.try_clone().unwrap());
+    while r.read_line(&mut head).unwrap() > 2 && !head.ends_with("\r\n\r\n") {}
+    sock.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+        .unwrap();
+    for _ in 0..2000 {
+        if e.eval_json("globalThis.got").unwrap() == 200 {
+            break;
+        }
+        e.tick();
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(e.eval_json("globalThis.got").unwrap(), 200);
+    assert!(first_idle_wait(&mut e) >= Duration::from_secs(1));
+}

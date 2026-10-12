@@ -154,6 +154,7 @@ pub(crate) trait Backend {
     fn tick(&mut self) -> Duration;
     fn eval_script(&self, name: &str, source: &str) -> Result<()>;
     fn eval_json(&self, expression: &str) -> Result<J>;
+    fn applied(&self) -> u64;
     fn current_time(&self) -> Option<f64>;
     fn output_failed(&self) -> bool;
     fn output_counts(&self) -> crate::runtime::OutputCounts;
@@ -170,6 +171,9 @@ impl Backend for Engine {
     }
     fn eval_json(&self, expression: &str) -> Result<J> {
         Engine::eval_json(self, expression)
+    }
+    fn applied(&self) -> u64 {
+        Engine::global_number(self, "__player", "applied").map_or(0, |n| n as u64)
     }
     fn current_time(&self) -> Option<f64> {
         Engine::current_time(self)
@@ -294,7 +298,7 @@ fn run<B: Backend, W: Fn()>(
     #[cfg(feature = "diagnostics")]
     let mut engine_due = Instant::now();
     loop {
-        let wait = b.tick();
+        let wait = b.tick().min(due.saturating_duration_since(Instant::now()));
         match commands.recv_timeout(wait) {
             Ok(Command::Shutdown) | Err(RecvTimeoutError::Disconnected) => return,
             Ok(command) => {
@@ -305,6 +309,9 @@ fn run<B: Backend, W: Fn()>(
                 continue;
             }
             Err(RecvTimeoutError::Timeout) => {}
+        }
+        if b.applied() > exit.applied {
+            due = Instant::now();
         }
         if Instant::now() < due {
             continue;

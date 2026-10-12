@@ -109,6 +109,7 @@
   };
   Object.defineProperty(globalThis, "__player", {
     value: {
+      get applied() { return S.applied; },
       state,
       setQueue: options => {
         const gen = ++queueGen;

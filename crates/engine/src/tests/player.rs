@@ -26,6 +26,7 @@ struct Fake {
     time: Option<f64>,
     output_failed: bool,
     output: crate::runtime::OutputCounts,
+    wait: Option<Duration>,
 }
 
 #[derive(Clone, Default)]
@@ -41,16 +42,16 @@ impl FakeEngine {
 
 impl Backend for FakeEngine {
     fn tick(&mut self) -> Duration {
-        let panic = {
+        let (panic, wait) = {
             let mut f = self.0.lock().unwrap();
             f.unticked_command = false;
             f.ticks += 1;
-            f.panic_at_tick == Some(f.ticks)
+            (f.panic_at_tick == Some(f.ticks), f.wait)
         };
         if panic {
             panic!("fake engine panic");
         }
-        Duration::from_millis(1)
+        wait.unwrap_or(Duration::from_millis(1))
     }
     fn eval_script(&self, _name: &str, source: &str) -> Result<()> {
         let mut f = self.0.lock().unwrap();
@@ -63,6 +64,11 @@ impl Backend for FakeEngine {
         let mut f = self.0.lock().unwrap();
         f.snapshots_before_tick += usize::from(f.unticked_command);
         Ok(f.state.clone())
+    }
+    fn applied(&self) -> u64 {
+        self.0.lock().unwrap().state["applied"]
+            .as_u64()
+            .unwrap_or(0)
     }
     fn current_time(&self) -> Option<f64> {
         self.0.lock().unwrap().time
@@ -318,6 +324,41 @@ fn an_engine_that_cannot_start_reports_load_failed_once() {
     );
     assert_eq!(drain_until_stopped(&rx), 0);
     assert_eq!(wakes.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_rise_in_applied_is_sent_at_once_not_at_the_next_interval() {
+    let fake = FakeEngine::default();
+    fake.set(json!({"playbackState": 3, "applied": 0}), Some(1.0));
+    let f = fake.clone();
+    let (_tx, rx, _) = spawn_fake(move || Ok(f), Duration::from_secs(30));
+    wait_for(&rx, |_| true);
+    let raised = Instant::now();
+    fake.set(json!({"playbackState": 3, "applied": 1}), Some(1.0));
+    wait_for(&rx, |s| s.applied == 1);
+    assert!(
+        raised.elapsed() < Duration::from_millis(500),
+        "{:?}",
+        raised.elapsed()
+    );
+}
+
+#[test]
+fn a_long_engine_wait_does_not_hold_back_the_next_snapshot() {
+    let fake = FakeEngine::default();
+    fake.0.lock().unwrap().wait = Some(Duration::from_secs(60));
+    fake.set(json!({"playbackState": 3}), Some(1.0));
+    let f = fake.clone();
+    let (_tx, rx, _) = spawn_fake(move || Ok(f), SNAPSHOT_EVERY);
+    wait_for(&rx, |_| true);
+    let changed = Instant::now();
+    fake.set(json!({"playbackState": 3}), Some(2.0));
+    wait_for(&rx, |s| s.position == Some(2.0));
+    assert!(
+        changed.elapsed() < Duration::from_millis(500),
+        "{:?}",
+        changed.elapsed()
+    );
 }
 
 #[test]

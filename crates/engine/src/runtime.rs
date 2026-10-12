@@ -44,6 +44,7 @@ struct Native {
     redact: Vec<String>,
     truncate_scripts: bool,
     retired_output: OutputCounts,
+    in_flight: usize,
 }
 
 impl Native {
@@ -78,6 +79,8 @@ pub struct Engine {
 }
 
 const GC_INTERVAL: Duration = Duration::from_secs(2);
+const ACTIVE_WAIT_MS: f64 = 5.0;
+const IDLE_WAIT: Duration = Duration::from_secs(60);
 
 fn opts(name: &str) -> EvalOptions {
     let mut o = EvalOptions::default();
@@ -160,6 +163,7 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
         let mut st = s.borrow_mut();
         st.count("http");
         st.http_count += 1;
+        st.in_flight += 1;
         let headers: Vec<(String, String)> = serde_json::from_str(&headers).unwrap_or_default();
         let req = HttpRequest {
             id,
@@ -185,6 +189,7 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
     op!("__op_load_script", move |id: u32, url: String| {
         let mut st = s.borrow_mut();
         st.count("load_script");
+        st.in_flight += 1;
         st.script_log
             .push(json!({"id": id, "url": url, "phase": "fetching"}));
         net::spawn_script(id, url, st.net_tx.clone());
@@ -489,6 +494,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 fn handle_completion(ctx: &Ctx, n: &N, c: Completion) {
+    n.borrow_mut().in_flight -= 1;
     match c {
         Completion::Http(r) => {
             {
@@ -629,6 +635,7 @@ impl Engine {
             redact: Vec::new(),
             truncate_scripts: false,
             retired_output: [0; OUTPUT_COUNTS],
+            in_flight: 0,
         }));
         let rt = Runtime::new()?;
         rt.set_max_stack_size(4 * 1024 * 1024);
@@ -690,6 +697,12 @@ impl Engine {
             .unwrap_or(J::Null))
     }
 
+    pub(crate) fn global_number(&self, object: &str, key: &str) -> Option<f64> {
+        self.ctx
+            .with(|ctx| ctx.globals().get::<_, Object>(object)?.get::<_, f64>(key))
+            .ok()
+    }
+
     pub fn run_gc(&mut self) {
         self.rt.run_gc();
         self.last_gc = Instant::now();
@@ -701,7 +714,9 @@ impl Engine {
             self.run_gc();
         }
         self.drain();
+        let mut busy = false;
         while let Ok(c) = self.net_rx.try_recv() {
+            busy = true;
             self.ctx.with(|ctx| handle_completion(&ctx, &self.n, c));
             self.drain();
         }
@@ -712,11 +727,12 @@ impl Engine {
             .iter_mut()
             .flat_map(|(id, c)| c.poll().into_iter().map(move |e| (*id, e)))
             .collect();
+        busy |= !cdm_events.is_empty();
         for (id, e) in cdm_events {
             self.ctx.with(|ctx| dispatch_cdm(&ctx, &self.n, id, e));
             self.drain();
         }
-        let mut next_ms = 5.0f64;
+        let mut next_ms = None;
         for _ in 0..500 {
             let r: f64 = self.ctx.with(|ctx| {
                 call(&ctx, &self.n, "__platform", "runTimers", ())
@@ -725,11 +741,10 @@ impl Engine {
             });
             self.drain();
             if r != -2.0 {
-                if r >= 0.0 {
-                    next_ms = next_ms.min(r);
-                }
+                next_ms = (r >= 0.0).then_some(r);
                 break;
             }
+            busy = true;
         }
         let now = Instant::now();
         let media_events: Vec<(u32, String)> = {
@@ -752,13 +767,25 @@ impl Engine {
             }
             out
         };
+        busy |= !media_events.is_empty();
         for (id, payload) in media_events {
             self.ctx.with(|ctx| {
                 call(&ctx, &self.n, "__platform", "dispatchMedia", (id, payload));
             });
             self.drain();
         }
-        Duration::from_micros((next_ms.clamp(1.0, 5.0) * 1000.0) as u64)
+        let st = self.n.borrow();
+        let active = busy
+            || st.in_flight > 0
+            || self.rt.is_job_pending()
+            || st.medias.values().any(|m| !m.idle());
+        if active {
+            let ms = next_ms.unwrap_or(ACTIVE_WAIT_MS).clamp(1.0, ACTIVE_WAIT_MS);
+            return Duration::from_micros((ms * 1000.0) as u64);
+        }
+        let js = next_ms.map(|ms| Duration::from_micros((ms.max(1.0) * 1000.0) as u64));
+        let cdm = st.cdms.values().filter_map(|c| c.next_timer()).min();
+        js.into_iter().chain(cdm).min().unwrap_or(IDLE_WAIT)
     }
 
     pub fn run_for(&mut self, d: Duration) {

@@ -82,3 +82,43 @@ fn fetch_and_xhr_drop_forbidden_headers_before_they_leave_the_process() {
         }
     }
 }
+
+#[test]
+fn sequential_requests_to_one_host_reuse_one_connection() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let count = accepted.clone();
+    std::thread::spawn(move || {
+        for sock in listener.incoming() {
+            count.fetch_add(1, Ordering::SeqCst);
+            let mut sock = sock.unwrap();
+            std::thread::spawn(move || {
+                let mut r = BufReader::new(sock.try_clone().unwrap());
+                loop {
+                    let mut head = String::new();
+                    while r.read_line(&mut head).unwrap_or(0) > 2 && !head.ends_with("\r\n\r\n") {}
+                    if head.is_empty()
+                        || sock
+                            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                            .is_err()
+                    {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    let (mut e, sink) = engine();
+    let log = run(
+        &mut e,
+        &sink,
+        &format!(
+            "for (let i = 0; i < 3; i++) L(await (await fetch('http://127.0.0.1:{port}/' + i)).text());"
+        ),
+    );
+    assert_eq!(log, ["ok", "ok", "ok"]);
+    assert_eq!(accepted.load(Ordering::SeqCst), 1);
+}

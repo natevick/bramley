@@ -150,6 +150,10 @@ impl MediaEngine {
         (self.base_us + frames_to_us(played, self.rate)).min(self.sent_end_us.max(self.base_us))
     }
 
+    pub fn idle(&self) -> bool {
+        self.paused && !self.seeking && self.drain_started.is_none()
+    }
+
     pub fn output_failed(&self) -> bool {
         self.output_failed
     }

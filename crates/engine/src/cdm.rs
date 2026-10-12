@@ -65,6 +65,9 @@ pub trait CdmBackend {
     fn remove_session(&mut self, promise: u32, sid: &str);
     fn decrypt(&mut self, sample: &EncryptedSample, out: &mut Vec<u8>) -> Decrypted;
     fn poll(&mut self) -> Vec<CdmEvent>;
+    fn next_timer(&self) -> Option<std::time::Duration> {
+        None
+    }
     fn describe(&self) -> serde_json::Value;
 }
 
@@ -168,6 +171,7 @@ mod widevine {
             out_size: *mut u32,
         ) -> u32;
         fn shim_pump(handle: *mut c_void);
+        fn shim_next_timer_ms(handle: *mut c_void) -> i64;
         fn shim_destroy(handle: *mut c_void);
     }
 
@@ -433,6 +437,10 @@ mod widevine {
             unsafe { shim_pump(self.handle) };
             events.append(&mut sink(self.sink as *mut c_void).events);
             events
+        }
+        fn next_timer(&self) -> Option<std::time::Duration> {
+            let ms = unsafe { shim_next_timer_ms(self.handle) };
+            u64::try_from(ms).ok().map(std::time::Duration::from_millis)
         }
         fn describe(&self) -> serde_json::Value {
             serde_json::json!({"version": self.version, "hostVersionRequested": self.host_version, "interface": 10, "logs": sink(self.sink as *mut c_void).logs})
