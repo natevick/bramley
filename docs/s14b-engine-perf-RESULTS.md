@@ -9,9 +9,11 @@ Pre-registration: `docs/s14b-engine-perf-PREREG.md`, with Amendments 1–3.
 ## Verdict
 - **R5 PASSes**, measured the new way.
 - **F5 PASSes on the effect for every control.** It needs pooled connections; without them seek is 523 ms.
-- **Race 3 (preload stall) was ours and is fixed in 5438da1.**
-  - **Cause:** our fetch had no HTTP cache, so MusicKit's duplicate playlist request could land in a ~60 ms window that a browser's cache closes.
-  - **Pre-registered bar met:** 0 stalls in 12 pooled 4.5 min soaks on the fix, against 4 in 16 before it.
+- **Race 3 (preload stall): pre-registered bar met, risk reduced but not proven eliminated.**
+  - **Trigger:** MusicKit prepares the next item twice, then reverts against an empty range.
+  - **Our part:** we had no HTTP cache, which let the duplicate playlist land inside the ~60 ms window that kills loading. That made us far more exposed.
+  - **Result:** 0 stalls in 12 pooled 4.5 min soaks on 5438da1, against 4 in 16 before it.
+  - **What remains:** with the cache, a stall still needs the second preparation to *issue* its playlist request after the first item's init append. Residual risk is estimated at ~1–2 % per duplicated preload; see the margin analysis.
 - **Full acceptance:**
   - `s14b-1` FAILed on R3 because of an engine race, fixed in f8916d5.
   - `s14b-2` was stopped mid-soak on the coordinator's instruction, so it does not count.
@@ -83,7 +85,7 @@ The effect rules come from the coordinator's S13 review. They were checked by po
 
 **Where we deviate from a browser:**
 - A browser's `fetch` for cache mode "default" goes through its HTTP cache: Fetch Standard, "HTTP-network-or-cache fetch", serving fresh stored responses per RFC 9111 §4 and §4.2.
-- Chromium (the HTTP cache's writer lock) and Firefox (cache-entry sharing) also make a second identical in-flight GET wait for the first.
+- Browser practice, **not verified here:** Chromium's HTTP cache writer lock and Firefox's cache-entry sharing make a second identical in-flight GET wait for the first.
 - So both playlists resolve together, before the init fetch has even started. MusicKit's revert then lands while the range is either empty and harmless, or never reached.
 - We had no HTTP cache, so the duplicate kept its own network timing.
 - Strictly, Fetch permits a user agent with no cache. The failure needs the browser behaviour that rule 2 asks host objects to have, not a step that is a MUST.
@@ -99,6 +101,16 @@ The effect rules come from the coordinator's S13 review. They were checked by po
 - **Tests:** 3 new; the wiring test fails without the fix (3 network requests against 2).
 
 **Did it run:** three traced soaks on the fix show the duplicate playlists resolving 2–3 ms apart, always before the init append. Before the fix they resolved 13–119 ms apart.
+
+**Residual margin (offline, from the traces):**
+- **Why only issue time matters now:** with the cache, the second playlist resolves at max(its issue time, the first's resolve).
+- **When it can still stall:** only if the second preparation *issues* its request after the init append.
+- **Observed margins:** at the 290.4168 transition, the gap from the second issue to the init append was 37, 47, 79, 97, 98, 107, 123 and 130 ms (n = 8; trfix-1, tr-6, tr-3, tr-2, trfix-2, tr-9, tr-1, tr-7). None was negative. The smallest are 37 ms on the fix (trfix-1) and 47 ms in a stalled run (tr-6).
+- **Estimate:** crossing the 8 observed issue gaps (8–93 ms) with the 8 observed first-issue→init-append spans (75–223 ms) leaves 1 combination in 64 inside the window. So ~1.6 % per duplicated preload, assuming independence.
+- **Read of the 0/12:** the bar is met as written, but 12 runs cannot tell elimination from a cut to that level; (1−0.016)¹² ≈ 82 %.
+- **The remaining trigger is MusicKit's own.** No workaround was added; whether to go further is the coordinator's call.
+
+**Memory:** the cache is capped at 2 MiB and holds playlists of a few KiB each, but it is unmeasured. The counted run's R1 and R3 are its measurement, and a `docs/budget.md` line is owed.
 
 ### Race 3: soak table (4.5 min pooled soaks; stall per Amendment 3)
 
