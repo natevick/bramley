@@ -142,3 +142,25 @@ Pre-registration: `docs/s10-queue-PREREG.md`, with amendments 1–4. All four am
 - **Against main** (`main-s10delta-2`, an earlier session), on the lead over the reference: R1 −1.5 MiB, R2 −1.1 MiB. That is noise.
 
 **Lines this round:** source +173 / −59, tests +164 / −51; the asked budget was about 150 each. Total against main: source +401 / −25, tests +359 / −6. Harness: 250 lines.
+
+## After S8 merged (rebased onto main 98db09a)
+
+**The rebase:** conflicts were resolved as unions. S8's Shuffle command, its drain/skip snapshot fields, its detail views and its dev flags sit alongside S10's queue commands, fields and flags.
+- **One test broke in the merge:** the escaping test sent `PlayLater` twice. Fixed in 9bcee7a.
+- **Generation bump:** S8's detail rows emit `PlayIn` and `Shuffle`, and both go through `Playback::play()`, which bumps the top-up generation. A test now pins both bumps, and a mutant that skips the bump on Shuffle fails it.
+
+**Checks:**
+- tests pass: app 128, engine 105;
+- clippy is clean on four feature sets;
+- the shipped guard exits 0 on the release binary.
+
+**Live-11 (9bcee7a, dev build, branch alone):**
+- **F8 PASS:** A→B→C→D.
+- **T on Songs PASS:** W 98, song 100 at W, two top-ups landed (114, then 130), pages 2.
+- **T-S FAILs as designed:** X is at W and the queue never grew.
+
+**Gate `s10-4` (9bcee7a, clean): PASS in zone 3.**
+- R1: 173.7 PSS / 146.7 USS / 206.4 RSS.
+- R2: 75.5 / 48.5 / 108.2.
+- Reference: 89.3 / 89.1. Ballast: 69 MiB, rise 70.3, holds.
+- Shipped guard: 0 on the release binary, 1 on the ballast binary.
