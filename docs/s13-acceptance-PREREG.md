@@ -366,3 +366,27 @@ A FAIL can then be attributed to a seek, a drain or mid-track starvation without
   - every one Playing with no banner;
   - ≥ 50 covers;
   - exactly 1 process.
+
+## Amendment 8 (2026-10-13, leak grep; fixed before the rule changes)
+Two defects showed up in v1-1 on main (3106814): `leakgrep.json` had `plantedCaught` false, and 15 names counted as "in base".
+
+**1. The self-test split by scope.**
+- **Defect:** on main, `git diff main...HEAD` and `git log main..HEAD` are empty. The old self-test also required that repo text be non-empty, so it could never pass on main.
+- **Run plant (unchanged):** a needle file under the run directory must raise the run count by exactly one.
+- **Repo plant:** counting the private needles over `repo + "\n" + needle` must give `hits.repo + 1`. No non-empty diff is required.
+- `leakgrep.json` records `plantedRun` and `plantedRepo`. **The grep is clean only if both are true,** along with the existing rules: 0 hits, `runFiles` > 0 and `libraryNames` > 0.
+
+**2. Names already in the tree are no longer exempt by default.**
+- **Defect:** every name found anywhere in the tree was excluded, so a name that had already leaked into main could never be flagged.
+- **New rule:** a name is excluded only if one of these holds:
+  - it is one word and appears in `/usr/share/dict/words` (case-insensitive);
+  - the SHA-256 of its lowercased form is listed in `scripts/acceptance/leak-allowlist.sha256`. Each line holds the hash and a kind (`catalog-constant`, `ordinary-phrase` or `test-constant`), and never the name.
+- **Every other name found as a whole word in the tracked tree at HEAD is a repo hit,** counted once per matching line. This is in addition to the diff and commit-message hits.
+- **Limit:** a hash of a short common phrase can be brute-forced from a dictionary. The allowlist keeps names out of plain sight; it is not a secret.
+
+**3. Classification at 3106814 (no names recorded).**
+- The live fetch found 14 in-tree names, 13 library and 1 catalog. v1-1 counted 15; the library set may have changed since.
+- **None is a real leak:**
+  - 12 are single dictionary words used in code or prose: HTTP header values, identifiers, comments, and words like "running" or "transitions".
+  - 1 is a two-word ordinary phrase used once in compliance.md prose: allowlisted as `ordinary-phrase`.
+  - 1 is the catalog song title that acceptance.md names as the search term: allowlisted as `catalog-constant`.
