@@ -17,6 +17,7 @@ ALBUM = ['6781024028', '6781024424', '6781024426', '6781024428', '6781024429', '
          '6781024436', '6781024437', '6781024440', '6781024441', '6781024442', '6781024443', '6781024444', '6781024445', '6781024448']
 F8_ORDER, TERM, BAD_ID = [ALBUM[9], ALBUM[0], ALBUM[6], ALBUM[3]], 'bohemian rhapsody', '1'
 SOAK_S, SOAK_EVERY_S, SOAK_TRACK_S, F6_WINDOW_S, RECOVER_S, CUT_BEFORE_END_S = 1800, 10, 150, 5, 90, 3
+HOLE_BAR_S = 20
 NAMES = {'library': set(), 'catalog': set()}
 COUNTERS = ('sentMs', 'skippedMs', 'decryptedMs', 'underruns', 'decryptFails', 'drainsAcked', 'drainTimeouts')
 SNAP_KEYS = ('pid', 'state', 'position', 'duration', 'itemId', 'banner', 'engineStarted', 'texturesUploaded', 'coversFailed', 'framesPainted',
@@ -629,6 +630,7 @@ def offline_session(out, binary, env, sink):
         attach = lambda: subprocess.Popen(['slirp4netns', '--configure', '--mtu=65520', '--disable-host-loopback', str(a.pid), 'tap0'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         def search(key, mark, want):
+            ev[f'{key}At'] = time.time()
             code, reply, ms = a.cli('search', TERM)
             ui, _ = a.until(lambda s: (s.get('search') or {}).get('state') == want and ((s.get('search') or {}).get('seq') or 0) > mark, 10)
             ev[key] = {'exit': code, 'ui': (ui.get('search') or {}).get('state'), 'error': reply.get('error'), 'wallMs': ms}
@@ -653,7 +655,19 @@ def offline_session(out, binary, env, sink):
             slirp = attach()
             time.sleep(2)
             ev['probeBack'] = probe()
-            search('afterDrop', mark, 'results')
+            mark = search('afterDrop', mark, 'results')
+            ev['dropGapS'] = round(ev['afterDropAt'] - ev['afterColdAt'], 1)
+            mark = search('beforeHole', mark, 'results')
+            slirp.send_signal(signal.SIGSTOP)
+            mark = search('inHole', mark, 'results')
+            time.sleep(3)
+            slirp.send_signal(signal.SIGCONT)
+            resumed, ev['holeTries'] = time.time(), []
+            while time.time() - resumed < HOLE_BAR_S and not ev['holeTries'][-1:] == [{'exit': 0, 'ui': 'results'}]:
+                mark = search('hole', mark, 'results')
+                ev['holeTries'].append({'exit': ev['hole']['exit'], 'ui': ev['hole']['ui']})
+                time.sleep(0 if ev['holeTries'][-1] == {'exit': 0, 'ui': 'results'} else 2)
+            ev['holeRecoveredS'] = round(ev['holeAt'] - resumed, 1) if ev['holeTries'][-1:] == [{'exit': 0, 'ui': 'results'}] else None
             ev['aliveAtEnd'] = a.p.poll() is None and a.cli('now')[1].get('pid') == a.pid
         finally:
             if slirp:

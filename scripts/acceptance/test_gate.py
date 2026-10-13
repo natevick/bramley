@@ -78,7 +78,8 @@ def write_valid(out, renderer=RADEONSI, mode='counted'):
     w('f9.json', s('browse', **played(1, tools=gate.TOOLS, searchHasSong=True)))
     w('f10-badid.json', s('browse', t0=1000.0, t1=1010.0, alive=True, bannerBefore=None, banner='Error("setQueue: NOT_FOUND")', refused=None))
     w('f10-net.json', s('offline', t0=1000.0, t1=1010.0, downError=True, downUi='error', alive=True, coversRecoveredS=4.0, searchAfter=True, uiAfter='results',
-                        probeCold=False, probeUp=True, probeDropped=False, probeBack=True, midDrop={'exit': 1, 'ui': 'error'}, afterDrop={'exit': 0, 'ui': 'results'}, aliveAtEnd=True))
+                        probeCold=False, probeUp=True, probeDropped=False, probeBack=True, midDrop={'exit': 1, 'ui': 'error'}, afterDrop={'exit': 0, 'ui': 'results'}, aliveAtEnd=True,
+                        dropGapS=4.2, holeRecoveredS=11.0))
     w('r3.json', s('shipped', t0=1000.0, t1=2810.0, started=True, pid=7, samples=soak(), seekTimes=[]))
     cpu = lambda state, load: dict(t0=1000.0, t1=1060.0, before=state, after=state, cpu=[load] * 30, mean=load, binS=10, procs=[1] * 30)
     w('r4.json', s('cpu', started=True, **cpu('Playing', 4.0)))
@@ -296,6 +297,11 @@ FUNCTIONAL = [
     ('F10 CLI fails after drop', put('f10-net.json', afterDrop={'exit': 1, 'ui': 'results'}), 'F10', 'FAIL', 'mid-session'),
     ('F10 view stuck after drop', put('f10-net.json', afterDrop={'exit': 0, 'ui': 'error'}), 'F10', 'FAIL', 'mid-session'),
     ('F10 dead at end', put('f10-net.json', aliveAtEnd=False), 'F10', 'FAIL', 'alive at the end'),
+    ('F10 drop leg too slow', put('f10-net.json', dropGapS=15.0), 'F10', 'VOID', 'aged out'),
+    ('F10 drop gap unrecorded', put('f10-net.json', dropGapS=None), 'F10', 'VOID', 'aged out'),
+    ('F10 hole never recovered', put('f10-net.json', holeRecoveredS=None), 'F10', 'FAIL', 'black hole'),
+    ('F10 hole recovered late', put('f10-net.json', holeRecoveredS=20.5), 'F10', 'FAIL', 'black hole'),
+    ('F10 hole at the bar', put('f10-net.json', holeRecoveredS=20.0), 'F10', 'PASS', None),
     ('F10 offline search passed', put('f10-net.json', downError=False), 'F10', 'FAIL', 'network down'),
     ('F10 offline view quiet', put('f10-net.json', downUi='idle'), 'F10', 'FAIL', 'network down'),
     ('F10 offline crash', put('f10-net.json', alive=False), 'F10', 'FAIL', 'network down'),
