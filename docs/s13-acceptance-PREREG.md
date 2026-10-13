@@ -390,3 +390,38 @@ Two defects showed up in v1-1 on main (3106814): `leakgrep.json` had `plantedCau
   - 12 are single dictionary words used in code or prose: HTTP header values, identifiers, comments, and words like "running" or "transitions".
   - 1 is a two-word ordinary phrase used once in compliance.md prose: allowlisted as `ordinary-phrase`.
   - 1 is the catalog song title that acceptance.md names as the search term: allowlisted as `catalog-constant`.
+
+## Amendment 9 (2026-10-13, S13c: play pacing; fixed before any code for it and before any further run)
+Procedure only. No threshold of any check changes.
+
+**Why.** Apple's license server refused plays after about 30 license requests in about 8 minutes on one account. It answered HTTP 200 with a JSON error (status −1002, failureType 3062) instead of a license. The refusals continued for about 7 minutes even at wide spacing, then stopped once recent volume dropped (`docs/s14d-cold-play-RESULTS.md`). A run that plays faster than that measures Apple's throttle, not Bramley.
+
+**License-requesting actions.** Each of these counts as one:
+- every command that can start a new item: `play <id>` (setQueue), `next`, `prev`, a jump, and every MCP `play`;
+- every harness seek that is meant to end an item: the F6 and F8 seeks near the end;
+- every item change the R3 soak observes.
+
+Signed-out and no-stream plays are counted too, even though they never reach the license server. This is conservative: it can only add waits.
+
+**The rule: at most 20 actions in any rolling 10-minute window.**
+- Before a counted command or seek, the harness sleeps until the action fits: until fewer than 20 actions fall in the last 600 s.
+- The count is per account, so it carries across runs. It is kept in `/run/user/<uid>/bramley-license-actions.json`, next to the GPU lock, which serialises runs.
+- **R3:** before its first `play`, the soak waits for room for 6 actions (the play plus about 5 changes in its first 10 minutes). After that it records each item change it observes and never waits. A wait inside the soak would let an item end naturally, and it would distort the soak.
+
+**Timing is unchanged.**
+- A wait always happens before the timed command starts. Each command's start time is taken after the wait, so no wait is ever inside a timed measurement.
+- Waits don't change what a check measures. Only the gaps between commands get longer.
+
+**Evidence.** `pacing.json` records:
+- the limit and the window;
+- the prior actions (from the shared file, within the window before the run started);
+- every action, with its time and kind;
+- every wait, with its time, its length in seconds, and the count in the window when it started.
+
+**Gate.**
+- The verdict reports the number of waits, their total seconds, and the peak count of actions in any 600 s window (prior and this run's together).
+- A missing `pacing.json` is FAIL.
+- A peak above **20** is FAIL, as a harness defect, in every mode.
+- A window counts an action at time `u` for a window ending at `t` when `t − 600 < u ≤ t`, the same boundary the pacer uses.
+
+**Run length.** The estimate is reported with the S13c hand-back. Nothing is cut here: any cut to plays is proposed for the coordinator to decide.
