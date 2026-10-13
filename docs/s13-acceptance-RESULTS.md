@@ -179,17 +179,20 @@ Rules: PREREG Amendment 7, committed before any code. No signed-in run was possi
   - a fake Pulse server sends `UNDERFLOW` and exactly 1 is counted, with no failure;
   - the media element adds every underflow its sink reports;
   - slot order runs through `output_counts`, the snapshot and the status keys.
-- **Harness:** 7 new matrix rows and 1 stall test in `test_gate.py`, and 13 new mutants.
+- **Harness:** in `test_gate.py`, 4 R3 rows (2 replaced, 2 new), a stall test with 3 cases, and 1 stall-control row. In `mutants.py`, 5 new mutants replace 1 old one, and 2 others are updated.
 
 **(b) Banner priority.**
 - `banner()` now ranks the developer-token-rejected banner above the playback banner.
 - **A second cause, found by the test:** a `SignInNeeded` snapshot reset the cover grid, which wiped its `developer_rejected` flag. The reset now keeps the flag. Reverting either change alone brings `SignInNeeded` back.
-- The bad-token control now expects "developer token was rejected" in every F4 banner.
+- The bad-token control now expects "developer token was rejected" in every F4 banner. Harness: 1 control row and 1 mutant.
+- A 401 sets only `developer_rejected`; it arms no cover retry, so no fresh fetch clears the flag before a play lands.
 
 **(c) Ballast in one launch.**
 - The gate-sabotage build allocates nothing at start. It touches the ballast once, when the file named by `BRAMLEY_GATE_BALLAST_FILE` appears, and reports `ballastMiB`.
 - The harness takes an R1 window, writes the trigger atomically, waits for `ballastMiB` to match, then takes the judged window. The rise is post − pre in one pid; the expected rise is size + kept covers added between the windows.
 - The tolerance stays 3.0 MiB, and the sizing rule is unchanged.
+- **Harness:** 4 new ballast clause rows, a rewritten rise test, and 7 mutants replacing 1 (the gate total moves from 106 to 117).
+- **`drive.py` has not run live.** Its changed paths (`COUNTERS`, `touch_ballast`, the pre-window branch of `memory`) were compiled and run once against stubs, under `target/`.
 
 **Mutation (all under the GPU lock):**
 - **Rust:** 12 of 12 killed, and the no-op survived. Each test below fails without its fix.
@@ -207,31 +210,40 @@ Rules: PREREG Amendment 7, committed before any code. No signed-in run was possi
 
 - **Gate (`mutants.py`):** 117 of 117 killed, and the no-op survived. The baseline was 106.
 
-**(d) F3 in fix-3: one CLI search hit the 3 s window. Finding: a single slow HTTP response to Apple, not our queue or IPC; not fixable from this evidence.**
-- **The CLI and IPC path delivered the request.** 4,004 ms is exactly `APPLY_TIME` (3 s) + `REPLY_MARGIN` (1 s): the app's instance handler accepted the line, queued it and waited out its full window (`cli.rs` `handler`). A transport failure would have returned at once.
-- **The app ran the search, late.** The Search view showed that search's results (`seq` moved, results > 0) 5,287 ms after the command.
-- **Not the worker queue.**
-  - A CLI search queues two jobs on the single API worker: the CLI's, then the Search view's (`enter()` makes the view's job due at once).
-  - In the other 49 reps across ten runs, view − CLI was 159–294 ms, one request apart.
-  - Nothing else was queued: the driver waits for the sidebar's single playlist page (34 of 34, no more), songs, albums and artists had 0 pages, covers use their own art agent, and MCP (F9) ran after F3.
-  - So one HTTP call took about 5 s.
+**(d) F3 in fix-3: one CLI search hit the 3 s window. Finding: about 5 s were lost inside the app, either in one HTTP call to Apple or in the UI thread draining the request late. The evidence can't tell which. Not our queue. No code.**
+- **What 4,004 ms shows.** The handler maps the client's deadline onto its own clock and waits until that deadline plus `REPLY_MARGIN` (`cli.rs` `handler`). So any request that arrives before the deadline reads about 4.0 s at the CLI. That proves no reply came within the window; it does not show how fast the line arrived. (A line arriving after the deadline is answered at once.)
+- **The search did complete, late.** The Search view showed that search's results (`seq` moved, results > 0) 5,287 ms after the command.
+- **Two explanations fit equally:**
+  1. **One slow HTTP call.** A CLI search queues two jobs on the single API worker: the CLI's, then the Search view's (`enter()` makes the view's job due at once). In the other 49 reps across ten runs, view − CLI was 159–294 ms, one request apart. A ~5 s CLI request followed by a normal view request gives ~5.3 s.
+  2. **A late inbox drain.** `answer_requests` calls `search.enter()` before its deadline check. If the UI thread drained the request ~4.8 s late, it would send no CLI job at all, yet the view's job would still show results at ~5.2–5.3 s.
+- **Not the worker queue.** Nothing else was queued: the driver waits for the sidebar's single playlist page (34 of 34, no more), songs, albums and artists had 0 pages, covers use their own art agent, and MCP (F9) ran after F3.
 - **Not a dead pooled socket.** fix-3's binary (75f937c) contains neither B1 pool fix (a364e62, 16ecf45 are not its ancestors). In that binary:
   - a silently dead pooled socket ends in the 15 s global timeout;
   - a reset one errors at once.
   - Neither ends in a success after about 5 s, and main's B1 fixes don't change a slow response that succeeds.
-- **What remains:** Apple's response or the network path (connect, TLS). The shipped build logs no per-request timing, so these can't be told apart. It occurred in 1 of 50 CLI searches across ten runs; the other 49 took 144–469 ms. IPv6 to the API fails in 1 ms here (no route), so no v6 connect hang is in play.
-- **Routed, not fixed (ours, still on main):** the CLI reports "the command was not applied", yet for a search the app went on and showed the results. The message is wrong for API requests.
+- **If it was HTTP:** Apple's response or the network path (connect, TLS). The shipped build logs no per-request timing, so they can't be told apart. Today, IPv6 to the API fails in 1 ms (no route); this was not probed during the run.
+- **How to split it next time (note only, no code):** F3 records only `uiMs`. The status already carries `search.ms`, the view job's time from issue to result, which includes any wait behind the CLI job.
+  - `search.ms` ≈ 5 s would put the delay in the worker or HTTP.
+  - `search.ms` ≈ 0.2 s with `uiMs` ≈ 5.3 s would put it before the job was issued: a late drain.
+- **Frequency:** 1 of 50 CLI searches across ten runs; the other 49 took 144–469 ms.
+- **Routed, not fixed (ours, still on main):** the CLI reports "the command was not applied", yet for a search the app may still run it and show the results. The message is wrong for API requests.
 
 **(e) fix-1's frozen `seq`: finding: not a frozen `seq`; consistent with, but not shown to be, race 3.**
 - **`seq` 85 includes every R3 command.** Counting the shipped session's commands: R1 2, warm F4 10, F5 40, F6 8, F8 6, R3 19 = 85. So the 18 R3 commands (`play` + 17 `queue add`) were all registered, and `applied` reached 85.
-- **`applied` does not prove effect.** `player.js` starts each command's turn after at most `commandWaitMs` (5 s), even if the previous MusicKit promise never settled, and raises `applied` then. A MusicKit that never settles still lets `applied` reach `seq`, with no banner.
+- **What `applied` = 85 with no banner does show** (`player.js` `enqueue`):
+  - `applied` reaches `n` only after command `n`'s promise settles, so the last `queue add`'s `playLater` resolved;
+  - `setQueue` did not reject: a rejection sets `queueFailed` and a playback error that later skips don't clear, and the banner was `None`.
+  - Earlier turns may each have waited up to `commandWaitMs` (5 s) on a promise that never settled. The first R3 sample came ~40 s after the `play`, which bounds how many could have.
+  - So MusicKit accepted the commands but never produced a now-playing item.
 - **Where it stopped:** F8 saw only its first item (album track 10), then ran out its 120 s. Every R3 sample, from minute 0 to 30, was `Stopped`, with no item and no queue length.
 - **Race 3 (S14b) is a permanent `Loading` with the item present and the position frozen at a preload.** fix-1 recorded no F8 snapshots, so whether it passed through `Loading` at that transition is unknown. The end state (`Stopped`, no item) is not the registered race-3 signature.
 - **For race 3:**
   - the failure began at an item transition right after a seek to duration − 5, which is where race 3 fires;
   - fix-1's binary (5fae888) predates S14b's HTTP cache (5438da1 is not its ancestor).
-- **Against race 3, or unexplained:** the subsequent fresh `setQueue` + `play` never brought MusicKit back. Race 3 as S14b traced it stalls one preload; it does not explain a new queue that never starts.
+- **Against race 3, or unexplained:** MusicKit accepted a fresh `setQueue` + `play` + 17 `playLater` without error, and still never produced a now-playing item. Race 3 as S14b traced it stalls one preload; it does not explain a new queue that never starts.
 - **Verdict:** unproven. Next time, the queue replies Amendment 5 now records and an F8 snapshot series would settle it.
+
+**Deviation pending approval:** Amendment 7 changes rules after seeing data (like Amendment 5). The coordinator's approval, or Nate's, should be recorded here the same way.
 
 **Live checks still owed** (need Nate's fresh sign-in):
 1. The stall control fires on `outputUnderflows` (≥ 1) as well as on pacing, and its stated reason reads "output underflow and/or pacing lag".
