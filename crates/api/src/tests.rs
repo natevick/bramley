@@ -743,60 +743,126 @@ fn every_api_feature_carries_an_unshipped_marker() {
     }
 }
 
-#[test]
-fn a_pooled_connection_the_peer_reset_is_reopened_once_and_the_request_succeeds() {
+#[derive(Clone, Copy, PartialEq)]
+enum Then {
+    Answer,
+    Reset,
+    Silent,
+}
+
+fn keepalive(accept: usize, then: fn(usize, usize) -> Then) -> (String, Arc<Mutex<Vec<String>>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
-    let served = Arc::new(Mutex::new(Vec::new()));
-    let seen = served.clone();
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let seen = log.clone();
     std::thread::spawn(move || {
-        for (conn, stream) in listener.incoming().enumerate() {
-            let mut stream = stream.unwrap();
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            while reader.get_ref().peek(&mut [0]).unwrap_or(0) > 0 {
-                if conn == 0 && seen.lock().unwrap().len() == 2 {
-                    break;
+        for (conn, stream) in listener.incoming().take(accept).enumerate() {
+            let (mut stream, seen) = (stream.unwrap(), seen.clone());
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut answered = 0;
+                while reader.get_ref().peek(&mut [0]).unwrap_or(0) > 0 {
+                    let then = then(conn, answered);
+                    if then == Then::Reset {
+                        return;
+                    }
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    while reader.read_line(&mut String::new()).unwrap() > 2 {}
+                    let what = if line.contains("storefront") {
+                        "storefront"
+                    } else {
+                        "search"
+                    };
+                    seen.lock().unwrap().push(format!("{conn} {what}"));
+                    if then == Then::Silent {
+                        std::thread::sleep(Duration::from_secs(30));
+                        return;
+                    }
+                    let body = if what == "storefront" {
+                        STOREFRONT
+                    } else {
+                        SEARCH
+                    };
+                    let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+                    stream.write_all(head.as_bytes()).unwrap();
+                    stream.write_all(body.as_bytes()).unwrap();
+                    answered += 1;
                 }
-                let mut line = String::new();
-                reader.read_line(&mut line).unwrap();
-                while reader.read_line(&mut String::new()).unwrap() > 2 {}
-                let body = if line.contains("storefront") {
-                    STOREFRONT
-                } else {
-                    SEARCH
-                };
-                seen.lock()
-                    .unwrap()
-                    .push((conn, line.contains("storefront")));
-                let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
-                stream.write_all(head.as_bytes()).unwrap();
-                stream.write_all(body.as_bytes()).unwrap();
-            }
+            });
         }
     });
-    let client = raw(&base, Some(USER));
+    (base, log)
+}
+
+fn twice(base: &str) -> (crate::Result<usize>, Duration) {
+    let client = raw(base, Some(USER));
     let session = client.session().unwrap();
     session.search("queen").unwrap();
+    let at = Instant::now();
     let again = session.search("queen").map(|found| found.songs.items.len());
-    assert!(matches!(again, Ok(n) if n > 0), "{again:?}");
-    assert_eq!(*served.lock().unwrap(), [(0, true), (0, false), (1, false)]);
+    (again, at.elapsed())
+}
+
+#[test]
+fn a_pooled_connection_the_peer_reset_is_reopened_once_and_the_request_succeeds() {
+    let (base, log) = keepalive(3, |conn, n| {
+        if conn == 0 && n == 2 {
+            Then::Reset
+        } else {
+            Then::Answer
+        }
+    });
+    assert!(matches!(twice(&base).0, Ok(n) if n > 0));
+    assert_eq!(
+        *log.lock().unwrap(),
+        ["0 storefront", "0 search", "1 search"]
+    );
+}
+
+#[test]
+fn a_pooled_connection_that_went_silent_is_given_up_after_10_s_and_retried_fresh() {
+    let (base, log) = keepalive(3, |conn, n| {
+        if conn == 0 && n == 2 {
+            Then::Silent
+        } else {
+            Then::Answer
+        }
+    });
+    let (again, took) = twice(&base);
+    assert!(matches!(again, Ok(n) if n > 0), "{again:?} after {took:?}");
+    assert!(
+        took >= Duration::from_secs(10) && took < Duration::from_secs(13),
+        "{took:?}"
+    );
+    assert_eq!(
+        *log.lock().unwrap(),
+        ["0 storefront", "0 search", "0 search", "1 search"]
+    );
 }
 
 #[test]
 fn a_peer_that_resets_every_connection_is_retried_once_then_the_error_returns() {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let base = format!("http://{}", listener.local_addr().unwrap());
-    let conns = Arc::new(Mutex::new(0));
-    let seen = conns.clone();
-    std::thread::spawn(move || {
-        for stream in listener.incoming() {
-            let stream = stream.unwrap();
-            let _ = stream.peek(&mut [0]);
-            *seen.lock().unwrap() += 1;
-        }
-    });
+    let (base, _) = keepalive(3, |_, _| Then::Reset);
     let client = raw(&base, Some(USER));
     let got = client.session().unwrap().storefront();
     assert!(matches!(got, Err(Error::Network(_))), "{got:?}");
-    assert_eq!(*conns.lock().unwrap(), 2);
+}
+
+#[test]
+fn retry_after_is_seconds_capped_at_an_hour_and_an_unreadable_value_waits_the_60_s_step() {
+    let read = |value: Option<&str>| {
+        let mut headers = ureq::http::HeaderMap::new();
+        if let Some(v) = value {
+            headers.insert("retry-after", v.parse().unwrap());
+        }
+        crate::retry_after(&headers).as_secs()
+    };
+    let cases = [
+        (None, 1),
+        (Some("45"), 45),
+        (Some("18446744073709551615"), 3600),
+        (Some("Wed, 21 Oct 2099 07:28:00 GMT"), 60),
+    ];
+    assert_eq!(cases.map(|(v, _)| read(v)), cases.map(|(_, want)| want));
 }

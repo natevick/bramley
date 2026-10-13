@@ -13,6 +13,9 @@ const MAX_BODY_BYTES: u64 = 2 << 20;
 const MAX_PAGES: usize = 200;
 const RETRY_BUDGET: Duration = Duration::from_secs(1);
 const MAX_RETRIES: u32 = 2;
+const RECEIVE_RESPONSE: Duration = Duration::from_secs(10);
+const MAX_RETRY_AFTER_S: u64 = 3600;
+const UNREADABLE_RETRY_AFTER_S: u64 = 60;
 const SEARCH_TYPES: &str = "songs,albums,artists,playlists";
 const SEARCH_LIMIT: &str = "10";
 const LIBRARY_LIMIT: &str = "100";
@@ -72,7 +75,7 @@ type Storefront = Arc<Mutex<Option<(u64, String)>>>;
 
 #[derive(Clone)]
 pub struct Client {
-    agent: ureq::Agent,
+    agent: Arc<Mutex<ureq::Agent>>,
     base: String,
     tokens: TokenSource,
     renew: Renew,
@@ -105,16 +108,8 @@ impl Client {
         base: &str,
         tokens: impl Fn() -> std::result::Result<Tokens, String> + Send + Sync + 'static,
     ) -> Self {
-        let agent = ureq::Agent::config_builder()
-            .user_agent(user_agent())
-            .timeout_connect(Some(Duration::from_secs(5)))
-            .timeout_global(Some(Duration::from_secs(15)))
-            .max_redirects(0)
-            .http_status_as_error(false)
-            .build()
-            .into();
         Client {
-            agent,
+            agent: Arc::new(Mutex::new(agent(true))),
             base: base.to_owned(),
             tokens: Arc::new(tokens),
             renew: Arc::new(|_| false),
@@ -272,13 +267,10 @@ impl Session<'_> {
             ureq::Error::BodyExceedsLimit(_) => Error::TooLarge,
             e => Error::Network(redact(&e.to_string(), &secrets)),
         };
-        let (mut budget, mut retries, mut reconnected) = (RETRY_BUDGET, 0, false);
-        loop {
-            let bearer = format!("Bearer {}", tokens.developer);
-            let mut request = self
-                .client
-                .agent
-                .get(format!("{}{target}", self.client.base));
+        let (mut budget, mut retries) = (RETRY_BUDGET, 0);
+        let bearer = format!("Bearer {}", tokens.developer);
+        let send = |agent: &ureq::Agent| {
+            let mut request = agent.get(format!("{}{target}", self.client.base));
             request = request.header("Authorization", &bearer);
             if let Some(user) = user {
                 request = request.header("Music-User-Token", user);
@@ -286,13 +278,15 @@ impl Session<'_> {
             for (key, value) in query {
                 request = request.query(*key, *value);
             }
-            let mut response = match request.call() {
-                Err(ureq::Error::Io(e)) if stale(&e) && !reconnected => {
-                    reconnected = true;
-                    continue;
-                }
-                called => called.map_err(hide)?,
-            };
+            request.call()
+        };
+        loop {
+            let pooled = self.client.agent.lock().unwrap().clone();
+            let called = send(&pooled).or_else(|_| {
+                *self.client.agent.lock().unwrap() = agent(true);
+                send(&agent(false))
+            });
+            let mut response = called.map_err(hide)?;
             let status = response.status().as_u16();
             let wait = retry_after(response.headers());
             let mut body = Vec::new();
@@ -332,17 +326,28 @@ impl Session<'_> {
     }
 }
 
-fn stale(e: &std::io::Error) -> bool {
-    use std::io::ErrorKind::{BrokenPipe, ConnectionAborted, ConnectionReset, UnexpectedEof};
-    matches!(
-        e.kind(),
-        ConnectionReset | ConnectionAborted | BrokenPipe | UnexpectedEof
-    )
+fn agent(pooled: bool) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .user_agent(user_agent())
+        .timeout_connect(Some(Duration::from_secs(5)))
+        .timeout_global(Some(Duration::from_secs(15)))
+        .timeout_recv_response(Some(RECEIVE_RESPONSE))
+        .max_idle_connections(if pooled { 10 } else { 0 })
+        .max_redirects(0)
+        .http_status_as_error(false)
+        .build()
+        .into()
 }
 
 pub fn retry_after(headers: &ureq::http::HeaderMap) -> Duration {
-    let value = headers.get("retry-after").and_then(|v| v.to_str().ok());
-    Duration::from_secs(value.and_then(|v| v.trim().parse().ok()).unwrap_or(1))
+    let seconds = match headers.get("retry-after").map(|v| v.to_str()) {
+        None => 1,
+        Some(v) => v
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(UNREADABLE_RETRY_AFTER_S),
+    };
+    Duration::from_secs(seconds.min(MAX_RETRY_AFTER_S))
 }
 
 fn apple_detail(body: &[u8]) -> String {
