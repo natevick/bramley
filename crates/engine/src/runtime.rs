@@ -385,7 +385,8 @@ fn install_ops<'js>(ctx: &Ctx<'js>, n: &N) -> rquickjs::Result<()> {
                 }
             }
             "media" => {
-                if let Some(m) = st.medias.remove(&id) {
+                if let Some(mut m) = st.medias.remove(&id) {
+                    m.collect_underflows();
                     let counts = output_counts(&m.counters);
                     st.retired_output = add(st.retired_output, counts);
                 }

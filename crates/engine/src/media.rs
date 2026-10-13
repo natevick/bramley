@@ -286,10 +286,17 @@ impl MediaEngine {
         true
     }
 
+    pub fn collect_underflows(&mut self) {
+        if let Some(s) = self.sink.as_mut() {
+            self.counters.output_underflows += s.take_output_underflows();
+        }
+    }
+
     fn restart_output(&mut self) {
         let position = self.current_time_us();
         let ever_played = self.played() > 0;
         self.discard_output();
+        self.collect_underflows();
         self.sink = None;
         self.sink_format = None;
         self.cursor_us = position;
@@ -616,6 +623,7 @@ impl MediaEngine {
                 return;
             }
             let position = self.current_time_us();
+            self.collect_underflows();
             self.sink = None;
             self.anchor(position, false);
         }
@@ -674,9 +682,7 @@ impl MediaEngine {
         mses: &HashMap<u32, MediaSourceNative>,
         cdms: &mut HashMap<u32, Box<dyn CdmBackend>>,
     ) {
-        if let Some(s) = self.sink.as_mut() {
-            self.counters.output_underflows += s.take_output_underflows();
-        }
+        self.collect_underflows();
         let Some(ms) = self.ms_id.and_then(|id| mses.get(&id)) else {
             return;
         };

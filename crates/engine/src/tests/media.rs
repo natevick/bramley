@@ -685,6 +685,34 @@ fn a_failed_output_reopens_where_it_left_off_and_a_dead_one_is_an_error() {
 }
 
 #[test]
+fn underflows_reported_as_a_failed_sink_is_dropped_are_still_counted() {
+    let (init, media) = fixture_segments();
+    let (mut m, sinks) = engine_with_fresh_sinks();
+    let mut sb = SourceBufferNative::new("audio/mp4".into(), usize::MAX);
+    sb.append(&init, 0.0).unwrap();
+    for seg in &media {
+        sb.append(seg, 0.0).unwrap();
+    }
+    let sbs = HashMap::from([(SB, sb)]);
+    let mut now = Instant::now();
+    m.attach(MS);
+    m.play();
+    for _ in 0..100 {
+        step(&mut m, &sinks, &sbs, &mut now);
+    }
+    let first = sinks.borrow()[0].clone();
+    (
+        first.0.borrow_mut().failed,
+        first.0.borrow_mut().late_underflows,
+    ) = (true, 2);
+    for _ in 0..5 {
+        step(&mut m, &sinks, &sbs, &mut now);
+    }
+    let seen = (sinks.borrow().len(), m.counters.output_underflows);
+    assert_eq!(seen, (2, 2));
+}
+
+#[test]
 fn decrypted_time_counts_only_decrypted_frames_at_their_rate() {
     let mut clear = Rig::new(5, false);
     clear.m.play();

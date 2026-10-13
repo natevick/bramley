@@ -602,3 +602,31 @@ fn drain_acks_count_across_tracks_and_outlive_the_element_that_played_them() {
     assert_eq!(e.status()["live"]["medias"], 0);
     assert_eq!(e.output_counts()[..2], [1, 0]);
 }
+
+#[test]
+fn underflows_a_sink_still_holds_are_kept_when_its_element_is_collected() {
+    let (mut e, sink) = engine();
+    run(
+        &mut e,
+        &sink,
+        &script(
+            r#"
+            const a = fresh();
+            audio.src = URL.createObjectURL(a.ms);
+            await fill(a.ms, a.opened, bytes);
+            a.ms.endOfStream();
+            const ended = new Promise(r => audio.addEventListener("ended", r, { once: true }));
+            await audio.play();
+            await ended;
+            audio.removeAttribute("src");
+            audio.load();
+            await later(10);
+        "#,
+        ),
+    );
+    sink.0.borrow_mut().underflows = 2;
+    e.run_gc();
+    e.tick();
+    let live = e.status()["live"]["medias"].as_u64();
+    assert_eq!((live, e.output_counts()[7]), (Some(0), 2));
+}
