@@ -151,6 +151,8 @@ pub struct Args {
     jump_to: Option<usize>,
     #[cfg(feature = "dev")]
     queue_fixture: bool,
+    #[cfg(feature = "dev")]
+    playlists_collapsed: bool,
 }
 
 fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
@@ -202,6 +204,8 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
             "--jump-to" => a.jump_to = Some(value()?.parse()?),
             #[cfg(feature = "dev")]
             "--queue-fixture" => a.queue_fixture = true,
+            #[cfg(feature = "dev")]
+            "--playlists-collapsed" => a.playlists_collapsed = true,
             other => bail!("unknown argument {other}"),
         }
     }

@@ -1,14 +1,46 @@
-use egui::RichText;
+use egui::collapsing_header::paint_default_icon;
+use egui::{RichText, Sense, WidgetType, vec2};
 
+use super::labeled;
 use super::library::Library;
 use super::nav::{Nav, Route};
 
-fn entry(ui: &mut egui::Ui, current: &Route, route: Route, navs: &mut Vec<Nav>) {
-    let size = [ui.available_width(), 28.0];
+const ENTRY_PT: f32 = 28.0;
+const FOOTER_PT: f32 = 90.0;
+const CHEVRON_PT: f32 = 24.0;
+
+fn entry(ui: &mut egui::Ui, current: &Route, route: Route, navs: &mut Vec<Nav>) -> egui::Response {
+    let size = [ui.available_width(), ENTRY_PT];
     let item = egui::Button::selectable(*current == route, route.title());
-    if ui.add_sized(size, item).clicked() {
+    let response = ui.add_sized(size, item);
+    if response.clicked() {
         navs.push(Nav::Go(route));
     }
+    response
+}
+
+fn chevron(ui: &mut egui::Ui, link: &egui::Response, collapsed: &mut bool) {
+    let rect =
+        egui::Rect::from_min_max(link.rect.right_top() - vec2(CHEVRON_PT, 0.0), link.rect.max);
+    let toggle = ui.interact(rect, link.id.with("fold"), Sense::click());
+    if toggle.clicked() {
+        *collapsed = !*collapsed;
+    }
+    let label = if *collapsed {
+        "Expand playlists"
+    } else {
+        "Collapse playlists"
+    };
+    let toggle = labeled(toggle, WidgetType::Button, label);
+    let icon = egui::Rect::from_center_size(
+        rect.center(),
+        vec2(ui.spacing().icon_width, ui.spacing().icon_width) * 0.6,
+    );
+    paint_default_icon(
+        ui,
+        if *collapsed { 0.0 } else { 1.0 },
+        &toggle.with_new_rect(icon),
+    );
 }
 
 pub fn show(ui: &mut egui::Ui, current: &Route, library: &mut Library, navs: &mut Vec<Nav>) {
@@ -20,16 +52,19 @@ pub fn show(ui: &mut egui::Ui, current: &Route, library: &mut Library, navs: &mu
     }
     ui.separator();
     ui.label(RichText::new("Your Library").strong());
-    for route in [
-        Route::Artists,
-        Route::Playlists,
-        Route::Albums,
-        Route::Songs,
-    ] {
+    entry(ui, current, Route::Artists, navs);
+    let link = entry(ui, current, Route::Playlists, navs);
+    chevron(ui, &link, &mut library.playlists_collapsed);
+    if !library.playlists_collapsed {
+        let below = FOOTER_PT + 2.0 * (ENTRY_PT + ui.spacing().item_spacing.y);
+        let height = ui.available_height() - below;
+        ui.indent("sidebar-playlists-nest", |ui| {
+            super::library::sidebar(ui, library, current, navs, height)
+        });
+    }
+    for route in [Route::Albums, Route::Songs] {
         entry(ui, current, route, navs);
     }
-    ui.add_space(6.0);
-    super::library::sidebar(ui, library, current, navs);
 }
 
 pub fn account(ui: &mut egui::Ui, signed_in: bool, storage: Option<&str>) -> bool {

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use bramley_api::{Call, Error, Item, Job, Reply, Shelf};
 use bramley_engine::{Queue, Snapshot};
-use egui::{ColorImage, TextureHandle, WidgetType};
+use egui::{ColorImage, RichText, TextureHandle, WidgetType};
 use serde_json::{Value, json};
 
 use super::labeled;
@@ -18,6 +18,7 @@ mod tests;
 
 pub const ROW_PT: f32 = 40.0;
 const CELL_PT: f32 = 140.0;
+const SIDEBAR_ROW_PT: f32 = 22.0;
 pub const MARGIN: usize = 20;
 pub const ART_CAP: usize = 96;
 pub const QUEUE_AHEAD: usize = 100;
@@ -131,6 +132,7 @@ pub struct Library {
     pub art: Art,
     built: (usize, usize, usize),
     pub denied: bool,
+    pub playlists_collapsed: bool,
     #[cfg(feature = "dev")]
     pub click_last: bool,
     #[cfg(feature = "dev")]
@@ -757,24 +759,29 @@ fn name_row(ui: &mut egui::Ui, item: &Item, width: f32, verb: &str) -> egui::Res
     labeled(response, WidgetType::Button, &format!("{verb} {name}"))
 }
 
-pub fn sidebar(ui: &mut egui::Ui, lib: &mut Library, current: &Route, navs: &mut Vec<Nav>) {
-    let height = (ui.available_height() - 90.0).max(28.0);
+pub fn sidebar(
+    ui: &mut egui::Ui,
+    lib: &mut Library,
+    current: &Route,
+    navs: &mut Vec<Nav>,
+    height: f32,
+) {
     let loaded = lib.list(List::Playlists).items.len();
     let area = egui::ScrollArea::vertical()
         .id_salt("sidebar-playlists")
-        .max_height(height);
-    area.show_rows(ui, 24.0, loaded, |ui, rows| {
+        .max_height(height.max(SIDEBAR_ROW_PT));
+    area.show_rows(ui, SIDEBAR_ROW_PT, loaded, |ui, rows| {
         lib.lists[List::Playlists as usize].wanted |= rows.end + MARGIN >= loaded;
         for item in &lib.list(List::Playlists).items[rows] {
             let open = Route::Playlist(item.id.clone());
+            let selected = *current == open;
             let name = item.name.as_deref().unwrap_or("Untitled");
-            if ui
-                .add_sized(
-                    [ui.available_width(), 24.0],
-                    egui::Button::selectable(*current == open, name).truncate(),
-                )
-                .clicked()
-            {
+            let text = RichText::new(name).size(13.0);
+            let row = egui::Button::selectable(selected, if selected { text } else { text.weak() })
+                .right_text("")
+                .truncate()
+                .min_size(egui::vec2(ui.available_width(), SIDEBAR_ROW_PT));
+            if labeled(ui.add(row), WidgetType::Button, name).clicked() {
                 navs.push(Nav::Go(open));
             }
         }

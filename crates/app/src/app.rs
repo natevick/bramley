@@ -164,6 +164,7 @@ impl App {
         #[cfg(feature = "dev")]
         {
             library.click_last = args.click_last;
+            library.playlists_collapsed = args.playlists_collapsed;
         }
         #[allow(unused_mut)]
         let mut detail = Detail::new(source.as_ref().and_then(|s| s.art_prefix.clone()));
