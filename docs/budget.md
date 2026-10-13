@@ -30,3 +30,5 @@ Engine crate (2026-10-09): `crates/engine` playing Angel One through hls.js, the
 
 **S8 review round (2026-10-11):** gate `s8-3` (e956bff) PASS in zone 3: R1 **173.1** / 146.2 / 205.7, R2 **75.5** / 48.6 / 108.0, reference 90.2 / 90.1. Against `s9-4`, on the lead over the reference, that is −1.3 and −0.4 MiB, which is noise.
 After the detach-count fix, gate `s8-4` (eef8d07) PASSed in zone 3: R1 **172.3** / 145.5 / 204.9, R2 **75.4** / 48.5 / 108.0, reference 89.7 / 89.6. Against `s9-4` on the lead over the reference: −1.6 and 0.0 MiB.
+
+**v1 acceptance (2026-10-13):** main 07be8d1, which adds the engine's in-memory HTTP cache (S14b; at most 2 MiB and 256 entries) and pooled connections. Counted runs v1-2 and v1-3 PASS in zone 3: R1 playing **174.0 / 174.3** PSS (USS 147.2 / 147.4, RSS 206.7 / 207.1), R2 browsing **75.6 / 76.1** (USS 48.7 / 49.1), reference drift +1.1 / +0.9. The cache was not measured on its own; its cap is inside these R1 readings, which sit within 1 MiB of S9's `s9-4` (174.0). See `v1-acceptance-RESULTS.md`.
