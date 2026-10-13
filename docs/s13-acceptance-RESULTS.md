@@ -133,3 +133,9 @@ Both runs are valid: no co-tenant, the leak grep is clean and caught its plant, 
 7. **Not reproduced:** in fix-1, F8 and R3 stalled with `seq` frozen while 18 commands exited 0. A smoke repro, fix-2 and fix-3 all played normally, and queue replies are now recorded.
 
 **Ballast note:** across runs the rise residual (measured minus requested plus kept) spans −3.3 to +0.9 MiB. fix-1's −3.3 missed the 3.0 tolerance. This is launch-to-launch USS variance; the tolerance was not widened. **Proposal:** allocate the ballast inside the same launch after a first R1 window, so the rise is measured within one process.
+
+**After the fix round (Amendment 6)**
+- **The leak grep was blind in fix-controls:** it fetched 0 library names, because Apple began refusing the real user token (HTTP 403 on `/v1/me/storefront` and the library API) between ~16:47 and 16:49. Library names are now required.
+- **Re-scored:** fix-controls' gate is FAIL on the blind grep, though every control still holds. fix-2 and fix-3 (275 names each) are unchanged.
+- **Committed docs:** grepped again at the final commit. Tokens: 0 hits. Names couldn't be fetched, for the same reason.
+- **Before any further signed-in run,** Nate must sign in again. The real token file is unchanged since 2026-10-09, so this is Apple's refusal, not a harness write.

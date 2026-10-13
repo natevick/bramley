@@ -516,7 +516,7 @@ def verdict(out):
          'weston': weston_renderer(out), 'errors': load(out, 'errors.json') or {}, 'screenshots': (load(out, 'screenshots.json') or {})}
     real, leaks = load(out, 'realstate.json') or {}, load(out, 'leakgrep.json') or {}
     v['realStateUnchanged'] = bool(real) and real.get('before', {}).get('keyringItems') is not None and real.get('before') == real.get('after')
-    v['leakGrep'] = dict(leaks, clean=leaks.get('hits') == {'repo': 0, 'run': 0} and leaks.get('plantedCaught') is True and (leaks.get('runFiles') or 0) > 0)
+    v['leakGrep'] = dict(leaks, clean=leaks.get('hits') == {'repo': 0, 'run': 0} and leaks.get('plantedCaught') is True and (leaks.get('runFiles') or 0) > 0 and (leaks.get('libraryNames') or 0) > 0)
     v['phaseErrors'] = {k: e for k, e in v['errors'].items() if not e.startswith('RuntimeError: skipped: the guard fired')}
     safe = v['realStateUnchanged'] and v['leakGrep']['clean'] and not v['phaseErrors']
     if build.get('mode') == 'controls':

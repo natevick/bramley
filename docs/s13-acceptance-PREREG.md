@@ -271,3 +271,11 @@ fix-1 (at 5fae888) is reported under Amendment 4's rules. It does not count, bec
 5. **Lock path:** `/run/user/<uid>/bramley-gpu-session.lock` (`flock`, exclusive). acceptance.sh and covers-session's `session()` hold it for a run's lifetime. Other harnesses may hold it around their own sessions; acceptance.sh then refuses with exit 2.
 
 **Counted set:** `fix-2` and `fix-3` (consecutive), then `fix-controls`, at the commit adding this amendment.
+
+## Amendment 6 (2026-10-12, after fix-controls; procedure only)
+- **Evidence:** fix-controls' leak grep fetched 0 library names. The real user token began getting HTTP 403 from `/v1/me/storefront` and the library API between ~16:47 (the leak soak was still playing) and 16:49 (the grep). The fetch failed inside a suppressed block, and the plant self-test passed on a token fragment. So that run's "clean" grep checked tokens only.
+- **Rule:** the leak grep is clean only if it held **> 0 library names**. A grep that couldn't fetch names now fails the gate.
+- **Status of the runs:**
+  - fix-2 and fix-3 had 275 names each, so their verdicts are unchanged.
+  - Re-scored, fix-controls' gate is FAIL on the blind grep, although every control held.
+  - Re-running the controls needs a valid user token. The real token file is unchanged since 2026-10-09, yet Apple now refuses it. A fresh sign-in by Nate is needed first.

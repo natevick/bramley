@@ -89,6 +89,7 @@ MUTANTS = [
     ('bad token play reason', " and all(BAD_TOKEN_PLAY in b for b in banners(out, 'badtoken.f4.json'))", ""),
     ('no-user banner', "\n                            and all('SignInNeeded' in b for b in banners(out, 'nouser.f4.json'))", ""),
     ('leak grep read files', " and (leaks.get('runFiles') or 0) > 0", ""),
+    ('leak grep had library names', " and (leaks.get('libraryNames') or 0) > 0", ""),
     ('phase errors', " and not v['phaseErrors']", ""),
     ('missing artifact reason', " and all(r.startswith('missing evidence') for r in v['reasons'][:1])", ""),
     ('missing artifact holds', "holds=all(v['verdict'] == 'FAIL' and v['reasons']", "holds=True or all(v['verdict'] == 'FAIL' and v['reasons']"),

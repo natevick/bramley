@@ -403,7 +403,7 @@ class Verdict(unittest.TestCase):
                              ('unread keyring', edit('realstate.json', lambda d: [d[k].__setitem__('keyringItems', None) for k in d])),
                              ('missing', remove('realstate.json')), ('a name in the run', put('leakgrep.json', hits={'repo': 0, 'run': 1})),
                              ('a name in the repo', put('leakgrep.json', hits={'repo': 2, 'run': 0})), ('a grep that cannot fail', put('leakgrep.json', plantedCaught=False)),
-                             ('no grep', remove('leakgrep.json')), ('a grep that read no files', put('leakgrep.json', runFiles=0)),
+                             ('no grep', remove('leakgrep.json')), ('a grep that read no files', put('leakgrep.json', runFiles=0)), ('a grep with no library names', put('leakgrep.json', libraryNames=0)),
                              ('a phase raised', lambda out: gate.save(out, 'errors.json', {'browse': 'RuntimeError: boom'}))):
             with self.subTest(name):
                 write_valid(SCRATCH)
