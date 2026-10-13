@@ -533,10 +533,16 @@ impl App {
         if let Some(url) = self.waiting() {
             return Some(Banner::SigningIn(url.to_owned()));
         }
-        let developer = self.covers.developer_rejected();
-        let rejected = || Banner::Error(covers::DEVELOPER_REJECTED.into());
+        let current = || self.user.developer().peek();
+        let rejected = self.covers.rejected_developer_token();
+        let developer = rejected.is_some_and(|token| current().as_deref() == Some(token));
         let missing = || self.user.developer().missing().map(Banner::Error);
-        let banner = developer.then(rejected).or_else(|| self.playback.banner());
+        let banner = match self.playback.banner() {
+            None | Some(Banner::SignInNeeded) if developer => {
+                Some(Banner::Error(covers::DEVELOPER_REJECTED.into()))
+            }
+            banner => banner,
+        };
         let banner = banner.or_else(missing);
         banner.filter(|b| self.checking.is_none() || *b != Banner::SignInNeeded)
     }
@@ -638,7 +644,9 @@ impl App {
         }
         egui::CentralPanel::default().show(ui, |ui| {
             if let Some(banner) = self.banner() {
-                sign_in = ui::banner(ui, &banner);
+                let needed = Some(Banner::SignInNeeded);
+                let offer = Some(banner.clone()) == needed || self.playback.banner() == needed;
+                sign_in = ui::banner(ui, &banner, offer);
             }
             if let Some(notice) = self.notice {
                 ui::notice(ui, notice);

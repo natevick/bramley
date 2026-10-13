@@ -17,7 +17,7 @@ use nav::Nav;
 const ACCENT: Color32 = Color32::from_rgb(250, 45, 72);
 const ACCENT_ON_LIGHT: Color32 = Color32::from_rgb(200, 25, 50);
 
-pub fn banner(ui: &mut egui::Ui, banner: &Banner) -> bool {
+pub fn banner(ui: &mut egui::Ui, banner: &Banner, offer_sign_in: bool) -> bool {
     let text = match banner {
         Banner::SignInNeeded => {
             "Sign in needed: Bramley has no Apple Music sign-in it can use.".to_owned()
@@ -35,7 +35,7 @@ pub fn banner(ui: &mut egui::Ui, banner: &Banner) -> bool {
             ui.set_width(ui.available_width());
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new(text).color(Color32::WHITE).strong());
-                sign_in = *banner == Banner::SignInNeeded && ui.button("Sign in").clicked();
+                sign_in = offer_sign_in && ui.button("Sign in").clicked();
             });
         });
     sign_in

@@ -1441,8 +1441,8 @@ fn a_storefront_403_asks_for_sign_in_and_a_401_blames_the_developer_token() {
             cover_meshes(&ctx, &mut app);
             std::thread::sleep(Duration::from_millis(10));
         }
-        std::fs::remove_dir_all(&config).unwrap();
         let status = app.status_json();
+        std::fs::remove_dir_all(&config).unwrap();
         let seen = (
             status["banner"].as_str(),
             status["texturesUploaded"].as_u64(),
@@ -1452,31 +1452,82 @@ fn a_storefront_403_asks_for_sign_in_and_a_401_blames_the_developer_token() {
     }
 }
 
-#[test]
-fn a_rejected_developer_token_outranks_sign_in_needed_from_playback() {
+fn rejected_then(error: PlayerError) -> (crate::app::App, egui::Context, std::path::PathBuf) {
     let (mut app, ends, inbox, ctx, config, _) = app_on(Serve { me: 401, ..SERVE });
     let until = Instant::now() + Duration::from_secs(10);
     while app.status_json()["banner"].is_null() && Instant::now() < until {
         cover_meshes(&ctx, &mut app);
         std::thread::sleep(Duration::from_millis(10));
     }
-    std::fs::remove_dir_all(&config).unwrap();
     let play = crate::cli::Request::Do(Action::PlaySong("1".into()));
     let deadline = Instant::now() + Duration::from_secs(5);
     inbox.send((play, deadline, channel().0)).unwrap();
     cover_meshes(&ctx, &mut app);
-    let refused = Some(PlayerError::SignInNeeded("configure".into()));
     ends.borrow()[0]
         .1
-        .send(snap(PlayState::Stopped, 0.0, 2, refused))
+        .send(snap(PlayState::Stopped, 0.0, 2, Some(error)))
         .unwrap();
     cover_meshes(&ctx, &mut app);
+    assert_eq!(ends.borrow().len(), 1);
+    (app, ctx, config)
+}
+
+fn offers_sign_in(ctx: &egui::Context, app: &mut crate::app::App) -> bool {
+    ctx.enable_accesskit();
+    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| app.draw(ui));
+    out.textures_delta.clear();
+    let tree = out.platform_output.accesskit_update.unwrap();
+    tree.nodes.iter().any(|(_, n)| n.label() == Some("Sign in"))
+}
+
+#[test]
+fn a_rejected_developer_token_outranks_sign_in_needed_and_still_offers_sign_in() {
+    let refused = PlayerError::SignInNeeded("configure".into());
+    let (mut app, ctx, config) = rejected_then(refused);
     let developer = format!("Error({:?})", covers::DEVELOPER_REJECTED);
     let shown = app.status_json()["banner"].clone();
-    assert_eq!(
-        (shown.as_str(), ends.borrow().len()),
-        (Some(developer.as_str()), 1)
-    );
+    let offered = offers_sign_in(&ctx, &mut app);
+    std::fs::remove_dir_all(&config).unwrap();
+    assert_eq!((shown.as_str(), offered), (Some(developer.as_str()), true));
+}
+
+#[test]
+fn a_renewed_developer_token_clears_the_rejected_banner_on_either_renewal_path() {
+    let exp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 86_400 * 90;
+    let renewals: [(&str, String); 2] = [
+        ("developer-token", "renewed-token\n".into()),
+        (
+            "developer-token.json",
+            json!({"token": "renewed-token", "exp": exp}).to_string(),
+        ),
+    ];
+    for (file, text) in renewals {
+        let (mut app, ctx, config) = rejected_then(PlayerError::SignInNeeded("401".into()));
+        std::fs::write(config.join(file), text).unwrap();
+        cover_meshes(&ctx, &mut app);
+        let shown = app.status_json()["banner"].clone();
+        let offered = offers_sign_in(&ctx, &mut app);
+        std::fs::remove_dir_all(&config).unwrap();
+        assert_eq!(
+            (shown.as_str(), offered),
+            (Some("SignInNeeded"), true),
+            "{file}"
+        );
+    }
+}
+
+#[test]
+fn a_playback_error_other_than_sign_in_outranks_the_developer_banner() {
+    let output = PlayerError::Playback("the audio output could not be opened".into());
+    let (app, _ctx, config) = rejected_then(output);
+    let shown = app.status_json()["banner"].clone();
+    std::fs::remove_dir_all(&config).unwrap();
+    let want = "Error(\"the audio output could not be opened\")";
+    assert_eq!(shown.as_str(), Some(want));
 }
 
 #[test]

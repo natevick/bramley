@@ -62,7 +62,7 @@ pub enum Loaded {
     Failed(String, usize),
     Retry(Duration),
     SignInNeeded,
-    DeveloperRejected,
+    DeveloperRejected(String),
 }
 
 #[derive(Default)]
@@ -300,7 +300,8 @@ pub fn fetch(
             match load_chart(&mut agent, &source, px, &tally) {
                 Ok(None) => drop(tx.send(Loaded::SignInNeeded)),
                 Err(e) if e.is::<DeveloperTokenRejected>() => {
-                    drop(tx.send(Loaded::DeveloperRejected))
+                    let rejected = source.user.developer().peek().unwrap_or_default();
+                    drop(tx.send(Loaded::DeveloperRejected(rejected)))
                 }
                 Err(e) => {
                     let refused = e.downcast_ref::<Refused>();
@@ -376,7 +377,7 @@ pub struct Grid {
     failed: Option<String>,
     failures: usize,
     rejected: bool,
-    developer_rejected: bool,
+    developer_rejected: Option<String>,
     tries: usize,
     retry_at: Option<Instant>,
     #[cfg(feature = "gate-sabotage")]
@@ -399,7 +400,7 @@ impl Grid {
     pub fn follow(&mut self, ctx: &egui::Context, signed_in: bool) {
         if !signed_in {
             if self.rx.is_some() {
-                let developer_rejected = self.developer_rejected;
+                let developer_rejected = self.developer_rejected.take();
                 self.reset();
                 self.developer_rejected = developer_rejected;
             }
@@ -455,7 +456,7 @@ impl Grid {
                     ctx.request_repaint_after(wait);
                 }
                 Loaded::SignInNeeded => self.rejected = true,
-                Loaded::DeveloperRejected => self.developer_rejected = true,
+                Loaded::DeveloperRejected(token) => self.developer_rejected = Some(token),
             }
         }
         any
@@ -466,7 +467,11 @@ impl Grid {
     }
 
     pub fn developer_rejected(&self) -> bool {
-        self.developer_rejected
+        self.developer_rejected.is_some()
+    }
+
+    pub fn rejected_developer_token(&self) -> Option<&str> {
+        self.developer_rejected.as_deref()
     }
 
     #[cfg(any(test, feature = "dev"))]
