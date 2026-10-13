@@ -57,6 +57,7 @@ Both runs are valid: no co-tenant, the leak grep is clean and caught its plant, 
    - The cost is the engine while paused (its JS runtime and player thread keep ticking). This is a measured app cost, not a harness one.
 
 ## Deviations still needing approval (PREREG)
+_First-round list, written for final-2/final-3. Amendments 4–6 replaced several of these checks, and the v1 run reconciles what still applies._
 - **F7:** open and scroll on the dev build. There is no shipped command for either; the alternative is an app story.
 - **F4/F9 "decrypted seconds":** checked through `sentMs` on a 355 s song. **R3 "underruns":** a position-stall proxy. The counters exist only behind the engine's `diagnostics` feature.
 - **R4/R5** are measured without `--status`.
@@ -164,3 +165,5 @@ What was skipped: the previous song's queued audio, flushed at the switch. The n
 - **All of the jump comes before audio starts:** the ~1.5 s rise lands between the command and first audible, and nothing is skipped after.
 - **The new song starts near its head:** at 0.46–0.67 s, which is within or just above the cold-play range. A cut head would show the song starting at about 1.5 s.
 - **Limit:** F9 judges only its last rep, so first-audible positions exist for that rep only, one per run.
+
+**Decision, 2026-10-12, coordinator (Norm): APPROVED.** The skipped audio is the previous item's queue, flushed before the new item is audible. The new item starts within ~0.2 s of the cold-play range, so the head is not cut, and Amendment 5 measures the property F4/F9 actually name. The loosening is kept on the record. If a future run shows the new item first audible at ≥ 1.0 s, this approval is void and the cause is investigated as a cut head.
