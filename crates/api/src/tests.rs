@@ -779,6 +779,7 @@ fn keepalive(accept: usize, then: fn(usize, usize) -> Then) -> (String, Arc<Mute
                         std::thread::sleep(Duration::from_secs(30));
                         return;
                     }
+                    std::thread::sleep(Duration::from_millis(100));
                     let body = if what == "storefront" {
                         STOREFRONT
                     } else {
@@ -865,4 +866,31 @@ fn retry_after_is_seconds_capped_at_an_hour_and_an_unreadable_value_waits_the_60
         (Some("Wed, 21 Oct 2099 07:28:00 GMT"), 60),
     ];
     assert_eq!(cases.map(|(v, _)| read(v)), cases.map(|(_, want)| want));
+}
+
+#[test]
+fn after_one_dead_pooled_socket_the_pool_is_dropped_so_its_dead_sibling_is_never_used() {
+    let (base, log) = keepalive(5, |conn, n| match (conn, n) {
+        (0, 2..) | (1, 1..) => Then::Silent,
+        _ => Then::Answer,
+    });
+    let client = raw(&base, Some(USER));
+    client.session().unwrap().storefront().unwrap();
+    std::thread::scope(|s| {
+        let search = || client.session().unwrap().search("queen").unwrap();
+        let (a, b) = (s.spawn(search), s.spawn(search));
+        (a.join().unwrap(), b.join().unwrap());
+    });
+    client.session().unwrap().search("queen").unwrap();
+    let at = Instant::now();
+    let fourth = client
+        .session()
+        .unwrap()
+        .search("queen")
+        .map(|_| at.elapsed());
+    let served = log.lock().unwrap().clone();
+    assert!(
+        matches!(fourth, Ok(took) if took < Duration::from_secs(3)),
+        "{fourth:?} {served:?}"
+    );
 }
