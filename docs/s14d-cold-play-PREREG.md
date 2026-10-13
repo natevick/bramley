@@ -26,3 +26,29 @@ The first v1 run on main (3106814, `target/acceptance/v1-1` in the v1 worktree) 
 - **Apple refusing the token (403)** reads as a never-starting play. A launch whose license or webPlayback POST returned 4xx/5xx counts as VOID, not FAIL, and is reported.
 - **Co-tenant runs** are excluded by the lock plus the preflight.
 - **A loop that never played anything:** the loop records `play`'s exit code and the applied sequence number for every launch.
+
+## Amendment 1 (2026-10-13, before any play): Apple's reason, and the fast-relaunch hypothesis
+**Nate played no music today, so a stream on another device is ruled out.**
+
+**Capture Apple's words**
+- The non-shipped probe build logs, for every license POST: its epoch time, and either "license" or, when the reply is JSON with a non-zero status, ONLY `failureType`, `status`, `errorCode` and the `customerMessage` text.
+- It never logs license bytes, dialog URLs or tokens.
+
+**Hypothesis H**
+Apple still counts a just-killed process's stream as active, so a fast relaunch looks like a second simultaneous stream.
+
+**Design (≤ 22 plays)**
+- **A pair:** launch 1 plays until audio advances past 2 s and is then killed (SIGTERM, then SIGKILL, as the harness does). Launch 2 starts after a gap and plays once ready.
+- **Arm A:** gap 3 s.
+- **Arm B:** gap 90 s.
+- **Order:** pairs alternate A, B, A, B…, about 5 per arm (≤ 20 plays), with ≥ 10 s between pairs. One session (weston and a unique null sink, routing guard, GPU lock) per pair, and one isolated config per pair.
+- **Recorded per launch:** verdict (PASS: position advances within 15 s), Apple's fields if refused, and the time since the previous license POST.
+
+**Pass/falsify rules, fixed now**
+- **H supported:** refusals occur in Arm A's second launches and not in Arm B's, with at least 2 of 5 A-pairs refused and 0 of 5 B-pairs.
+- **H falsified:** the A-second-launch refusal rate is ≤ the B rate, e.g. both 0, or refusals spread evenly.
+  - The earlier 20/20 run already argues against H: launches 10–12 s apart, each killed ~3 s into playback, never failed.
+  - So 0 refusals in Arm A falsifies H at this spacing.
+- **Anything else** is inconclusive, and is reported as such.
+- **Early stop:** stop when 3 refusals carry the same `customerMessage`.
+- **Rate pattern:** reported descriptively, failure vs. plays in the preceding 10 min, with no threshold claimed from ≤ 22 plays.
