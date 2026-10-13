@@ -472,8 +472,10 @@ fn a_coalesced_waiter_gives_up_at_its_own_deadline_and_a_failed_leader_releases_
     );
 }
 
+static SHARED_POOL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn silent_after_first_reply(
-    every_connection: bool,
+    silent_on_first_two: bool,
 ) -> (u16, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
     use std::sync::{Arc, Mutex};
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -495,7 +497,7 @@ fn silent_after_first_reply(
                     log.lock()
                         .unwrap()
                         .push(format!("conn{n} {}", head.lines().next().unwrap_or("")));
-                    if (n == 0 || every_connection) && served == 1 {
+                    if (n == 0 || (silent_on_first_two && n < 2)) && served == 1 {
                         std::thread::sleep(std::time::Duration::from_secs(30));
                         return;
                     }
@@ -514,6 +516,7 @@ fn silent_after_first_reply(
 
 #[test]
 fn a_silently_dead_pooled_connection_is_retried_once_for_get_and_never_for_post() {
+    let _pool = SHARED_POOL.lock().unwrap_or_else(|e| e.into_inner());
     for (method, retried) in [("GET", true), ("POST", false)] {
         let (port, seen) = silent_after_first_reply(false);
         let req = |method: &str| crate::net::HttpRequest {
@@ -568,6 +571,7 @@ fn a_silently_dead_pooled_connection_is_retried_once_for_get_and_never_for_post(
 
 #[test]
 fn a_transport_error_drops_the_pool_so_sibling_stale_connections_are_not_reused() {
+    let _pool = SHARED_POOL.lock().unwrap_or_else(|e| e.into_inner());
     let (port, _) = silent_after_first_reply(true);
     let req = move || crate::net::HttpRequest {
         id: 1,
