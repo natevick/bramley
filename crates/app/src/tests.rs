@@ -2692,3 +2692,46 @@ fn the_leak_sabotage_keeps_its_size_once_per_new_track_and_only_when_asked() {
     off.follow(Some("a"));
     assert!(off.kept.is_empty());
 }
+
+#[test]
+fn engine_counts_reach_their_own_status_keys() {
+    let dir = std::path::PathBuf::from(format!("../../target/c/counts{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let ends: Ends = Rc::default();
+    let spawned = ends.clone();
+    let (inbox_tx, inbox) = channel();
+    let ctx = egui::Context::default();
+    let spawn = spawning(move || live(&spawned));
+    let user = (mock_user(&dir), false);
+    let mut app = crate::app::App::new(
+        &ctx,
+        crate::Args::default(),
+        spawn,
+        user,
+        (inbox, true),
+        None,
+    );
+    let play = crate::cli::Request::Do(Action::PlaySong("1".into()));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    inbox_tx.send((play, deadline, channel().0)).unwrap();
+    frames(&ctx, &mut app, 3);
+    let mut snap = Snapshot::default();
+    (snap.drains_acked, snap.drain_timeouts) = (1, 2);
+    (snap.sent_us, snap.skipped_us, snap.decrypted_us) = (3_000_000, 4_000_000, 5_000_000);
+    (snap.underruns, snap.decrypt_fails) = (6, 7);
+    ends.borrow()[0].1.send(snap).unwrap();
+    let s = frames(&ctx, &mut app, 3);
+    std::fs::remove_dir_all(&dir).unwrap();
+    let keys = [
+        "drainsAcked",
+        "drainTimeouts",
+        "sentMs",
+        "skippedMs",
+        "decryptedMs",
+        "underruns",
+        "decryptFails",
+    ];
+    let seen: Vec<_> = keys.iter().map(|k| s[*k].as_u64()).collect();
+    let want = [1, 2, 3000, 4000, 5000, 6, 7].map(Some);
+    assert_eq!(seen, want);
+}

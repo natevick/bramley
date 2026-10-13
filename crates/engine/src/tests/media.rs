@@ -693,3 +693,13 @@ fn decrypted_time_counts_only_decrypted_frames_at_their_rate() {
         r.m.counters.decrypted_us
     );
 }
+
+#[test]
+fn output_counts_keep_each_counter_in_its_own_slot() {
+    let mut c = crate::media::Counters::default();
+    (c.drains_acked, c.drain_timeouts, c.sent_us, c.skipped_us) = (1, 2, 3, 4);
+    (c.decrypted_us, c.underruns) = (5, 6);
+    c.decrypt_fail.insert(7, 3);
+    c.decrypt_fail.insert(9, 4);
+    assert_eq!(crate::runtime::output_counts(&c), [1, 2, 3, 4, 5, 6, 7]);
+}
