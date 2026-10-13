@@ -1,0 +1,312 @@
+[
+ {
+  "arm": "A",
+  "pair": 0,
+  "killToSecondPlayS": 4.3,
+  "licenses": {
+   "A0-1": [
+    [
+     "1791913230112",
+     "license http=200"
+    ]
+   ],
+   "A0-2": [
+    [
+     "1791913238599",
+     "license http=200"
+    ]
+   ]
+  },
+  "cotenants": 0,
+  "void": null,
+  "first": {
+   "verdict": "PASS",
+   "startMs": 3752,
+   "exit": 0
+  },
+  "second": {
+   "verdict": "PASS",
+   "startMs": 2704,
+   "exit": 0
+  }
+ },
+ {
+  "arm": "B",
+  "pair": 1,
+  "killToSecondPlayS": 91.8,
+  "licenses": {
+   "B1-1": [
+    [
+     "1791913255205",
+     "license http=200"
+    ]
+   ],
+   "B1-2": [
+    [
+     "1791913350849",
+     "license http=200"
+    ]
+   ]
+  },
+  "cotenants": 0,
+  "void": null,
+  "first": {
+   "verdict": "PASS",
+   "startMs": 3643,
+   "exit": 0
+  },
+  "second": {
+   "verdict": "PASS",
+   "startMs": 2856,
+   "exit": 0
+  }
+ },
+ {
+  "arm": "A",
+  "pair": 2,
+  "killToSecondPlayS": 4.3,
+  "licenses": {
+   "A2-1": [
+    [
+     "1791913367135",
+     "license http=200"
+    ]
+   ],
+   "A2-2": [
+    [
+     "1791913375406",
+     "license http=200"
+    ]
+   ]
+  },
+  "cotenants": 0,
+  "void": null,
+  "first": {
+   "verdict": "PASS",
+   "startMs": 3626,
+   "exit": 0
+  },
+  "second": {
+   "verdict": "PASS",
+   "startMs": 2704,
+   "exit": 0
+  }
+ },
+ {
+  "arm": "B",
+  "pair": 3,
+  "killToSecondPlayS": 91.7,
+  "licenses": {
+   "B3-1": [
+    [
+     "1791913397582",
+     "license http=200"
+    ]
+   ],
+   "B3-2": [
+    [
+     "1791913493238",
+     "license http=200"
+    ]
+   ]
+  },
+  "cotenants": 0,
+  "void": null,
+  "first": {
+   "verdict": "PASS",
+   "startMs": 3670,
+   "exit": 0
+  },
+  "second": {
+   "verdict": "PASS",
+   "startMs": 2778,
+   "exit": 0
+  }
+ },
+ {
+  "arm": "A",
+  "pair": 4,
+  "killToSecondPlayS": 4.2,
+  "licenses": {
+   "A4-1": [
+    [
+     "1791913515389",
+     "license http=200"
+    ]
+   ],
+   "A4-2": [
+    [
+     "1791913523765",
+     "license http=200"
+    ]
+   ]
+  },
+  "cotenants": 0,
+  "void": null,
+  "first": {
+   "verdict": "PASS",
+   "startMs": 3736,
+   "exit": 0
+  },
+  "second": {
+   "verdict": "PASS",
+   "startMs": 2716,
+   "exit": 0
+  }
+ },
+ {
+  "arm": "B",
+  "pair": 5,
+  "killToSecondPlayS": 91.3,
+  "licenses": {
+   "B5-1": [
+    [
+     "1791913539951",
+     "license http=200"
+    ]
+   ],
+   "B5-2": [
+    [
+     "1791913635067",
+     "license http=200"
+    ]
+   ]
+  },
+  "cotenants": 0,
+  "void": null,
+  "first": {
+   "verdict": "PASS",
+   "startMs": 3805,
+   "exit": 0
+  },
+  "second": {
+   "verdict": "PASS",
+   "startMs": 2792,
+   "exit": 0
+  }
+ },
+ {
+  "arm": "A",
+  "pair": 6,
+  "killToSecondPlayS": 4.2,
+  "licenses": {
+   "A6-1": [
+    [
+     "1791913652793",
+     "license http=200"
+    ]
+   ],
+   "A6-2": [
+    [
+     "1791913660902",
+     "license http=200"
+    ]
+   ]
+  },
+  "cotenants": 0,
+  "void": null,
+  "first": {
+   "verdict": "PASS",
+   "startMs": 3721,
+   "exit": 0
+  },
+  "second": {
+   "verdict": "PASS",
+   "startMs": 2650,
+   "exit": 0
+  }
+ },
+ {
+  "arm": "B",
+  "pair": 7,
+  "killToSecondPlayS": 91.7,
+  "licenses": {
+   "B7-1": [
+    [
+     "1791913677061",
+     "license http=200"
+    ]
+   ],
+   "B7-2": [
+    [
+     "1791913772822",
+     "license http=200"
+    ]
+   ]
+  },
+  "cotenants": 0,
+  "void": null,
+  "first": {
+   "verdict": "PASS",
+   "startMs": 3692,
+   "exit": 0
+  },
+  "second": {
+   "verdict": "PASS",
+   "startMs": 2734,
+   "exit": 0
+  }
+ },
+ {
+  "arm": "A",
+  "pair": 8,
+  "killToSecondPlayS": 4.4,
+  "licenses": {
+   "A8-1": [
+    [
+     "1791913789354",
+     "license http=200"
+    ]
+   ],
+   "A8-2": [
+    [
+     "1791913797567",
+     "license http=200"
+    ]
+   ]
+  },
+  "cotenants": 0,
+  "void": null,
+  "first": {
+   "verdict": "PASS",
+   "startMs": 3769,
+   "exit": 0
+  },
+  "second": {
+   "verdict": "PASS",
+   "startMs": 2845,
+   "exit": 0
+  }
+ },
+ {
+  "arm": "B",
+  "pair": 9,
+  "killToSecondPlayS": 91.5,
+  "licenses": {
+   "B9-1": [
+    [
+     "1791913813915",
+     "license http=200"
+    ]
+   ],
+   "B9-2": [
+    [
+     "1791913909618",
+     "license http=200"
+    ]
+   ]
+  },
+  "cotenants": 0,
+  "void": null,
+  "first": {
+   "verdict": "PASS",
+   "startMs": 3734,
+   "exit": 0
+  },
+  "second": {
+   "verdict": "PASS",
+   "startMs": 2799,
+   "exit": 0
+  }
+ }
+]

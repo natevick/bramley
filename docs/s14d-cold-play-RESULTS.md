@@ -71,3 +71,34 @@ probe-lite: 10 launches, shipped-like build with net and CDM-event logging only.
 - **Not added, and offered as options:**
   - an automatic retry of the license step. That is a product and rule-8 call, and it would add traffic to a possibly throttled account.
   - surfacing Apple's own `customerMessage`. That needs MusicKit to expose it, which it doesn't here.
+
+## Amendment 1 results: the fast-relaunch hypothesis is falsified, and Apple's message was not captured
+
+**Per-arm table** (10 pairs, 20 plays, alternating A/B, ≥ 10 s between pairs, 10:40–10:52, no co-tenants). The full table is in `docs/results/s14d-relaunch-pairs.json`.
+
+| Arm | Gap kill → next play | Pairs | First launch PASS | Second launch PASS | Refusals |
+|---|---|---|---|---|---|
+| A (3 s) | 4.2–4.4 s | 5 | 5 | 5 | 0 |
+| B (90 s) | 91.3–91.8 s | 5 | 5 | 5 | 0 |
+
+- **Hypothesis falsified, per the pre-registered rule:** Arm A had 0 refusals, the same as B. A relaunch ~4 s after killing a playing process is not refused.
+- **Apple's `customerMessage`: not captured.** All 20 license POSTs returned a license. The probe logged only the time, plus failureType/status/errorCode/customerMessage on refusal. No early stop.
+
+**Timing pattern across all 58 plays today.** Descriptive only; no threshold is claimed.
+
+| Window | Plays in the previous 10 min at each launch | Outcome |
+|---|---|---|
+| 09:38:41–09:46:13 | 0 → 29, launches ~10 s apart | 30 PASS |
+| 09:46:23–09:53:13 | 30, 31, 23, 13 | **4 FAIL**: every refusal of the day |
+| 09:55:24–10:01:19 | 9 → 3 | 4 PASS |
+| 10:40:28–10:51:48 (pairs) | 0 → 18 | 20 PASS |
+
+- **The refusals began at the 31st play in ~8 minutes**, then persisted for ~7 minutes even with launches 64–182 s apart, and stopped once the recent volume fell.
+- **This fits an account-level rate limit with a cool-down** better than any per-launch race.
+  - The v1-1 F4 failure also came after many plays in that acceptance run.
+  - It is a pattern from one episode, not a measured threshold.
+- **Plays used:** 38 earlier plus 20 now = 58 of the ~60 cap.
+
+**Implications**
+- Nothing in our platform causes the refusal. The watchdog (6ee504e) makes it visible within 10 s.
+- **Harness note for the coordinator:** acceptance plus loops on one account can exceed whatever volume Apple tolerates. Spacing or capping plays per 10 min would keep F4 from measuring Apple's throttle.
