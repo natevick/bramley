@@ -219,6 +219,7 @@ impl Player {
             format!("globalThis.__bramley_player = {setup};"),
             secrets,
             every,
+            START_STALL,
             waker,
         )
     }
@@ -255,6 +256,7 @@ pub(crate) fn spawn_with<B: Backend>(
     setup: String,
     secrets: Vec<String>,
     every: Duration,
+    stall_after: Duration,
     waker: impl Fn() + Send + 'static,
 ) -> Result<(Sender<Command>, Receiver<Snapshot>)> {
     let (command_tx, commands) = channel();
@@ -274,7 +276,7 @@ pub(crate) fn spawn_with<B: Backend>(
                 Ok(b)
             });
             match started {
-                Ok(b) => run(b, &commands, &mut exit, every, &secrets),
+                Ok(b) => run(b, &commands, &mut exit, every, stall_after, &secrets),
                 Err(e) => {
                     exit.send(Snapshot {
                         error: Some(PlayerError::LoadFailed(redact(&format!("{e:#}"), &secrets))),
@@ -291,9 +293,11 @@ fn run<B: Backend, W: Fn()>(
     commands: &Receiver<Command>,
     exit: &mut Exit<W>,
     every: Duration,
+    stall_after: Duration,
     secrets: &[String],
 ) {
     let mut last: Option<Snapshot> = None;
+    let mut watch = StartWatch::default();
     let mut due = Instant::now();
     let mut sent_at = Instant::now();
     #[cfg(feature = "diagnostics")]
@@ -303,6 +307,7 @@ fn run<B: Backend, W: Fn()>(
         match commands.recv_timeout(wait) {
             Ok(Command::Shutdown) | Err(RecvTimeoutError::Disconnected) => return,
             Ok(command) => {
+                watch.command(&command);
                 if let Err(e) = b.eval_script("command", &command_js(&command)) {
                     eprintln!("player command failed: {}", redact(&e.to_string(), secrets));
                 }
@@ -321,6 +326,7 @@ fn run<B: Backend, W: Fn()>(
         let mut snap = snapshot(&b, secrets);
         snap.applied = snap.applied.max(exit.applied);
         exit.applied = snap.applied;
+        watch.observe(&mut snap, stall_after);
         #[cfg(feature = "diagnostics")]
         if let Some(d) = snap.diagnostics.as_mut()
             && Instant::now() >= engine_due
@@ -339,6 +345,52 @@ fn run<B: Backend, W: Fn()>(
 }
 
 pub const OUTPUT_FAILED: &str = "the audio output could not be opened";
+pub const START_STALL: Duration = Duration::from_secs(10);
+pub const START_STALLED: &str =
+    "playback did not start within 10 s; the license or the network may have failed";
+
+#[derive(Default)]
+struct StartWatch {
+    armed: Option<Instant>,
+    last: Option<f64>,
+}
+
+impl StartWatch {
+    fn command(&mut self, command: &Command) {
+        match command {
+            Command::SetQueue { .. }
+            | Command::Play
+            | Command::Next
+            | Command::Previous
+            | Command::JumpTo { .. } => self.arm(),
+            Command::Seek(_) if self.armed.is_some() => self.arm(),
+            Command::Pause => self.armed = None,
+            _ => {}
+        }
+    }
+
+    fn arm(&mut self) {
+        self.armed = Some(Instant::now());
+        self.last = None;
+    }
+
+    fn observe(&mut self, snap: &mut Snapshot, limit: Duration) {
+        let Some(armed) = self.armed else { return };
+        if snap.state == PlayState::Playing {
+            if let (Some(now), Some(before)) = (snap.position, self.last)
+                && now > before + 0.01
+            {
+                self.armed = None;
+                return;
+            }
+            self.last = snap.position.or(self.last);
+        }
+        let waiting = matches!(snap.state, PlayState::Playing | PlayState::Loading);
+        if waiting && snap.error.is_none() && armed.elapsed() >= limit {
+            snap.error = Some(PlayerError::Playback(START_STALLED.into()));
+        }
+    }
+}
 
 pub(crate) fn command_js(command: &Command) -> String {
     let (method, arg) = match command {

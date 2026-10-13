@@ -89,6 +89,14 @@ fn spawn_fake(
     make: impl FnOnce() -> Result<FakeEngine> + Send + 'static,
     every: Duration,
 ) -> (Sender<Command>, Receiver<Snapshot>, Arc<AtomicUsize>) {
+    spawn_fake_stalling_after(make, every, Duration::from_secs(60))
+}
+
+fn spawn_fake_stalling_after(
+    make: impl FnOnce() -> Result<FakeEngine> + Send + 'static,
+    every: Duration,
+    stall_after: Duration,
+) -> (Sender<Command>, Receiver<Snapshot>, Arc<AtomicUsize>) {
     let wakes = Arc::new(AtomicUsize::new(0));
     let counter = wakes.clone();
     let (tx, rx) = spawn_with(
@@ -96,6 +104,7 @@ fn spawn_fake(
         "setup".into(),
         vec![SECRET.into()],
         every,
+        stall_after,
         move || {
             counter.fetch_add(1, Ordering::SeqCst);
         },
@@ -404,4 +413,71 @@ fn config_debug_never_prints_tokens_or_the_redact_list() {
     let text = format!("{cfg:?}");
     assert!(text.contains("snapshot_interval"), "{text}");
     assert!(!text.contains(SECRET) && !text.contains("redact"), "{text}");
+}
+
+const STALL: Duration = Duration::from_millis(300);
+
+fn stalled(s: &Snapshot) -> bool {
+    s.error == Some(PlayerError::Playback(crate::player::START_STALLED.into()))
+}
+
+fn snapshots_for(rx: &Receiver<Snapshot>, d: Duration) -> Vec<Snapshot> {
+    let end = Instant::now() + d;
+    std::iter::from_fn(|| {
+        rx.recv_timeout(end.saturating_duration_since(Instant::now()))
+            .ok()
+    })
+    .collect()
+}
+
+fn playing(fake: &FakeEngine, state: u64, time: f64) {
+    fake.set(json!({"playbackState": state, "applied": 1}), Some(time));
+}
+
+#[test]
+fn a_start_whose_position_never_moves_raises_an_error_within_the_bound_and_clears_when_it_moves() {
+    let fake = FakeEngine::default();
+    playing(&fake, 2, 0.0);
+    let f = fake.clone();
+    let (tx, rx, _) = spawn_fake_stalling_after(move || Ok(f), SNAPSHOT_EVERY, STALL);
+    let sent = Instant::now();
+    tx.send(Command::Play).unwrap();
+    wait_for(&rx, stalled);
+    let took = sent.elapsed();
+    assert!(
+        took >= STALL && took < STALL + Duration::from_secs(1),
+        "{took:?}"
+    );
+    for t in [0.1, 0.2, 0.3] {
+        playing(&fake, 2, t);
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    let after = wait_for(&rx, |s| s.position == Some(0.3));
+    assert_eq!(after.error, None);
+}
+
+#[test]
+fn advancing_playback_a_pause_and_a_seek_after_playback_started_never_raise_it() {
+    let fake = FakeEngine::default();
+    playing(&fake, 2, 0.0);
+    let f = fake.clone();
+    let (tx, rx, _) = spawn_fake_stalling_after(move || Ok(f), SNAPSHOT_EVERY, STALL);
+    tx.send(Command::Play).unwrap();
+    for i in 1..20 {
+        playing(&fake, 2, i as f64 * 0.05);
+        std::thread::sleep(Duration::from_millis(30));
+    }
+    tx.send(Command::Seek(120.0)).unwrap();
+    playing(&fake, 1, 120.0);
+    assert!(
+        !snapshots_for(&rx, STALL * 3).iter().any(stalled),
+        "advancing play or a long seek raised it"
+    );
+    tx.send(Command::Play).unwrap();
+    tx.send(Command::Pause).unwrap();
+    playing(&fake, 3, 120.0);
+    assert!(
+        !snapshots_for(&rx, STALL * 3).iter().any(stalled),
+        "a pause raised it"
+    );
 }
