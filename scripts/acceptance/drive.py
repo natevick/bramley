@@ -42,12 +42,17 @@ def leak_grep(out):
         playlist, _ = largest_playlist(cs.REAL_CONFIG)
         note_names(s9.every(f'/v1/me/library/playlists/{playlist}/tracks', tokens)[0], 'library')
         note_names(s9.api(f'/v1/catalog/us/albums/{ALBUM_ID}/tracks', tokens), 'catalog')
-    in_tree = lambda n: subprocess.run(['git', 'grep', '-q', '-i', '-w', '-F', n, 'main', 'HEAD', '--', '.'], cwd=ROOT).returncode == 0
-    in_base = {n for n in NAMES['library'] | NAMES['catalog'] if in_tree(n)}
-    private, every = sorted(NAMES['library'] - in_base) + fragments, sorted((NAMES['library'] | NAMES['catalog']) - in_base) + fragments
+    try:
+        words = {w.strip().lower() for w in open('/usr/share/dict/words')}
+    except OSError:
+        words = set()
+    allowed = gate.allowlisted()
+    exempt = {n for n in NAMES['library'] | NAMES['catalog'] if gate.leak_exempt(n, words, allowed)}
+    private, every = sorted(NAMES['library'] - exempt) + fragments, sorted((NAMES['library'] | NAMES['catalog']) - exempt) + fragments
     git = lambda *args: subprocess.run(['git', *args], cwd=ROOT, capture_output=True, text=True).stdout
     repo = '\n'.join([line for line in git('diff', 'main...HEAD').splitlines() if line.startswith('+')] + [git('log', 'main..HEAD', '--format=%B')]).lower()
-    count = lambda body, needles: sum(len(re.findall(rf'(?<![a-z0-9]){re.escape(n.lower())}(?![a-z0-9])', body)) for n in needles)
+    tree_hits = sum(len(git('grep', '-n', '-i', '-w', '-F', n, 'HEAD', '--', '.').splitlines()) for n in private)
+    count = gate.count_names
 
     def walk():
         files = []
@@ -57,18 +62,19 @@ def leak_grep(out):
         return files, count('\n'.join(files).lower(), every)
 
     files, run_hits = walk()
-    hits = {'repo': count(repo, private), 'run': run_hits}
+    hits = {'repo': count(repo, private) + tree_hits, 'run': run_hits}
     plant = os.path.join(out, 'leak-plant.txt')
-    planted = False
+    planted_run = False
     if private:
         with os.fdopen(os.open(plant, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), 'w') as f:
             f.write(private[0])
         try:
-            planted = walk()[1] == run_hits + 1 and bool(repo.strip())
+            planted_run = walk()[1] == run_hits + 1
         finally:
             os.remove(plant)
-    gate.save(out, 'leakgrep.json', {'libraryNames': len(NAMES['library']), 'libraryNamesInBase': len(in_base), 'catalogNames': len(NAMES['catalog']), 'tokenFragments': len(fragments),
-                                     'runFiles': len(files), 'hits': hits, 'plantedCaught': planted})
+    gate.save(out, 'leakgrep.json', {'libraryNames': len(NAMES['library']), 'catalogNames': len(NAMES['catalog']), 'exempt': len(exempt), 'exemptByAllowlist': len(allowed & {gate.hashlib.sha256(n.lower().encode()).hexdigest() for n in exempt}),
+                                     'tokenFragments': len(fragments), 'runFiles': len(files), 'treeHits': tree_hits, 'hits': hits,
+                                     'plantedRun': planted_run, 'plantedRepo': gate.repo_plant(repo, private, count(repo, private))})
 
 
 class Cotenants(threading.Thread):

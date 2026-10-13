@@ -1,4 +1,4 @@
-import glob, json, math, os, statistics
+import glob, hashlib, json, math, os, re, statistics
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 REFERENCE = {'binary': os.path.join(ROOT, 'target', 'reference', 'bramley-main-4961e27'), 'sha256': '1a72eb4b2880ac5a', 'pss': 88.6}
@@ -44,6 +44,28 @@ def preflight(exclude=lambda pid: False, standing=None):
         if pid != os.getpid() and not exclude(pid) and (comm in ('weston', 'bramley') or (libs and not allowed)):
             found.append(f'{pid} {comm} {libs}')
     return found
+
+
+ALLOWLIST = os.path.join(ROOT, 'scripts', 'acceptance', 'leak-allowlist.sha256')
+
+
+def count_names(body, needles):
+    return sum(len(re.findall(rf'(?<![a-z0-9]){re.escape(n.lower())}(?![a-z0-9])', body)) for n in needles)
+
+
+def allowlisted(path=ALLOWLIST):
+    try:
+        return {line.split()[0] for line in open(path) if line.strip()}
+    except OSError:
+        return set()
+
+
+def leak_exempt(name, words, allowed):
+    return (len(name.split()) == 1 and name.lower() in words) or hashlib.sha256(name.lower().encode()).hexdigest() in allowed
+
+
+def repo_plant(repo, needles, hits):
+    return bool(needles) and count_names(repo + '\n' + needles[0].lower(), needles) == hits + 1
 
 
 def load(out, name):
@@ -562,7 +584,7 @@ def verdict(out):
          'weston': weston_renderer(out), 'errors': load(out, 'errors.json') or {}, 'screenshots': (load(out, 'screenshots.json') or {})}
     real, leaks = load(out, 'realstate.json') or {}, load(out, 'leakgrep.json') or {}
     v['realStateUnchanged'] = bool(real) and real.get('before', {}).get('keyringItems') is not None and real.get('before') == real.get('after')
-    v['leakGrep'] = dict(leaks, clean=leaks.get('hits') == {'repo': 0, 'run': 0} and leaks.get('plantedCaught') is True and (leaks.get('runFiles') or 0) > 0 and (leaks.get('libraryNames') or 0) > 0)
+    v['leakGrep'] = dict(leaks, clean=leaks.get('hits') == {'repo': 0, 'run': 0} and leaks.get('plantedRun') is True and leaks.get('plantedRepo') is True and (leaks.get('runFiles') or 0) > 0 and (leaks.get('libraryNames') or 0) > 0)
     v['phaseErrors'] = {k: e for k, e in v['errors'].items() if not e.startswith('RuntimeError: skipped: the guard fired')}
     safe = v['realStateUnchanged'] and v['leakGrep']['clean'] and not v['phaseErrors']
     if build.get('mode') == 'controls':

@@ -89,7 +89,7 @@ def write_valid(out, renderer=RADEONSI, mode='counted'):
     real = {'tokenMtimeNs': 1, 'tokenSize': 300, 'keyringItems': [], 'cache': None, 'config': {'developer-token': [1, 2]}}
     w('realstate.json', {'before': real, 'after': real})
     w('cotenants.json', {'polls': 600, 'seen': []})
-    w('leakgrep.json', {'libraryNames': 34, 'catalogNames': 40, 'tokenFragments': 6, 'runFiles': 90, 'hits': {'repo': 0, 'run': 0}, 'plantedCaught': True})
+    w('leakgrep.json', {'libraryNames': 34, 'catalogNames': 40, 'tokenFragments': 6, 'runFiles': 90, 'hits': {'repo': 0, 'run': 0}, 'plantedRun': True, 'plantedRepo': True})
 
 
 def edit(name, fn):
@@ -446,7 +446,8 @@ class Verdict(unittest.TestCase):
                              ('config only', edit('realstate.json', lambda d: d['after'].__setitem__('config', {'developer-token': [3, 2]}))),
                              ('unread keyring', edit('realstate.json', lambda d: [d[k].__setitem__('keyringItems', None) for k in d])),
                              ('missing', remove('realstate.json')), ('a name in the run', put('leakgrep.json', hits={'repo': 0, 'run': 1})),
-                             ('a name in the repo', put('leakgrep.json', hits={'repo': 2, 'run': 0})), ('a grep that cannot fail', put('leakgrep.json', plantedCaught=False)),
+                             ('a name in the repo', put('leakgrep.json', hits={'repo': 2, 'run': 0})), ('a run grep that cannot fail', put('leakgrep.json', plantedRun=False)),
+                             ('a repo grep that cannot fail', put('leakgrep.json', plantedRepo=False)), ('an old single-plant record', put('leakgrep.json', plantedRun=None, plantedRepo=None, plantedCaught=True)),
                              ('no grep', remove('leakgrep.json')), ('a grep that read no files', put('leakgrep.json', runFiles=0)), ('a grep with no library names', put('leakgrep.json', libraryNames=0)),
                              ('a phase raised', lambda out: gate.save(out, 'errors.json', {'browse': 'RuntimeError: boom'}))):
             with self.subTest(name):
@@ -501,6 +502,38 @@ def write_controls(out):
     edit('stall.stall.json', lambda d: d['after'].__setitem__('outputUnderflows', 1))(out)
     gate.save(out, 'guardtest.json', {'defaultBefore': 'iec958', 'defaultAfter': 'iec958', 'wrongSinkPresent': True, 'appGone': True, 'wrongSinkSeen': True,
                                       'killed': "stream linked to ['bramley-gate-wrong-null-x']"})
+
+
+class LeakGrep(unittest.TestCase):
+    def test_names_match_as_whole_words_only(self):
+        self.assertEqual(gate.count_names('worktrees and trees; tree-trees', ['Trees']), 2)
+        self.assertEqual(gate.count_names('see trees', ['trees', 'see trees']), 2)
+
+    def test_only_single_dictionary_words_and_allowlisted_hashes_are_exempt(self):
+        words, digest = {'running', 'first', 'time'}, __import__('hashlib').sha256(b'first time').hexdigest()
+        self.assertTrue(gate.leak_exempt('Running', words, set()))
+        self.assertFalse(gate.leak_exempt('First Time', words, set()))
+        self.assertTrue(gate.leak_exempt('First Time', words, {digest}))
+        self.assertTrue(gate.leak_exempt('FIRST TIME', set(), {digest}))
+        self.assertFalse(gate.leak_exempt('Zxqv', words, {digest}))
+
+    def test_the_allowlist_is_read_as_hashes_and_a_missing_file_exempts_nothing(self):
+        os.makedirs(SCRATCH, exist_ok=True)
+        self.addCleanup(shutil.rmtree, SCRATCH, True)
+        path = os.path.join(SCRATCH, 'allow.sha256')
+        open(path, 'w').write('aa11 catalog-constant\n\nbb22 ordinary-phrase\n')
+        self.assertEqual((gate.allowlisted(path), gate.allowlisted(path + '.gone')), ({'aa11', 'bb22'}, set()))
+
+    def test_the_committed_allowlist_holds_hashes_and_kinds_only(self):
+        rows = [line.split() for line in open(os.path.join(HERE, 'leak-allowlist.sha256')) if line.strip()]
+        self.assertTrue(rows)
+        self.assertTrue(all(len(r) == 2 and len(r[0]) == 64 and r[1] in ('catalog-constant', 'ordinary-phrase', 'test-constant') for r in rows), rows)
+
+    def test_the_repo_plant_works_on_an_empty_diff_and_needs_exactly_one_more_hit(self):
+        self.assertTrue(gate.repo_plant('', ['secret one'], 0))
+        self.assertTrue(gate.repo_plant('notes about secret one', ['secret one'], 1))
+        self.assertFalse(gate.repo_plant('notes about secret one', ['secret one'], 0))
+        self.assertFalse(gate.repo_plant('', [], 0))
 
 
 class Preflight(unittest.TestCase):
