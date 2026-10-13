@@ -251,3 +251,27 @@ Rules: PREREG Amendment 7, committed before any code. No signed-in run was possi
 3. The in-launch ballast residual falls within 3.0 MiB, and `ballastMiB` is confirmed.
 4. The bad-token control's F4 banners read "developer token was rejected" (this depends on the 401 landing before the play's snapshot).
 5. A fresh counted pair plus `--controls` at this commit or later.
+
+### S14c review round (`scratch/review-s14c.md`; rules: PREREG Amendment 7a)
+Amendment 7a supersedes the R3 and stall bullets above. R3 now gates `outputUnderflows` Δ = 0, `readinessDips` Δ = 0 (the old rule, kept) and pacing. The stall control needs an underflow **and** a lag. The "(a)" text above, which says `readinessDips` is reported, not gated, is replaced.
+
+| # | Finding | Status | Evidence |
+|---|---|---|---|
+| 1 | Stall control held on either signal, so a dead counter passed | **fixed** | holds = lag > 1.0 s **and** `outputUnderflows` Δ ≥ 1. The test covers both / underflow only / lag only with a dead counter. Mutants: "on either signal", "ignores output underflows", "ignores pacing" are all killed |
+| 2 | Amendment 7 demoted the counter that FAILed fix-2 and fix-3 | **fixed** by 7a | R3 gates `readinessDips` again, with rows "a readiness dip" and "unreadable" and 2 mutants. "If anything it can add FAILs" is withdrawn in 7a. acceptance.md is unchanged |
+| 3 | Stale developer banner after renewal hid Sign in | **fixed** | The banner holds only while `peek()` equals the rejected token, which covers both renewal paths. It outranks only no banner or SignInNeeded. Sign in shows whenever playback is SignInNeeded. The 3 new tests (the reviewer's probe as the renewal test) fail at 39e337c and pass now; 4 Rust mutants killed |
+| 4 | Drain or seek underflows not diagnosable from one run | **fixed** | R3 `underflowEvents`: time, item, position, count, `drainsAcked`, last seek. Run against a stub only |
+| 5 | No `UNDERFLOW` after create, flush or uncork | **named** | Amendment 7a; it is why pacing stays ANDed |
+| 6 | Counts lost when a sink is dropped | **fixed** | `collect_underflows` runs before both drops and at retirement. 3 tests; 4 Rust mutants killed |
+| 7 | No channel filter on `UNDERFLOW` | **declined** | Each Pulse connection carries exactly one playback stream (`open()` creates one stream per `PulseSink`), so an `UNDERFLOW` on the connection can only be ours. The reviewer agrees it is unreachable |
+| 8 | `readable_delta` reads only the first and last samples | **declined** | R3 never issues `play` mid-soak (the driver only seeks), so the engine generation cannot reset inside the window. pid and process count are already gated. Every counted run had `engine` = {1} |
+| 9 | Ballast `oneLaunch` vacuous without pids; pre window unchecked | **fixed** | Every sample must carry the session's pid. The pre window gets R1's row rules (count, Playing with no banner, ≥ 50 covers, 1 process). 7 rows; 7 mutants killed |
+
+**Correction to commit 29ef019:** its body says "mutants.py +6". It added 5 new mutants, replaced 1 and updated 2. History is not rewritten.
+
+**Gate mutation after this round:** `mutants.py` 127 of 127 killed, no-op survived (117 before the round).
+
+**Still owed live**, in addition to the list above:
+- the stall control must show **both** an underflow and a lag;
+- R3 `readinessDips` on main (expected to fall after e11055a); if dips persist with no lag, the coordinator takes the data to Nate;
+- `underflowEvents` must be populated if any underflow occurs.
