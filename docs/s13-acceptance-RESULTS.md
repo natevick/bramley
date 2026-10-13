@@ -167,3 +167,75 @@ What was skipped: the previous song's queued audio, flushed at the switch. The n
 - **Limit:** F9 judges only its last rep, so first-audible positions exist for that rep only, one per run.
 
 **Decision, 2026-10-12, coordinator (Norm): APPROVED.** The skipped audio is the previous item's queue, flushed before the new item is audible. The new item starts within ~0.2 s of the cold-play range, so the head is not cut, and Amendment 5 measures the property F4/F9 actually name. The loosening is kept on the record. If a future run shows the new item first audible at ≥ 1.0 s, this approval is void and the cause is investigated as a cut head.
+
+## S14c (2026-10-12): R3 on output underflows, banner priority, in-launch ballast; F3 and fix-1 findings
+Rules: PREREG Amendment 7, committed before any code. No signed-in run was possible: Apple refuses the real user token (HTTP 403 on `/v1/me/storefront`), so nothing below was run live.
+
+**(a) R3 gates output starvation.**
+- The engine counts PulseAudio `UNDERFLOW` (command 63: channel, then `s64` offset from protocol v23) reported by the server for our stream. It shows in the status as `outputUnderflows`. The readiness-dip counter keeps its meaning, renamed `readinessDips`.
+- R3 FAILs on any `outputUnderflows` rise from the first sample to the last, or when either sample lacks the counter. Pacing is unchanged; `readinessDips` is reported, never gated.
+- The stall control holds on an underflow and/or a pacing lag.
+- **Tests:**
+  - a fake Pulse server sends `UNDERFLOW` and exactly 1 is counted, with no failure;
+  - the media element adds every underflow its sink reports;
+  - slot order runs through `output_counts`, the snapshot and the status keys.
+- **Harness:** 7 new matrix rows and 1 stall test in `test_gate.py`, and 13 new mutants.
+
+**(b) Banner priority.**
+- `banner()` now ranks the developer-token-rejected banner above the playback banner.
+- **A second cause, found by the test:** a `SignInNeeded` snapshot reset the cover grid, which wiped its `developer_rejected` flag. The reset now keeps the flag. Reverting either change alone brings `SignInNeeded` back.
+- The bad-token control now expects "developer token was rejected" in every F4 banner.
+
+**(c) Ballast in one launch.**
+- The gate-sabotage build allocates nothing at start. It touches the ballast once, when the file named by `BRAMLEY_GATE_BALLAST_FILE` appears, and reports `ballastMiB`.
+- The harness takes an R1 window, writes the trigger atomically, waits for `ballastMiB` to match, then takes the judged window. The rise is post − pre in one pid; the expected rise is size + kept covers added between the windows.
+- The tolerance stays 3.0 MiB, and the sizing rule is unchanged.
+
+**Mutation (all under the GPU lock):**
+- **Rust:** 12 of 12 killed, and the no-op survived. Each test below fails without its fix.
+
+| Mutant | Killed by |
+|---|---|
+| `UNDERFLOW` arm removed from the reader | `an_underflow_the_server_sends_is_counted_and_is_not_a_failure` |
+| underflow not counted / never taken | same |
+| `pump` never harvests; harvest overwrites | `every_server_underflow_the_sink_reports_is_counted_once` |
+| `output_counts` slots swapped | `output_counts_keep_each_counter_in_its_own_slot` |
+| snapshot slots swapped | `snapshots_use_native_time_and_map_errors_redacted` |
+| status keys swapped | `engine_counts_reach_their_own_status_keys` |
+| banner order reverted; reset forgets the rejection | `a_rejected_developer_token_outranks_sign_in_needed_from_playback` |
+| ballast re-arms; ballast pages untouched | `the_ballast_sabotage_touches_its_size_once_when_its_trigger_appears` |
+
+- **Gate (`mutants.py`):** 117 of 117 killed, and the no-op survived. The baseline was 106.
+
+**(d) F3 in fix-3: one CLI search hit the 3 s window. Finding: a single slow HTTP response to Apple, not our queue or IPC; not fixable from this evidence.**
+- **The CLI and IPC path delivered the request.** 4,004 ms is exactly `APPLY_TIME` (3 s) + `REPLY_MARGIN` (1 s): the app's instance handler accepted the line, queued it and waited out its full window (`cli.rs` `handler`). A transport failure would have returned at once.
+- **The app ran the search, late.** The Search view showed that search's results (`seq` moved, results > 0) 5,287 ms after the command.
+- **Not the worker queue.**
+  - A CLI search queues two jobs on the single API worker: the CLI's, then the Search view's (`enter()` makes the view's job due at once).
+  - In the other 49 reps across ten runs, view − CLI was 159–294 ms, one request apart.
+  - Nothing else was queued: the driver waits for the sidebar's single playlist page (34 of 34, no more), songs, albums and artists had 0 pages, covers use their own art agent, and MCP (F9) ran after F3.
+  - So one HTTP call took about 5 s.
+- **Not a dead pooled socket.** fix-3's binary (75f937c) contains neither B1 pool fix (a364e62, 16ecf45 are not its ancestors). In that binary:
+  - a silently dead pooled socket ends in the 15 s global timeout;
+  - a reset one errors at once.
+  - Neither ends in a success after about 5 s, and main's B1 fixes don't change a slow response that succeeds.
+- **What remains:** Apple's response or the network path (connect, TLS). The shipped build logs no per-request timing, so these can't be told apart. It occurred in 1 of 50 CLI searches across ten runs; the other 49 took 144–469 ms. IPv6 to the API fails in 1 ms here (no route), so no v6 connect hang is in play.
+- **Routed, not fixed (ours, still on main):** the CLI reports "the command was not applied", yet for a search the app went on and showed the results. The message is wrong for API requests.
+
+**(e) fix-1's frozen `seq`: finding: not a frozen `seq`; consistent with, but not shown to be, race 3.**
+- **`seq` 85 includes every R3 command.** Counting the shipped session's commands: R1 2, warm F4 10, F5 40, F6 8, F8 6, R3 19 = 85. So the 18 R3 commands (`play` + 17 `queue add`) were all registered, and `applied` reached 85.
+- **`applied` does not prove effect.** `player.js` starts each command's turn after at most `commandWaitMs` (5 s), even if the previous MusicKit promise never settled, and raises `applied` then. A MusicKit that never settles still lets `applied` reach `seq`, with no banner.
+- **Where it stopped:** F8 saw only its first item (album track 10), then ran out its 120 s. Every R3 sample, from minute 0 to 30, was `Stopped`, with no item and no queue length.
+- **Race 3 (S14b) is a permanent `Loading` with the item present and the position frozen at a preload.** fix-1 recorded no F8 snapshots, so whether it passed through `Loading` at that transition is unknown. The end state (`Stopped`, no item) is not the registered race-3 signature.
+- **For race 3:**
+  - the failure began at an item transition right after a seek to duration − 5, which is where race 3 fires;
+  - fix-1's binary (5fae888) predates S14b's HTTP cache (5438da1 is not its ancestor).
+- **Against race 3, or unexplained:** the subsequent fresh `setQueue` + `play` never brought MusicKit back. Race 3 as S14b traced it stalls one preload; it does not explain a new queue that never starts.
+- **Verdict:** unproven. Next time, the queue replies Amendment 5 now records and an F8 snapshot series would settle it.
+
+**Live checks still owed** (need Nate's fresh sign-in):
+1. The stall control fires on `outputUnderflows` (≥ 1) as well as on pacing, and its stated reason reads "output underflow and/or pacing lag".
+2. R3 on main: `outputUnderflows` stays 0 across seeks on pipewire-pulse 1.6.2, and `readinessDips` is reported. Any underflow clustered at seeks or drains is investigated (Amendment 7).
+3. The in-launch ballast residual falls within 3.0 MiB, and `ballastMiB` is confirmed.
+4. The bad-token control's F4 banners read "developer token was rejected" (this depends on the 401 landing before the play's snapshot).
+5. A fresh counted pair plus `--controls` at this commit or later.
