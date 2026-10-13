@@ -88,6 +88,10 @@ impl Paged {
         }
     }
 
+    fn idle(&self, now: Instant) -> bool {
+        self.wanted && self.busy_until.is_none_or(|until| now >= until)
+    }
+
     fn complete(&self) -> bool {
         self.pages > 0 && self.next.is_none()
     }
@@ -157,6 +161,18 @@ impl Library {
         }
     }
 
+    fn owner_for(&self, list: List) -> Option<String> {
+        match list {
+            List::ArtistSongs => self.unread_album(),
+            _ => Some(self.owner(list).to_owned()),
+        }
+    }
+
+    fn due(&self, list: List, now: Instant) -> bool {
+        let paged = self.list(list);
+        paged.idle(now) && paged.call(list, self.owner_for(list)).is_some()
+    }
+
     fn more(&self, list: List) -> bool {
         match list {
             List::ArtistSongs => {
@@ -203,13 +219,9 @@ impl Library {
         }
         let mut jobs = Vec::new();
         for list in LISTS {
-            let owner = match list {
-                List::ArtistSongs => self.unread_album(),
-                _ => Some(self.owner(list).to_owned()),
-            };
+            let owner = self.owner_for(list);
             let paged = &mut self.lists[list as usize];
-            let idle = paged.wanted && paged.busy_until.is_none_or(|until| now >= until);
-            let Some(call) = paged.call(list, owner).filter(|_| idle) else {
+            let Some(call) = paged.call(list, owner).filter(|_| paged.idle(now)) else {
                 continue;
             };
             self.sent += 1;
@@ -498,7 +510,7 @@ fn fetcher(waker: egui::Context) -> (Queued, Receiver<Decoded>) {
     let (queued, (tx, rx)) = (Queued::default(), channel());
     let jobs = queued.clone();
     let fetch = move || {
-        let (agent, tally) = (covers::agent(), Tally::default());
+        let (mut agent, tally) = (covers::agent(), Tally::default());
         loop {
             let mut waiting = jobs
                 .1
@@ -507,7 +519,7 @@ fn fetcher(waker: egui::Context) -> (Queued, Receiver<Decoded>) {
             let (key, url, px) = waiting.0.pop().expect("a queued cover");
             waiting.1.insert(key.clone());
             drop(waiting);
-            let image = covers::cover(&agent, &url, px, &tally).ok();
+            let image = covers::cover(&mut agent, &url, px, &tally).ok();
             if tx.send((key, image)).is_err() {
                 return;
             }
@@ -703,7 +715,7 @@ fn view(
         let total = lib.built.0 + built;
         lib.built = (total, lib.built.1.max(total), range.end);
     });
-    if scroll.is_some() && lib.list(list).wanted {
+    if scroll.is_some() && lib.due(list, Instant::now()) {
         ui.ctx().request_repaint();
     }
     #[cfg(feature = "dev")]

@@ -14,12 +14,13 @@ pub const APP_ID: &str = "bramley";
 pub const USAGE: i32 = 2;
 pub const NOT_RUNNING: i32 = 3;
 pub const REFUSED: i32 = 5;
+const MAX_ID: usize = 64;
 const APPLY_TIME: Duration = Duration::from_secs(3);
 const REPLY_MARGIN: Duration = Duration::from_secs(1);
 const LIBRARY_VIA_MCP: &str =
     "your library is shared only with an agent you connect through `bramley mcp`";
 const AGENT: &str = "mcp";
-const LATE: &str = "the app did not answer in time; the command was not applied";
+pub(crate) const LATE: &str = "the app did not answer in time; the command was not applied";
 const COMMANDS: &str = "usage: bramley [play [id] | pause | toggle | next | prev | seek <seconds> | volume <0-100> | now | queue add <id> | search <term> | open <view> | scroll top|end | sign-in | sign-out | mcp]";
 
 #[derive(Clone, Debug, PartialEq)]
@@ -77,7 +78,9 @@ pub fn parse(args: &[String]) -> Result<Request> {
 fn route(view: &str) -> Result<Route> {
     let id = view.split_once(':').map(|(_, id)| id);
     match Route::parse(view) {
-        Some(route) if id.is_none_or(bramley_api::segment) => Ok(route),
+        Some(route) if id.is_none_or(|id| id.len() <= MAX_ID && bramley_api::segment(id)) => {
+            Ok(route)
+        }
         _ => bail!(
             "open needs home, search, playlists, albums, songs, artists, playlist:<id>, album:<id> or artist:<id>, not {view:?}"
         ),

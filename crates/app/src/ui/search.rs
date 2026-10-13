@@ -293,12 +293,14 @@ fn fetcher(
 ) -> Option<Sender<Wanted>> {
     let (jobs, queue) = channel::<Wanted>();
     let fetch = move || {
-        let (agent, tally) = (covers::agent(), Tally::default());
+        let (mut agent, tally) = (covers::agent(), Tally::default());
         let live = queue
             .into_iter()
             .filter(|job| job.0 == current.load(Ordering::SeqCst));
         for (set, key, url, px) in live {
-            let image = catch_unwind(AssertUnwindSafe(|| covers::cover(&agent, &url, px, &tally)));
+            let image = catch_unwind(AssertUnwindSafe(|| {
+                covers::cover(&mut agent, &url, px, &tally)
+            }));
             if let Ok(Ok(image)) = image {
                 let _ = done.send((set, key, image));
                 waker.request_repaint();

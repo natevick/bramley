@@ -542,7 +542,8 @@ mod search {
         while !done() && Instant::now() < end {
             std::thread::sleep(Duration::from_millis(10));
         }
-        let fetched = seen.lock().unwrap().clone();
+        let mut fetched = seen.lock().unwrap().clone();
+        fetched.dedup();
         assert_eq!(fetched.len(), 2, "{fetched:?}");
     }
 

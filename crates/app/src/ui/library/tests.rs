@@ -887,3 +887,34 @@ fn scroll_end_pages_in_the_whole_list_then_lets_go_and_top_and_a_wheel_end_it() 
         "a wheel turn takes scrolling back from the pin"
     );
 }
+
+#[test]
+fn a_pinned_scroll_end_repaints_only_while_a_page_can_be_sent() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    let mut scroll = Some(Edge::End);
+    let mut delay = |lib: &mut Library| {
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))),
+            ..RawInput::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| {
+            show(
+                ui,
+                lib,
+                (&Route::Songs, &mut scroll),
+                (&mut vec![], &mut vec![]),
+            )
+        });
+        out.textures_delta.clear();
+        out.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+    };
+    assert_eq!(delay(&mut lib), Duration::ZERO, "the first page is due");
+    let job = lib.tick(now, true, || {}).remove(0);
+    (job.done)(Err(Error::Network("down".into())));
+    lib.receive(&egui::Context::default());
+    let seen: Vec<_> = (0..4).map(|_| delay(&mut lib)).collect();
+    assert!(
+        seen[3] > Duration::from_secs(1),
+        "a failed page waits its backoff: {seen:?}"
+    );
+}

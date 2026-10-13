@@ -543,6 +543,8 @@ fn cli_arguments_parse_into_requests_and_bad_ones_are_usage_errors() {
         ("scroll end", Request::Nav(Nav::Scroll(Edge::End))),
         ("scroll top", Request::Nav(Nav::Scroll(Edge::Top))),
     ];
+    let longest = format!("open playlist:p.{}", "x".repeat(62));
+    assert!(parse(&words(&longest)).is_ok() && parse(&words(&format!("{longest}x"))).is_err());
     for (line, request) in cases {
         assert_eq!(parse(&words(line)).unwrap(), request, "{line:?}");
     }
@@ -1174,7 +1176,8 @@ fn covers_need_a_storefront_200_and_a_refusal_reads_as_sign_in() {
             error,
             "{me}"
         );
-        assert_eq!(fx.paths(), ["/v1/me/storefront"], "{me}");
+        let tries = if me == 0 { 2 } else { 1 };
+        assert_eq!(fx.paths(), vec!["/v1/me/storefront"; tries], "{me}");
     }
 }
 
@@ -1263,11 +1266,19 @@ fn charts(fx: &Fixture) -> usize {
         .count()
 }
 
-fn charts_after(fx: &Fixture, grid: &mut Grid, ctx: &egui::Context, probe: (u64, bool)) -> usize {
-    let at = Instant::now() + Duration::from_secs(probe.0);
-    grid.retry(ctx, at, probe.1);
-    std::thread::sleep(Duration::from_millis(300));
-    charts(fx)
+fn charts_after(
+    fx: &Fixture,
+    grid: &mut Grid,
+    ctx: &egui::Context,
+    (secs, visible): (u64, bool),
+) -> (bool, usize) {
+    let before = charts(fx);
+    let started = grid.retry(ctx, Instant::now() + Duration::from_secs(secs), visible);
+    let until = Instant::now() + Duration::from_secs(5);
+    while started && charts(fx) == before && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    (started, charts(fx))
 }
 
 #[test]
@@ -1284,13 +1295,17 @@ fn a_failed_chart_is_retried_after_5_then_30_then_60_s_only_while_home_shows() {
     for (tries, wait) in [(1, 5), (2, 30), (3, 60), (4, 60)] {
         settle(&mut grid, &ctx);
         assert_eq!((grid.uploaded(), charts(&fx)), (0, tries));
-        assert_eq!(charts_after(&fx, &mut grid, &ctx, (wait - 1, true)), tries);
-        assert_eq!(charts_after(&fx, &mut grid, &ctx, (wait, false)), tries);
-        assert_eq!(charts_after(&fx, &mut grid, &ctx, (wait, true)), tries + 1);
+        let early = charts_after(&fx, &mut grid, &ctx, (wait - 1, true));
+        let hidden = charts_after(&fx, &mut grid, &ctx, (wait, false));
+        let due = charts_after(&fx, &mut grid, &ctx, (wait, true));
+        assert_eq!(
+            [early, hidden, due],
+            [(false, tries), (false, tries), (true, tries + 1)]
+        );
     }
     settle(&mut grid, &ctx);
     assert_eq!((grid.uploaded(), grid.failed()), (50, None));
-    assert_eq!(charts_after(&fx, &mut grid, &ctx, (3600, true)), 5);
+    assert_eq!(charts_after(&fx, &mut grid, &ctx, (3600, true)), (false, 5));
     std::fs::remove_dir_all(&config).unwrap();
 }
 
@@ -1299,21 +1314,29 @@ fn a_chart_retry_waits_out_retry_after_and_stops_on_a_403_or_sign_out() {
     let serve = |me, chart| Serve { me, chart, ..SERVE };
     let (mut limited, fx, ctx) = load_covers(serve(200, 429), true);
     let config = fixture_source(&fx, true).1;
-    assert_eq!(charts_after(&fx, &mut limited, &ctx, (44, true)), 1);
-    assert_eq!(charts_after(&fx, &mut limited, &ctx, (45, true)), 2);
+    assert_eq!(
+        charts_after(&fx, &mut limited, &ctx, (44, true)),
+        (false, 1)
+    );
+    assert_eq!(charts_after(&fx, &mut limited, &ctx, (45, true)), (true, 2));
     std::fs::remove_dir_all(&config).unwrap();
     let mut asked = Vec::new();
-    for (me, chart, sign_out) in [(200, 403, false), (403, 200, false), (200, 503, true)] {
+    for (me, chart, sign_out) in [
+        (200, 403, false),
+        (403, 200, false),
+        (200, 503, true),
+        (200, 401, false),
+    ] {
         let (mut grid, fx, ctx) = load_covers(serve(me, chart), true);
         let config = fixture_source(&fx, true).1;
         if sign_out {
             grid.follow(&ctx, false);
         }
-        charts_after(&fx, &mut grid, &ctx, (3600, true));
+        let (started, _) = charts_after(&fx, &mut grid, &ctx, (3600, true));
         std::fs::remove_dir_all(&config).unwrap();
-        asked.push(fx.paths().len());
+        asked.push((started, fx.paths().len()));
     }
-    assert_eq!(asked, [2, 1, 2]);
+    assert_eq!(asked, [(false, 2), (false, 1), (false, 2), (false, 2)]);
 }
 
 #[test]
@@ -2312,28 +2335,73 @@ fn cli_open_moves_the_window_like_a_click_and_scroll_is_refused_outside_a_list()
         (inbox, true),
         None,
     );
-    let mut ask = |request| {
+    let mut ask = |request, late: bool| {
         let (reply, answered) = channel();
-        inbox_tx
-            .send((request, Instant::now() + Duration::from_secs(5), reply))
-            .unwrap();
+        let deadline = match late {
+            true => Instant::now() - Duration::from_millis(1),
+            false => Instant::now() + Duration::from_secs(5),
+        };
+        inbox_tx.send((request, deadline, reply)).unwrap();
         app.pump(&ctx);
         let reply: serde_json::Value = serde_json::from_str(&answered.recv().unwrap()).unwrap();
-        (
-            reply["route"].clone(),
-            reply["error"]
-                .as_str()
-                .map(|e| e.starts_with("scroll works")),
-        )
+        let error = reply["error"]
+            .as_str()
+            .map(|e| e.split(' ').next().unwrap().to_owned());
+        (reply["route"].clone(), error)
     };
-    let refused = ask(Request::Nav(Nav::Scroll(Edge::End)));
-    let opened = ask(Request::Nav(Nav::Go(Route::Playlist("p.1".into()))));
-    let scrolled = ask(Request::Nav(Nav::Scroll(Edge::End)));
-    assert_eq!(refused, (json!("Home"), Some(true)));
+    let refused = ask(Request::Nav(Nav::Scroll(Edge::End)), false);
+    let late = ask(Request::Nav(Nav::Go(Route::Songs)), true);
+    let opened = ask(Request::Nav(Nav::Go(Route::Playlist("p.1".into()))), false);
+    let scrolled = ask(Request::Nav(Nav::Scroll(Edge::End)), false);
+    let words = |w: &str| Some(w.to_owned());
+    assert_eq!(
+        (refused, late),
+        (
+            (json!("Home"), words("scroll")),
+            (json!("Home"), words("the"))
+        )
+    );
     assert_eq!(
         (opened, scrolled),
         ((json!("Playlist"), None), (json!("Playlist"), None))
     );
+    let pinned = app.scroll();
+    app.check_sign_in();
+    app.tick(&ctx);
+    assert_eq!(
+        (pinned, app.scroll()),
+        (Some(Edge::End), None),
+        "sign-out drops the pin"
+    );
+}
+
+#[test]
+fn the_app_retries_a_failed_home_chart_only_while_home_is_the_route() {
+    let fx = fixture(Serve {
+        chart: 503,
+        ..SERVE
+    });
+    let (source, config) = fixture_source(&fx, true);
+    let ctx = egui::Context::default();
+    let spawn = spawning(|| Err(anyhow!("no player in this test")));
+    let user = (mock_user(&config), false);
+    let inbox = channel().1;
+    let args = crate::Args::default();
+    let mut app = crate::app::App::new(&ctx, args, spawn, user, (inbox, true), Some(source));
+    app.go(Route::Search);
+    let ticked = |app: &mut crate::app::App, for_ms: u64| {
+        let until = Instant::now() + Duration::from_millis(for_ms);
+        while Instant::now() < until {
+            app.tick(&ctx);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        charts(&fx)
+    };
+    let on_search = ticked(&mut app, 6500);
+    app.go(Route::Home);
+    let on_home = ticked(&mut app, 1000);
+    std::fs::remove_dir_all(&config).unwrap();
+    assert_eq!((on_search, on_home), (1, 2));
 }
 
 #[test]
@@ -2874,4 +2942,46 @@ fn engine_counts_reach_their_own_status_keys() {
     let seen: Vec<_> = keys.iter().map(|k| s[*k].as_u64()).collect();
     let want = [1, 2, 3000, 4000, 5000, 6, 7].map(Some);
     assert_eq!(seen, want);
+}
+
+#[test]
+fn an_art_request_on_a_pooled_socket_that_went_silent_is_retried_fresh_in_about_10_s() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/art.jpg", listener.local_addr().unwrap());
+    let mut jpeg = Vec::new();
+    image::RgbImage::from_pixel(8, 8, image::Rgb([9, 9, 9]))
+        .write_to(
+            &mut std::io::Cursor::new(&mut jpeg),
+            image::ImageFormat::Jpeg,
+        )
+        .unwrap();
+    std::thread::spawn(move || {
+        for (conn, stream) in listener.incoming().take(3).enumerate() {
+            let (mut stream, jpeg) = (stream.unwrap(), jpeg.clone());
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                for n in 0.. {
+                    if reader.read_line(&mut String::new()).unwrap_or(0) == 0 {
+                        return;
+                    }
+                    while reader.read_line(&mut String::new()).unwrap() > 2 {}
+                    if conn == 0 && n == 1 {
+                        std::thread::sleep(Duration::from_secs(30));
+                    }
+                    let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", jpeg.len());
+                    let _ = stream
+                        .write_all(head.as_bytes())
+                        .and_then(|()| stream.write_all(&jpeg));
+                }
+            });
+        }
+    });
+    let (mut agent, tally) = (covers::agent(), covers::Tally::default());
+    assert!(covers::cover(&mut agent, &url, 8, &tally).is_ok());
+    let at = Instant::now();
+    let again = covers::cover(&mut agent, &url, 8, &tally).map(|_| at.elapsed());
+    assert!(
+        matches!(again, Ok(took) if took < Duration::from_secs(13)),
+        "{again:?}"
+    );
 }

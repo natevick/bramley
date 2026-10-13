@@ -12,7 +12,6 @@ use bramley_engine::{redact, user_agent};
 use egui::{ColorImage, TextureHandle, TextureOptions};
 use serde_json::Value;
 
-use crate::ui::library::TOP_UP_RETRIES as BACKOFF;
 use crate::ui::nav::{Nav, Route};
 
 pub const COVER_PT: f32 = 96.0;
@@ -23,6 +22,12 @@ const ART_HOST: &str = ".mzstatic.com";
 const DECODERS: usize = 2;
 const COUNT: usize = 50;
 const MAX_BODY_BYTES: u64 = 4 << 20;
+const RECEIVE_RESPONSE: Duration = Duration::from_secs(10);
+const BACKOFF: [Duration; 3] = [
+    Duration::from_secs(5),
+    Duration::from_secs(30),
+    Duration::from_secs(60),
+];
 
 pub const DEVELOPER_REJECTED: &str = "Bramley's developer token was rejected";
 
@@ -104,9 +109,15 @@ pub fn allowed_art(url: &str, prefix: Option<&str>) -> bool {
 }
 
 pub(crate) fn agent() -> ureq::Agent {
+    configured(10)
+}
+
+fn configured(idle: usize) -> ureq::Agent {
     ureq::Agent::config_builder()
         .user_agent(user_agent())
         .timeout_global(Some(Duration::from_secs(30)))
+        .timeout_recv_response(Some(RECEIVE_RESPONSE))
+        .max_idle_connections(idle)
         .max_redirects(0)
         .http_status_as_error(false)
         .build()
@@ -114,7 +125,7 @@ pub(crate) fn agent() -> ureq::Agent {
 }
 
 fn get(
-    agent: &ureq::Agent,
+    agent: &mut ureq::Agent,
     url: &str,
     headers: &[(&str, &str)],
     tally: &Tally,
@@ -123,10 +134,16 @@ fn get(
         bail!("cancelled");
     }
     tally.requested.fetch_add(1, Ordering::SeqCst);
-    let request = headers
-        .iter()
-        .fold(agent.get(url), |r, (k, v)| r.header(*k, *v));
-    let mut response = request.call()?;
+    let send = |agent: &ureq::Agent| {
+        let request = headers
+            .iter()
+            .fold(agent.get(url), |r, (k, v)| r.header(*k, *v));
+        request.call()
+    };
+    let mut response = send(agent).or_else(|_| {
+        *agent = self::agent();
+        send(&configured(0))
+    })?;
     let status = response.status().as_u16();
     let wait = bramley_api::retry_after(response.headers());
     let body = response
@@ -148,7 +165,7 @@ fn apple_error((status, body, wait): (u16, Vec<u8>, Duration)) -> anyhow::Error 
 }
 
 fn signed_in(
-    agent: &ureq::Agent,
+    agent: &mut ureq::Agent,
     source: &Source,
     bearer: &str,
     user: &str,
@@ -171,7 +188,7 @@ fn signed_in(
 }
 
 fn chart(
-    agent: &ureq::Agent,
+    agent: &mut ureq::Agent,
     source: &Source,
     bearer: &str,
     px: u32,
@@ -184,8 +201,10 @@ fn chart(
         tally,
     )
     .context("chart")?;
-    if status != 200 {
-        return Err(apple_error((status, body, wait)).context("chart"));
+    match status {
+        200 => {}
+        401 => return Err(anyhow!(DeveloperTokenRejected)),
+        _ => return Err(apple_error((status, body, wait)).context("chart")),
     }
     let body: Value = serde_json::from_slice(&body).context("chart")?;
     let albums = body["results"]["albums"][0]["data"]
@@ -204,7 +223,12 @@ fn chart(
     Ok((urls.clone(), albums.len() - urls.len()))
 }
 
-pub(crate) fn cover(agent: &ureq::Agent, url: &str, px: u32, tally: &Tally) -> Result<ColorImage> {
+pub(crate) fn cover(
+    agent: &mut ureq::Agent,
+    url: &str,
+    px: u32,
+    tally: &Tally,
+) -> Result<ColorImage> {
     let (status, bytes, _) = get(agent, url, &[], tally)?;
     match status {
         200 => {}
@@ -226,7 +250,7 @@ pub(crate) fn cover(agent: &ureq::Agent, url: &str, px: u32, tally: &Tally) -> R
 type Chart = (Vec<(usize, String, String)>, usize);
 
 fn load_chart(
-    agent: &ureq::Agent,
+    agent: &mut ureq::Agent,
     source: &Source,
     px: u32,
     tally: &Tally,
@@ -237,7 +261,7 @@ fn load_chart(
     let Some(user) = source.user.load().map_err(|why| anyhow!(why))? else {
         return Ok(None);
     };
-    let attempt = |developer: &str| {
+    let mut attempt = |developer: &str| {
         let bearer = format!("Bearer {developer}");
         let checked = signed_in(agent, source, &bearer, &user, tally).and_then(|ok| {
             ok.then(|| chart(agent, source, &bearer, px, tally))
@@ -272,8 +296,8 @@ pub fn fetch(
     std::thread::Builder::new()
         .name("covers".into())
         .spawn(move || {
-            let agent = agent();
-            match load_chart(&agent, &source, px, &tally) {
+            let mut agent = agent();
+            match load_chart(&mut agent, &source, px, &tally) {
                 Ok(None) => drop(tx.send(Loaded::SignInNeeded)),
                 Err(e) if e.is::<DeveloperTokenRejected>() => {
                     drop(tx.send(Loaded::DeveloperRejected))
@@ -309,7 +333,7 @@ fn decode_on_workers(
 ) {
     let jobs = Arc::new(Mutex::new(urls.into_iter()));
     for n in 0..DECODERS {
-        let (agent, jobs, tx, tally, wake) = (
+        let (mut agent, jobs, tx, tally, wake) = (
             agent.clone(),
             jobs.clone(),
             tx.clone(),
@@ -321,7 +345,7 @@ fn decode_on_workers(
             .spawn(move || {
                 while let Some((index, id, url)) = jobs.lock().unwrap().next() {
                     let decoded =
-                        catch_unwind(AssertUnwindSafe(|| cover(&agent, &url, px, &tally)));
+                        catch_unwind(AssertUnwindSafe(|| cover(&mut agent, &url, px, &tally)));
                     let loaded =
                         match decoded.unwrap_or_else(|_| Err(anyhow!("the decoder panicked"))) {
                             Ok(image) => {
@@ -386,11 +410,13 @@ impl Grid {
         self.start(ctx, source, px, 0);
     }
 
-    pub fn retry(&mut self, ctx: &egui::Context, now: Instant, visible: bool) {
+    pub fn retry(&mut self, ctx: &egui::Context, now: Instant, visible: bool) -> bool {
         let due = self.retry_at.is_some_and(|at| visible && now >= at);
-        if let Some(source) = self.source.clone().filter(|_| due) {
-            self.start(ctx, source, self.px, self.tries);
+        let source = self.source.clone().filter(|_| due);
+        if let Some(source) = &source {
+            self.start(ctx, source.clone(), self.px, self.tries);
         }
+        source.is_some()
     }
 
     fn start(&mut self, ctx: &egui::Context, source: Source, px: u32, tries: usize) {

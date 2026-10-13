@@ -225,6 +225,11 @@ impl App {
     }
 
     #[cfg(test)]
+    pub(crate) fn scroll(&self) -> Option<ui::nav::Edge> {
+        self.shell.scroll
+    }
+
+    #[cfg(test)]
     pub(crate) fn go(&mut self, route: ui::nav::Route) {
         self.shell.apply(Nav::Go(route));
     }
@@ -379,6 +384,7 @@ impl App {
             }
             let show = request == Request::Show;
             let outcome = match request {
+                _ if Instant::now() > deadline => Some(("error", cli::LATE)),
                 Request::SignIn => self.start_sign_in().err().map(|why| ("error", why)),
                 Request::SignOut => {
                     self.sign_out();
@@ -534,6 +540,9 @@ impl App {
             self.playback.mark_signed_out();
         }
         self.covers.follow(ctx, covers_allowed(&self.playback));
+        if !covers_allowed(&self.playback) {
+            self.shell.scroll = None;
+        }
         let (now, waker) = (Instant::now(), ctx.clone());
         let home = self.shell.route == ui::nav::Route::Home;
         self.covers.retry(ctx, now, home);
