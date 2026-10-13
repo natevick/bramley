@@ -66,3 +66,25 @@ Written before any S14a probe or run. It amends the S13 harness only for F7 and 
   - in a `cs.session` with the unique prefix `bramley-s14a`, so the null sink is unique too;
   - only after the pre-flight is clear, and never while another gate runs.
 - **The full `acceptance.sh s14a-1`** runs only when the coordinator says so: the S13 fixer is adding a flock and per-run sinks first. A VOID run is re-run and reported.
+
+## Amendment 1 (2026-10-12, review round; written before any of it runs)
+The review found B1: a silently dead pooled socket hangs the API worker for the full 15 s, then fails with no retry. F10(c) as written can't see it: ureq resolves DNS before it looks in the pool, and the re-attach path only ever exercises an RST.
+
+**App change under test:** the API client and the cover/art agent get a 10 s receive-response timeout (capped at the request timeout). On any transport error they drop the connection pool and retry once on a fresh, non-pooled connection. Every call is a GET.
+
+**F10(c) timing (L6):**
+- The driver records `dropGapS`, the time from the start of `afterCold` to the start of `afterDrop`.
+- If `dropGapS` ≥ 15 s, F10 is **VOID**: the pooled socket may have aged out of ureq's 15 s idle limit, so a pre-fix binary could pass (c) without being tested.
+
+**F10(d) black hole (new; same offline session, after (c)):**
+1. The driver runs one search so the pool holds a live socket, then `SIGSTOP`s slirp4netns. Packets are now dropped silently, with no RST.
+2. It runs a CLI search while slirp is stopped. That result is recorded but not gated.
+3. After 3 s it sends `SIGCONT`.
+4. From the moment of `SIGCONT`, it polls with a CLI search every 2 s until the first one gives results (exit 0, and the view shows results).
+- **PASS:** that happens within **20 s of SIGCONT**: the 10 s receive timeout, plus one fresh-connection retry, plus margin. The app is alive with the same pid at the end.
+- **FAIL:** no results within 20 s, or the app died.
+- **Known limit, stated now:** a stopped slirp delays packets rather than destroying them; its tap queue holds them until SIGCONT, and DNS also runs through slirp. (d) proves recovery after a silent stall. The 10-s-timeout-plus-retry mechanism itself is proven by unit tests: a server that goes silent on a reused connection, which fails without the fix.
+
+**Probes while the user token is rejected (403):**
+- Home's chart path needs the user token (storefront check), and so does F7's library scroll. Both are **blocked** until Nate re-signs in, and will be reported as blocked, not run.
+- Search legs (c) and (d) are probed signed-out if catalog search works with the developer token alone. If it doesn't, they are blocked too, and reported so.
