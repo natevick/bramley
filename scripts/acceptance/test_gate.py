@@ -474,7 +474,7 @@ def write_controls(out):
     put('nouser.f9.json', **never('SignInNeeded'))(out)
     put('nouser.shipped.r1.json', started=False, samples=[])(out)
     put('badtoken.f3.json', reps=[{'exit': 1, 'wallMs': 300, 'songs': 0, 'uiMs': None, 'error': "Bramley's developer token was rejected"}] * 5)(out)
-    put('badtoken.f4.json', **never('SignInNeeded'))(out)
+    put('badtoken.f4.json', **never('Error("Bramley\'s developer token was rejected")'))(out)
     put('nostream.f4.json', **never('Error("the audio output could not be opened")'))(out)
     edit('leak.r3.json', lambda d: [r.__setitem__('uss', r['uss'] + 3 * int(r['itemId'][1:])) for r in d['samples']])(out)
     gate.save(out, 'stall.stall.json', {'before': counts(1000.0, 37.0, 38000), 'after': counts(1010.0, 44.1, 45000), 'stoppedS': 3})
@@ -560,6 +560,7 @@ class Controls(unittest.TestCase):
                                       ('a stall the pacing rule misses', edit('stall.stall.json', lambda d: d['after'].__setitem__('position', 46.0)), 'stall'),
                                       ('a stall unseen by pacing with no underflow counter', edit('stall.stall.json', lambda d: [d['after'].update(position=46.0, outputUnderflows=None),
                                                                                                                                  d['before'].update(outputUnderflows=None)]), 'stall'),
+                                      ('bad token play shows sign-in-needed', put('badtoken.f4.json', reps=[{'audioMs': None, 'exit': 0, 'banner': 'SignInNeeded'}] * 5), 'badDeveloperToken'),
                                       ('a stall across a track change', edit('stall.stall.json', lambda d: d['after'].__setitem__('itemId', '2')), 'stall'),
                                       ('stall evidence missing', remove('stall.stall.json'), 'stall'),
                                       ('guard never killed', put('guardtest.json', killed=None), 'guardKill'),

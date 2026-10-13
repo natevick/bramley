@@ -1453,6 +1453,33 @@ fn a_storefront_403_asks_for_sign_in_and_a_401_blames_the_developer_token() {
 }
 
 #[test]
+fn a_rejected_developer_token_outranks_sign_in_needed_from_playback() {
+    let (mut app, ends, inbox, ctx, config, _) = app_on(Serve { me: 401, ..SERVE });
+    let until = Instant::now() + Duration::from_secs(10);
+    while app.status_json()["banner"].is_null() && Instant::now() < until {
+        cover_meshes(&ctx, &mut app);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::fs::remove_dir_all(&config).unwrap();
+    let play = crate::cli::Request::Do(Action::PlaySong("1".into()));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    inbox.send((play, deadline, channel().0)).unwrap();
+    cover_meshes(&ctx, &mut app);
+    let refused = Some(PlayerError::SignInNeeded("configure".into()));
+    ends.borrow()[0]
+        .1
+        .send(snap(PlayState::Stopped, 0.0, 2, refused))
+        .unwrap();
+    cover_meshes(&ctx, &mut app);
+    let developer = format!("Error({:?})", covers::DEVELOPER_REJECTED);
+    let shown = app.status_json()["banner"].clone();
+    assert_eq!(
+        (shown.as_str(), ends.borrow().len()),
+        (Some(developer.as_str()), 1)
+    );
+}
+
+#[test]
 fn ureq_wire_dumps_never_reach_the_log_at_any_level() {
     let line = |level, target| {
         let record = log::Record::builder()

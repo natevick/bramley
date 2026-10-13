@@ -95,6 +95,7 @@ MUTANTS = [
     ('stall control', "'holds': bool(caught) or (underflows or 0) >= 1}", "'holds': True}"),
     ('stall control ignores output underflows', "'holds': bool(caught) or (underflows or 0) >= 1}", "'holds': bool(caught)}"),
     ('stall control ignores pacing', "'holds': bool(caught) or (underflows or 0) >= 1}", "'holds': (underflows or 0) >= 1}"),
+    ('bad token play expects sign-in-needed', "BAD_TOKEN_PLAY, NO_OUTPUT = 'developer token was rejected', 'developer token was rejected'", "BAD_TOKEN_PLAY, NO_OUTPUT = 'developer token was rejected', 'SignInNeeded'"),
     ('guard kill reason', "and 'stream linked to' in str(g.get('killed'))", ""),
     ('guard kill wrong sink present', "bool(g.get('wrongSinkPresent') and ", "bool(True and "),
     ('guard kill default unchanged', "and g.get('defaultBefore') == g.get('defaultAfter')", ""),

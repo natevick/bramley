@@ -528,7 +528,7 @@ impl App {
         let developer = self.covers.developer_rejected();
         let rejected = || Banner::Error(covers::DEVELOPER_REJECTED.into());
         let missing = || self.user.developer().missing().map(Banner::Error);
-        let banner = self.playback.banner().or_else(|| developer.then(rejected));
+        let banner = developer.then(rejected).or_else(|| self.playback.banner());
         let banner = banner.or_else(missing);
         banner.filter(|b| self.checking.is_none() || *b != Banner::SignInNeeded)
     }

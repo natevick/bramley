@@ -399,7 +399,9 @@ impl Grid {
     pub fn follow(&mut self, ctx: &egui::Context, signed_in: bool) {
         if !signed_in {
             if self.rx.is_some() {
+                let developer_rejected = self.developer_rejected;
                 self.reset();
+                self.developer_rejected = developer_rejected;
             }
             return;
         }
