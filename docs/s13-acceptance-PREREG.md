@@ -321,3 +321,48 @@ fix-1 (at 5fae888) is reported under Amendment 4's rules. It does not count, bec
 - the bad-token control's banner.
 
 **Counted set:** a new pair of consecutive counted runs plus a `--controls` run, at the commit that implements this amendment or a later one.
+
+## Amendment 7a (2026-10-12, S14c review round; supersedes Amendment 7 §1 and tightens §3; before any run)
+The coordinator decided this after the S14c review. Amendment 7 stays as written above; where they differ, this amendment wins. `docs/acceptance.md` is unchanged.
+
+**Withdrawn from §1:** Amendment 7 made `readinessDips` information-only. That demoted the clause that FAILed both counted runs (fix-2 Δ 51, fix-3 Δ 47), so it was a loosening as well as a correction. The sentence "If anything it can add FAILs" was wrong and is withdrawn.
+
+**R3 (replaces §1's rule).** R3 gates all three of the following, and each must hold:
+- `outputUnderflows` Δ (last sample − first) = **0**: the new starvation counter;
+- `readinessDips` Δ = **0**: Amendment 4's "underruns = 0", renamed, with the same semantics;
+- the Amendment 4 pacing rule: no lag > **1.0 s**.
+
+A counter missing from the first or the last sample is FAIL. This adds a real starvation counter and drops nothing.
+
+**Expectation, stated before any run:** `readinessDips` should fall on main, because S14b's e11055a counts sink-queued audio toward readiness. If live runs still show dips with no pacing lag, the coordinator takes the data to Nate. No rule changes here.
+
+**Stall control (replaces §1's bullet).** It holds only if **both** of these hold for the SIGSTOP pair:
+- `outputUnderflows` Δ ≥ **1**;
+- a pacing lag > **1.0 s**.
+
+A missing counter is not ≥ 1. This tightens the control before any live data. Under Amendment 7's "and/or", a dead counter, such as one pinned at 0, still held the control on pacing alone, and R3 would then read Δ 0 forever.
+
+**Why pacing stays required: a named blind spot.** pipewire-pulse 1.6.2 marks a stream as underrun, without sending `UNDERFLOW`, in three cases:
+- at creation (`pulse-server.c` ~L1790);
+- after a flush (`stream.c` `stream_flush`);
+- on cork (~L2696).
+
+It also skips the check while corked. So starvation that begins right after a new stream, a seek or an uncork sends no `UNDERFLOW`. Examples: a new item that never starts, or a slow refill after a seek. Only pacing sees those. Pacing in turn excuses pairs within ±1 s of a harness seek.
+
+**Underflow evidence.** Whenever R3's 1 s pacing poll sees `outputUnderflows` rise, the soak records:
+- wall time;
+- item;
+- position;
+- the new count;
+- `drainsAcked`;
+- the time of the last harness seek.
+
+A FAIL can then be attributed to a seek, a drain or mid-track starvation without another run. This is evidence only; no rule reads it.
+
+**Ballast (tightens §3).** Same-launch is proven only if both windows meet these rules:
+- **pid:** every sample in both windows carries the session's recorded pid. A sample with no pid fails.
+- **Pre-ballast window:** it also gets R1's per-sample rules:
+  - `R1_SAMPLES` samples;
+  - every one Playing with no banner;
+  - ≥ 50 covers;
+  - exactly 1 process.
