@@ -1,4 +1,4 @@
-import glob, hashlib, json, math, os, re, statistics
+import glob, hashlib, json, math, os, re, statistics, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 REFERENCE = {'binary': os.path.join(ROOT, 'target', 'reference', 'bramley-main-4961e27'), 'sha256': '1a72eb4b2880ac5a', 'pss': 88.6}
@@ -47,6 +47,57 @@ def preflight(exclude=lambda pid: False, standing=None):
 
 
 ALLOWLIST = os.path.join(ROOT, 'scripts', 'acceptance', 'leak-allowlist.sha256')
+LICENSE_LIMIT, LICENSE_WINDOW_S, R3_RESERVE, PACE_MARGIN_S = 20, 600, 6, 0.001
+
+
+def license_kind(args):
+    if args[:1] == ('play',) and len(args) > 1:
+        return 'play'
+    return args[0] if args[:1] in (('next',), ('prev',), ('jump',)) else None
+
+
+def peak_in_window(times, window=LICENSE_WINDOW_S):
+    times = sorted(times)
+    return max((sum(1 for u in times if t - window < u <= t) for t in times), default=0)
+
+
+class Pacer:
+    def __init__(self, prior=(), clock=time.time, sleep=time.sleep, keep=lambda times: None):
+        self.prior, self.actions, self.waits = sorted(prior), [], []
+        self.clock, self.sleep, self.keep = clock, sleep, keep
+
+    def times(self):
+        return self.prior + [t for t, _ in self.actions]
+
+    def room(self, n=1):
+        while True:
+            now = self.clock()
+            recent = sorted(t for t in self.times() if now - LICENSE_WINDOW_S < t <= now)
+            over = len(recent) + n - LICENSE_LIMIT
+            if over <= 0:
+                return
+            wait = recent[over - 1] + LICENSE_WINDOW_S - now + PACE_MARGIN_S
+            self.waits.append([round(now, 3), round(wait, 3), len(recent)])
+            self.sleep(wait)
+
+    def note(self, kind, n=1):
+        now = self.clock()
+        self.actions += [[now, kind] for _ in range(n)]
+        self.keep(self.times())
+
+    def take(self, kind, n=1):
+        self.room(n)
+        self.note(kind, n)
+
+
+def pacing(out):
+    p = load(out, 'pacing.json')
+    if p is None:
+        return {'ok': False, 'reasons': ['missing evidence: pacing.json']}
+    times = list(p.get('prior') or []) + [t for t, _ in p.get('actions') or []]
+    peak, waits = peak_in_window(times), p.get('waits') or []
+    reasons = [f'harness defect: {peak} license-requesting actions in {LICENSE_WINDOW_S} s > {LICENSE_LIMIT}'] if peak > LICENSE_LIMIT else []
+    return {'ok': not reasons, 'reasons': reasons, 'peak': peak, 'actions': len(p.get('actions') or []), 'waits': len(waits), 'waitS': round(sum(w[1] for w in waits), 1)}
 
 
 def count_names(body, needles):
@@ -586,7 +637,8 @@ def verdict(out):
     v['realStateUnchanged'] = bool(real) and real.get('before', {}).get('keyringItems') is not None and real.get('before') == real.get('after')
     v['leakGrep'] = dict(leaks, clean=leaks.get('hits') == {'repo': 0, 'run': 0} and leaks.get('plantedRun') is True and leaks.get('plantedRepo') is True and (leaks.get('runFiles') or 0) > 0 and (leaks.get('libraryNames') or 0) > 0)
     v['phaseErrors'] = {k: e for k, e in v['errors'].items() if not e.startswith('RuntimeError: skipped: the guard fired')}
-    safe = v['realStateUnchanged'] and v['leakGrep']['clean'] and not v['phaseErrors']
+    v['pacing'] = pacing(out)
+    safe = v['realStateUnchanged'] and v['leakGrep']['clean'] and not v['phaseErrors'] and v['pacing']['ok']
     if build.get('mode') == 'controls':
         v['controls'] = controls(out, build)
         v['gate'] = 'PASS' if safe and v['controls']['holds'] else 'FAIL'
@@ -608,7 +660,7 @@ def verdict(out):
 
 def brief(v):
     keep = lambda c: {k: x for k, x in c.items() if k not in ('reasons',) or x}
-    return dict(gate=v['gate'], realStateUnchanged=v['realStateUnchanged'], leakGrep=v['leakGrep'], checks={n: keep(c) for n, c in (v.get('checks') or {}).items()},
+    return dict(gate=v['gate'], realStateUnchanged=v['realStateUnchanged'], leakGrep=v['leakGrep'], pacing=v.get('pacing'), checks={n: keep(c) for n, c in (v.get('checks') or {}).items()},
                 ballast=v.get('ballast') and keep(v['ballast']), reference=v['reference'], controls=v.get('controls'), llvmpipeControl=v.get('llvmpipeControl'), errors=v['errors'])
 
 

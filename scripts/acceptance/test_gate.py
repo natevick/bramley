@@ -89,6 +89,7 @@ def write_valid(out, renderer=RADEONSI, mode='counted'):
     real = {'tokenMtimeNs': 1, 'tokenSize': 300, 'keyringItems': [], 'cache': None, 'config': {'developer-token': [1, 2]}}
     w('realstate.json', {'before': real, 'after': real})
     w('cotenants.json', {'polls': 600, 'seen': []})
+    w('pacing.json', {'limit': 20, 'windowS': 600, 'prior': [400.0], 'actions': [[1000.0 + 30 * i, 'play'] for i in range(20)], 'waits': [[1300.0, 120.5, 20]]})
     w('leakgrep.json', {'libraryNames': 34, 'catalogNames': 40, 'tokenFragments': 6, 'runFiles': 90, 'hits': {'repo': 0, 'run': 0}, 'plantedRun': True, 'plantedRepo': True})
 
 
@@ -448,13 +449,16 @@ class Verdict(unittest.TestCase):
                              ('missing', remove('realstate.json')), ('a name in the run', put('leakgrep.json', hits={'repo': 0, 'run': 1})),
                              ('a name in the repo', put('leakgrep.json', hits={'repo': 2, 'run': 0})), ('a run grep that cannot fail', put('leakgrep.json', plantedRun=False)),
                              ('a repo grep that cannot fail', put('leakgrep.json', plantedRepo=False)), ('an old single-plant record', put('leakgrep.json', plantedRun=None, plantedRepo=None, plantedCaught=True)),
+                             ('no pacing record', remove('pacing.json')),
+                             ('21 actions in a window', put('pacing.json', actions=[[1000.0 + 20 * i, 'play'] for i in range(21)], prior=[])),
+                             ('a prior action makes 21', put('pacing.json', prior=[995.0])),
                              ('no grep', remove('leakgrep.json')), ('a grep that read no files', put('leakgrep.json', runFiles=0)), ('a grep with no library names', put('leakgrep.json', libraryNames=0)),
                              ('a phase raised', lambda out: gate.save(out, 'errors.json', {'browse': 'RuntimeError: boom'}))):
             with self.subTest(name):
                 write_valid(SCRATCH)
                 mutate(SCRATCH)
                 v = gate.verdict(SCRATCH)
-                self.assertEqual((v['realStateUnchanged'] and v['leakGrep']['clean'] and not v['phaseErrors'], v['gate']), (False, 'FAIL'))
+                self.assertEqual((v['realStateUnchanged'] and v['leakGrep']['clean'] and not v['phaseErrors'] and v['pacing']['ok'], v['gate']), (False, 'FAIL'))
 
     def test_a_phase_skipped_after_a_guard_kill_is_not_a_phase_error(self):
         write_valid(SCRATCH)
@@ -534,6 +538,95 @@ class LeakGrep(unittest.TestCase):
         self.assertTrue(gate.repo_plant('notes about secret one', ['secret one'], 1))
         self.assertFalse(gate.repo_plant('notes about secret one', ['secret one'], 0))
         self.assertFalse(gate.repo_plant('', [], 0))
+
+
+class Clock:
+    def __init__(self, now=10000.0):
+        self.now, self.slept = now, []
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, s):
+        self.slept.append(round(s, 3))
+        self.now += s
+
+
+class Pacing(unittest.TestCase):
+    def pacer(self, prior=(), now=10000.0):
+        clock, kept = Clock(now), []
+        return gate.Pacer(prior, clock=clock, sleep=clock.sleep, keep=kept.append), clock, kept
+
+    def test_twenty_actions_go_at_once_and_the_twenty_first_waits_for_the_oldest_to_leave_the_window(self):
+        p, clock, kept = self.pacer()
+        for i in range(20):
+            p.take('play')
+            clock.now += 1
+        self.assertEqual(clock.slept, [])
+        p.take('next')
+        self.assertEqual((clock.slept, p.waits[0][1:], clock.now), ([580.001], [580.001, 20], 10600.001))
+        self.assertEqual((len(p.actions), gate.peak_in_window(p.times())), (21, 20))
+        self.assertEqual(kept[-1], p.times())
+
+    def test_a_wait_always_moves_past_the_boundary_even_where_float_rounding_would_stall(self):
+        clock, n = [0.0], [0]
+
+        def sleep(w):
+            n[0] += 1
+            clock[0] += w
+            self.assertLess(n[0], 100, 'the pacer stopped making progress')
+
+        p, t = gate.Pacer(clock=lambda: clock[0], sleep=sleep), 40.0
+        for _ in range(40):
+            clock[0] = max(clock[0], t)
+            p.take('play')
+            t += 3.7
+        self.assertEqual(gate.peak_in_window(p.times()), 20)
+
+    def test_prior_actions_from_earlier_runs_count(self):
+        p, clock, _ = self.pacer(prior=[9500.0 + i for i in range(19)])
+        p.take('play')
+        self.assertEqual(clock.slept, [])
+        p.take('play')
+        self.assertEqual(clock.slept, [100.001])
+
+    def test_an_action_exactly_one_window_old_no_longer_counts(self):
+        p, clock, _ = self.pacer(prior=[9400.0] + [9900.0] * 19)
+        p.take('play')
+        self.assertEqual(clock.slept, [])
+
+    def test_a_reservation_waits_for_room_without_recording_and_a_note_never_waits(self):
+        p, clock, _ = self.pacer(prior=[9500.0 + i for i in range(16)])
+        p.room(gate.R3_RESERVE)
+        self.assertEqual((clock.slept, p.actions), ([101.001], []))
+        q, qclock, _ = self.pacer(prior=[9500.0] * 20)
+        q.note('item-change', 2)
+        self.assertEqual((qclock.slept, len(q.actions)), ([], 2))
+
+    def test_only_commands_that_start_an_item_are_counted(self):
+        cases = {('play', '1'): 'play', ('play',): None, ('next',): 'next', ('prev',): 'prev', ('jump',): 'jump', ('seek', '120'): None,
+                 ('queue', 'add', '1'): None, ('pause',): None, ('now',): None, ('open', 'home'): None}
+        self.assertEqual({a: gate.license_kind(a) for a in cases}, cases)
+
+    def test_the_window_peak_counts_actions_after_the_window_start_up_to_and_including_its_end(self):
+        self.assertEqual(gate.peak_in_window([0.0, 600.0, 600.0]), 2)
+        self.assertEqual(gate.peak_in_window([0.0, 599.9]), 2)
+        self.assertEqual(gate.peak_in_window([]), 0)
+
+
+class PacingVerdict(unittest.TestCase):
+    def setUp(self):
+        shutil.rmtree(SCRATCH, ignore_errors=True)
+        os.makedirs(SCRATCH)
+        self.addCleanup(shutil.rmtree, SCRATCH, True)
+
+    def test_the_verdict_reports_waits_and_the_peak_and_names_a_harness_defect_above_twenty(self):
+        write_valid(SCRATCH)
+        p = gate.verdict(SCRATCH)['pacing']
+        self.assertEqual({k: p[k] for k in ('ok', 'peak', 'actions', 'waits', 'waitS')}, {'ok': True, 'peak': 20, 'actions': 20, 'waits': 1, 'waitS': 120.5})
+        put('pacing.json', prior=[995.0])(SCRATCH)
+        p = gate.verdict(SCRATCH)['pacing']
+        self.assertEqual((p['ok'], p['peak'], p['reasons']), (False, 21, ['harness defect: 21 license-requesting actions in 600 s > 20']))
 
 
 class Preflight(unittest.TestCase):

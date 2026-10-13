@@ -22,7 +22,9 @@ NAMES = {'library': set(), 'catalog': set()}
 COUNTERS = ('sentMs', 'skippedMs', 'decryptedMs', 'readinessDips', 'outputUnderflows', 'decryptFails', 'drainsAcked', 'drainTimeouts')
 SNAP_KEYS = ('pid', 'state', 'position', 'duration', 'itemId', 'banner', 'engineStarted', 'texturesUploaded', 'coversFailed', 'framesPainted',
              'glRenderer', 'applied', 'seq', 'engine', 'decodedBytesKept') + COUNTERS
+LICENSE_STATE = f'/run/user/{os.getuid()}/bramley-license-actions.json'
 TICK, RUNTIME, CPU_EVERY_S, COTENANT_EVERY_S = os.sysconf('SC_CLK_TCK'), os.path.join(ROOT, 'target', 'x'), 10, 5
+PACER = gate.Pacer()
 ALBUM_ID, STOP_S, HOLD_S, BALLAST_TRIGGER = '6781024026', 3, 0.3, 'ballast.trigger'
 
 
@@ -138,9 +140,11 @@ class App:
     def snap(self):
         return (cs.status(self.st) if self.st else self.cli('now')[1]) or {}
 
-    def cli(self, *args):
+    def cli(self, *args, paced=False):
         if args[:1] in (('play',), ('queue',)):
             self.safe_to_play()
+        if gate.license_kind(args) and not paced:
+            PACER.take(gate.license_kind(args))
         self.last_t = t = time.time()
         r = subprocess.run([self.binary, *args], env=self.env, capture_output=True, text=True, timeout=30)
         try:
@@ -249,8 +253,10 @@ def judged(a, song, base, heard, ev):
 def play_song(a, song, reps, ev):
     ev.update(song=song, reps=[], started=False)
     for _ in range(reps):
+        a.safe_to_play()
+        PACER.take('play')
         base = counters(a.cli('now')[1])
-        code, reply, _ = a.cli('play', song)
+        code, reply, _ = a.cli('play', song, paced=True)
         ready = applied(reply, lambda s: s.get('itemId') == song and s.get('state') == 'Playing', same_engine=False)
         s, seen = advancing(a, ready, 15)
         ev['reps'].append({'exit': code, 'audioMs': seen and round((seen - a.last_t) * 1000), 'banner': s.get('banner')})
@@ -335,6 +341,7 @@ def transition(a, ids, at, start, cut=False):
     if not ok:
         return {'reached': False, 'pass': False}
     duration, target = s['duration'], round(s['duration'] - 20, 1)
+    PACER.take('seek-to-end')
     reply = a.cli('seek', str(target))[1]
     res = {'reached': True, 'duration': duration, 'target': target, 'start': start, 'base': None, 'flip': None, 'end': None, 'cut': False, 'samples': []}
     end = time.time() + 45
@@ -386,6 +393,7 @@ def f8(a, pre):
             ev['seen'].append(item)
             if len(ev['seen']) < len(F8_ORDER):
                 a.until(lambda s: (s.get('duration') or 0) > 0 and (s.get('position') or 0) > 1, 15)
+                PACER.take('seek-to-end')
                 a.cli('seek', str(max(0.0, (a.snap().get('duration') or 30) - 5)))
         time.sleep(0.1)
     evidence(a.out, f'{pre}f8.json', ev, a)
@@ -394,6 +402,7 @@ def f8(a, pre):
 def r3(a, pre):
     a.safe_to_play()
     ev = {'pid': a.pid, 't0': time.time(), 'seekTimes': [], 'underflowEvents': []}
+    PACER.room(gate.R3_RESERVE)
     queue_up(a, ALBUM, ev)
     seeks, starts, sought, start = [0], {}, set(), time.time()
     underflows = [a.snap().get('outputUnderflows') or 0]
@@ -407,6 +416,8 @@ def r3(a, pre):
                                           'drainsAcked': s.get('drainsAcked'), 'lastSeekT': (ev['seekTimes'] or [None])[-1]})
         underflows[0] = max(underflows[0], count or 0)
         if item and s.get('state') == 'Playing':
+            if starts and item not in starts:
+                PACER.note('item-change')
             starts.setdefault(item, pos)
         if item in starts and item not in sought and dur > SOAK_TRACK_S + 15 and pos - starts[item] >= SOAK_TRACK_S:
             sought.add(item)
@@ -570,6 +581,7 @@ def f9(a, pre, mcp):
     ev['searchHasSong'] = not err and any(x.get('id') == SONG for x in (found or {}).get('songs', []))
     for _ in range(gate.REPS):
         a.safe_to_play()
+        PACER.take('mcp-play')
         base = counters(a.cli('now')[1])
         t = time.time()
         err, said = mcp.tool('play', {'id': SONG})
@@ -859,7 +871,23 @@ def bad_token(out, dev, env, sink, config):
         f4_cold(out, dev, env, sink, 'badtoken.', args)
 
 
+def keep_actions(times):
+    recent = [t for t in times if t > time.time() - gate.LICENSE_WINDOW_S]
+    with open(LICENSE_STATE + '.new', 'w') as f:
+        json.dump(recent, f)
+    os.replace(LICENSE_STATE + '.new', LICENSE_STATE)
+
+
+def prior_actions():
+    try:
+        return [t for t in json.load(open(LICENSE_STATE)) if t > time.time() - gate.LICENSE_WINDOW_S]
+    except (OSError, ValueError):
+        return []
+
+
 def run(out, mode):
+    global PACER
+    PACER = gate.Pacer(prior_actions(), keep=keep_actions)
     os.makedirs(os.path.join(ROOT, 'target', 'tmp'), exist_ok=True)
     before, bins = real_state(), os.path.join(out, 'bin')
     build = gate.load(out, 'build.json') or {}
@@ -878,6 +906,7 @@ def run(out, mode):
                 errors[phase] = f'{type(e).__name__}: {e}'.replace(ROOT, '.').replace(os.path.expanduser('~'), '~')[:300]
             gate.save(out, 'errors.json', errors)
     watch.stop = True
+    gate.save(out, 'pacing.json', {'limit': gate.LICENSE_LIMIT, 'windowS': gate.LICENSE_WINDOW_S, 'prior': PACER.prior, 'actions': PACER.actions, 'waits': PACER.waits})
     gate.save(out, 'cotenants.json', {'polls': watch.polls, 'seen': watch.seen})
     gate.save(out, 'realstate.json', {'before': before, 'after': real_state()})
     shutil.rmtree(RUNTIME, ignore_errors=True)

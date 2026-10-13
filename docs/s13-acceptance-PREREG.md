@@ -423,5 +423,6 @@ Signed-out and no-stream plays are counted too, even though they never reach the
 - A missing `pacing.json` is FAIL.
 - A peak above **20** is FAIL, as a harness defect, in every mode.
 - A window counts an action at time `u` for a window ending at `t` when `t − 600 < u ≤ t`, the same boundary the pacer uses.
+- **Clarification (written with the code; no rule change):** a wait ends 1 ms past the boundary. A wait that ended exactly on the boundary could round to zero, and the pacer would then make no progress.
 
 **Run length.** The estimate is reported with the S13c hand-back. Nothing is cut here: any cut to plays is proposed for the coordinator to decide.
