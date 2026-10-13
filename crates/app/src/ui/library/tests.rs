@@ -937,12 +937,12 @@ fn sidebar(
     };
     let mut out = ctx.run_ui(input, |ui| {
         crate::ui::sidebar::show(ui, route, lib, &mut navs);
-        crate::ui::sidebar::account(ui, true, None);
+        crate::ui::sidebar::account(ui, true, Some("file"));
     });
     out.textures_delta.clear();
     let tree = out.platform_output.accesskit_update.expect("a tree");
     let nodes = tree.nodes.into_iter().map(|(_, n)| n);
-    let named = nodes.filter_map(|n| Some((n.label()?.to_owned(), n)));
+    let named = nodes.filter_map(|n| Some((n.label().or(n.value())?.to_owned(), n)));
     (named.collect(), navs)
 }
 
@@ -1033,6 +1033,11 @@ fn hundreds_of_playlists_still_leave_albums_songs_and_sign_out_on_screen() {
     let (ctx, mut lib) = (egui::Context::default(), playlists(300));
     let (nodes, _) = sidebar(&ctx, &mut lib, &Route::Home, 420.0, vec![]);
     let (songs, out) = (bounds(&nodes, "Songs"), bounds(&nodes, "Sign out"));
+    let footer = nodes.iter().find(|(l, _)| l.starts_with("Sign-in kept"));
+    let footer = footer
+        .and_then(|(_, n)| n.bounds())
+        .expect("the storage line");
     assert!(bounds(&nodes, "Albums").y1 <= songs.y0);
-    assert!(songs.y1 <= out.y0 && out.y1 <= 420.0, "{songs:?} {out:?}");
+    assert!(songs.y1 <= footer.y0, "{songs:?} {footer:?}");
+    assert!(footer.y1 <= out.y0 && out.y1 <= 420.0, "{footer:?} {out:?}");
 }
