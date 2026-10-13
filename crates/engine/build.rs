@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 fn main() {
-    detect_apple_tokens();
+    if std::path::Path::new("tests/playback.rs").exists() {
+        detect_apple_tokens();
+    }
     println!("cargo:rerun-if-changed=src/shim.cc");
     println!("cargo:rerun-if-changed=cdm-api/content_decryption_module.h");
     if std::env::var("CARGO_CFG_TARGET_FAMILY").as_deref() != Ok("unix") {

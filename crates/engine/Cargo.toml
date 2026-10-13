@@ -3,7 +3,21 @@ name = "bramley-engine"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-publish = false
+description = "Playback engine that runs Apple's MusicKit JS in an embedded JavaScript runtime with native media and Widevine DRM host objects."
+repository = "https://github.com/natevick/bramley"
+homepage = "https://github.com/natevick/bramley"
+readme = "README.md"
+keywords = ["apple-music", "musickit", "widevine", "eme", "quickjs"]
+categories = ["multimedia::audio"]
+include = [
+    "/src/*.rs",
+    "/src/shim.cc",
+    "/js/*.js",
+    "/cdm-api/*",
+    "/build.rs",
+    "/README.md",
+    "/LICENSE",
+]
 
 [dependencies]
 anyhow = "1"
@@ -24,6 +38,9 @@ trace = []
 name = "bramley-musickit"
 path = "src/bin/bramley-musickit/main.rs"
 required-features = ["sabotage", "diagnostics"]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
 
 [build-dependencies]
 cc = "1"
