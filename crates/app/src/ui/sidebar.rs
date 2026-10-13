@@ -52,18 +52,16 @@ pub fn show(ui: &mut egui::Ui, current: &Route, library: &mut Library, navs: &mu
     }
     ui.separator();
     ui.label(RichText::new("Your Library").strong());
-    entry(ui, current, Route::Artists, navs);
+    for route in [Route::Artists, Route::Albums, Route::Songs] {
+        entry(ui, current, route, navs);
+    }
     let link = entry(ui, current, Route::Playlists, navs);
     chevron(ui, &link, &mut library.playlists_collapsed);
     if !library.playlists_collapsed {
-        let below = FOOTER_PT + 2.0 * (ENTRY_PT + ui.spacing().item_spacing.y);
-        let height = ui.available_height() - below;
+        let height = ui.available_height() - FOOTER_PT;
         ui.indent("sidebar-playlists-nest", |ui| {
             super::library::sidebar(ui, library, current, navs, height)
         });
-    }
-    for route in [Route::Albums, Route::Songs] {
-        entry(ui, current, route, navs);
     }
 }
 

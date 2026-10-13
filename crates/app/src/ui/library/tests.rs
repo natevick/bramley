@@ -980,18 +980,19 @@ fn playlists(n: usize) -> Library {
 }
 
 #[test]
-fn the_sidebar_nests_playlists_under_the_playlists_link_before_albums_and_songs() {
+fn the_sidebar_nests_playlists_under_the_playlists_link_after_albums_and_songs() {
     let (ctx, mut lib) = (egui::Context::default(), playlists(3));
     let route = Route::Playlist("i.1".into());
     let (nodes, _) = sidebar(&ctx, &mut lib, &route, 600.0, vec![]);
     let order = [
         "Artists",
+        "Albums",
+        "Songs",
         "Playlists",
         "Secret Song 0",
         "Secret Song 1",
         "Secret Song 2",
-        "Albums",
-        "Songs",
+        "Sign out",
     ];
     let tops: Vec<f64> = order.iter().map(|l| bounds(&nodes, l).y0).collect();
     assert!(tops.is_sorted_by(|a, b| a < b), "{order:?} at {tops:?}");
@@ -1021,7 +1022,7 @@ fn the_chevron_folds_and_unfolds_the_playlists_and_the_link_still_opens_the_page
     };
     let (nodes, navs) = press(&ctx, &mut lib, &Route::Home, "Collapse playlists");
     assert_eq!((rows(&nodes), navs), (0, vec![]));
-    assert!(bounds(&nodes, "Albums").y0 > bounds(&nodes, "Playlists").y1);
+    assert!(bounds(&nodes, "Playlists").y0 > bounds(&nodes, "Songs").y1);
     let (nodes, navs) = press(&ctx, &mut lib, &Route::Home, "Expand playlists");
     assert_eq!((rows(&nodes), navs), (3, vec![]));
     let (nodes, navs) = press(&ctx, &mut lib, &Route::Home, "Playlists");
@@ -1038,6 +1039,12 @@ fn hundreds_of_playlists_still_leave_albums_songs_and_sign_out_on_screen() {
         .and_then(|(_, n)| n.bounds())
         .expect("the storage line");
     assert!(bounds(&nodes, "Albums").y1 <= songs.y0);
+    let rows = nodes.iter().filter(|(l, _)| l.starts_with("Secret"));
+    let last = rows
+        .filter_map(|(_, n)| n.bounds())
+        .map(|r| r.y1)
+        .fold(0.0, f64::max);
     assert!(songs.y1 <= footer.y0, "{songs:?} {footer:?}");
+    assert!(last > songs.y1 && last <= footer.y0, "{last} {footer:?}");
     assert!(footer.y1 <= out.y0 && out.y1 <= 420.0, "{footer:?} {out:?}");
 }
