@@ -2928,6 +2928,32 @@ fn the_leak_sabotage_keeps_its_size_once_per_new_track_and_only_when_asked() {
     assert!(off.kept.is_empty());
 }
 
+#[cfg(feature = "gate-sabotage")]
+#[test]
+fn the_ballast_sabotage_touches_its_size_once_when_its_trigger_appears() {
+    let dir = std::path::PathBuf::from(format!("../../target/c/ballast{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let trigger = dir.join("mib");
+    let mut ballast = crate::Ballast {
+        trigger: Some(trigger.clone()),
+        kept: Vec::new(),
+    };
+    ballast.follow();
+    let before = ballast.mib();
+    std::fs::write(&trigger, "two").unwrap();
+    ballast.follow();
+    let unreadable = ballast.mib();
+    std::fs::write(&trigger, "2\n").unwrap();
+    ballast.follow();
+    let touched = ballast.mib();
+    std::fs::write(&trigger, "5").unwrap();
+    ballast.follow();
+    std::fs::remove_dir_all(&dir).unwrap();
+    let pages = ballast.kept.chunks(4096).filter(|p| p[0] == 1).count();
+    assert_eq!((before, unreadable, touched, ballast.mib()), (0, 0, 2, 2));
+    assert_eq!(pages, 512);
+}
+
 #[test]
 fn engine_counts_reach_their_own_status_keys() {
     let dir = std::path::PathBuf::from(format!("../../target/c/counts{}", std::process::id()));

@@ -486,16 +486,21 @@ def ballast_size(out):
 def ballast(out, build):
     sink = (load(out, 'session.verdict.json') or {}).get('sink')
     b = memory_check(out, 'ballast', 'r1', sink)
-    shipped, ev = load(out, 'shipped.r1.json') or {}, load(out, 'ballast.r1.json') or {}
-    shipped_uss = medians(shipped.get('samples')).get('uss')
-    rise = round(b['uss'] - shipped_uss, 1) if b.get('uss') is not None and shipped_uss is not None else None
-    kept = ((ev.get('samples') or [{}])[-1].get('decodedBytesKept') or 0) / 2**20
-    expected = ev['ballastMiB'] + kept if ev.get('ballastMiB') is not None else None
+    ev = load(out, 'ballast.r1.json') or {}
+    pre, post = ev.get('baseSamples') or [], ev.get('samples') or []
+    pre_uss, post_uss = medians(pre).get('uss'), medians(post).get('uss')
+    rise = round(post_uss - pre_uss, 1) if pre_uss is not None and post_uss is not None else None
+    kept = lambda rows: ((rows or [{}])[-1].get('decodedBytesKept') or 0) / 2**20
+    added = kept(post) - kept(pre)
+    expected = ev['ballastMiB'] + added if ev.get('ballastMiB') is not None else None
+    one_launch = bool(pre) and len({r.get('pid') for r in pre + post}) == 1
+    touched = ev.get('ballastMiB') is not None and ev.get('ballastTouched') == ev.get('ballastMiB')
     threshold_only = b['verdict'] == 'FAIL' and [r[:10] for r in b['reasons']] == ['USS median']
     landed = b.get('uss') is not None and abs(b['uss'] - (R1_BAR + BALLAST_OVER)) <= LANDING_BAND
     flagged = build.get('ballastFeaturesExit') == 1 and 'app/gate-sabotage' in (build.get('ballastFeaturesOutput') or '')
     rose = rise is not None and expected is not None and abs(rise - expected) <= RISE_TOLERANCE
-    return dict(b, ballastMiB=ev.get('ballastMiB'), keptMiB=round(kept, 2), ussRise=rise, holds=threshold_only and landed and flagged and rose,
+    return dict(b, ballastMiB=ev.get('ballastMiB'), keptAddedMiB=round(added, 2), ussRise=rise, holds=threshold_only and landed and flagged and rose and one_launch and touched,
+                oneLaunch=one_launch, touched=touched,
                 thresholdOnly=threshold_only, landedWithinBand=landed, failsShippedCheck=flagged, ussRoseByBallast=rose)
 
 

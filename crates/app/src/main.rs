@@ -34,20 +34,44 @@ static TRACE_MARKER: &str = "bramley-unshipped-feature:app/trace\0";
 static GATE_SABOTAGE_MARKER: &str = "bramley-unshipped-feature:app/gate-sabotage\0";
 
 #[cfg(feature = "gate-sabotage")]
-fn touched_ballast() -> Result<Vec<u8>> {
-    const PAGE: usize = 4096;
-    let mib: usize = match std::env::var("BRAMLEY_GATE_BALLAST_MIB") {
-        Ok(v) => v
-            .parse()
-            .context("BRAMLEY_GATE_BALLAST_MIB is not a whole number")?,
-        Err(_) => 0,
-    };
-    let mut ballast = vec![0u8; mib << 20];
-    for page in ballast.chunks_mut(PAGE) {
+fn touched(mib: usize) -> Vec<u8> {
+    let mut block = vec![0u8; mib << 20];
+    for page in block.chunks_mut(4096) {
         page[0] = 1;
     }
-    eprintln!("bramley: gate-sabotage ballast {mib} MiB touched");
-    Ok(std::hint::black_box(ballast))
+    std::hint::black_box(block)
+}
+
+#[cfg(feature = "gate-sabotage")]
+pub struct Ballast {
+    trigger: Option<PathBuf>,
+    kept: Vec<u8>,
+}
+
+#[cfg(feature = "gate-sabotage")]
+impl Ballast {
+    pub fn from_env() -> Self {
+        let trigger = std::env::var_os("BRAMLEY_GATE_BALLAST_FILE").map(PathBuf::from);
+        Ballast {
+            trigger,
+            kept: Vec::new(),
+        }
+    }
+
+    pub fn follow(&mut self) {
+        let asked = self.trigger.as_ref().and_then(|path| {
+            let text = std::fs::read_to_string(path).ok()?;
+            text.trim().parse::<usize>().ok()
+        });
+        let Some(mib) = asked else { return };
+        self.trigger = None;
+        self.kept = touched(mib);
+        eprintln!("bramley: gate-sabotage ballast {mib} MiB touched");
+    }
+
+    pub fn mib(&self) -> usize {
+        self.kept.len() >> 20
+    }
 }
 
 #[cfg(feature = "gate-sabotage")]
@@ -76,11 +100,7 @@ impl Leak {
             return;
         }
         self.item = item.map(str::to_owned);
-        let mut block = vec![0u8; self.mib << 20];
-        for page in block.chunks_mut(4096) {
-            page[0] = 1;
-        }
-        self.kept.push(std::hint::black_box(block));
+        self.kept.push(touched(self.mib));
         eprintln!(
             "bramley: gate-sabotage leaked {} MiB",
             self.kept.len() * self.mib
@@ -317,8 +337,6 @@ fn main() -> Result<()> {
     }
     let slot = slot?;
     let args = parse_args(argv.into_iter())?;
-    #[cfg(feature = "gate-sabotage")]
-    let ballast = touched_ballast()?;
     let _ = logging().init();
     let (inbox_tx, inbox) = channel();
     let waker = Arc::new(OnceLock::new());
@@ -382,7 +400,5 @@ fn main() -> Result<()> {
         }),
     )
     .map_err(|e| anyhow::anyhow!("{e}"))?;
-    #[cfg(feature = "gate-sabotage")]
-    std::hint::black_box(&ballast);
     Ok(())
 }

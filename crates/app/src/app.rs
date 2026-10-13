@@ -128,6 +128,8 @@ pub struct App {
     status_at: Option<Instant>,
     #[cfg(feature = "gate-sabotage")]
     leak: crate::Leak,
+    #[cfg(feature = "gate-sabotage")]
+    ballast: crate::Ballast,
 }
 
 impl App {
@@ -221,6 +223,8 @@ impl App {
             status_at: None,
             #[cfg(feature = "gate-sabotage")]
             leak: crate::Leak::from_env(),
+            #[cfg(feature = "gate-sabotage")]
+            ballast: crate::Ballast::from_env(),
         }
     }
 
@@ -282,6 +286,10 @@ impl App {
         #[cfg(feature = "dev")]
         {
             status["libraryHttp"] = shown.http_statuses("/v1/me/library/songs");
+        }
+        #[cfg(feature = "gate-sabotage")]
+        {
+            status["ballastMiB"] = json!(self.ballast.mib());
         }
         if let (Some(status), Value::Object(token)) =
             (status.as_object_mut(), self.user.developer().status())
@@ -537,6 +545,8 @@ impl App {
         let changed = self.pump(ctx);
         #[cfg(feature = "gate-sabotage")]
         self.leak.follow(self.playback.shown().item_id.as_deref());
+        #[cfg(feature = "gate-sabotage")]
+        self.ballast.follow();
         if self.covers.rejected() || self.library.denied {
             self.playback.mark_signed_out();
         }

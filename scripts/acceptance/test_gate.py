@@ -66,6 +66,7 @@ def write_valid(out, renderer=RADEONSI, mode='counted'):
     for name, r1 in (('shipped', (170.0, 148.0, 198.0)), ('ballast', (233.0, 215.0, 260.0))):
         w(f'{name}.r2.json', {'pid': 7, 'samples': rows(20, 72.0, 50.0, 98.0, renderer, playing=False)})
         w(f'{name}.r1.json', {'pid': 7, 'started': True, 'prePlay': {'default': 'iec958'}, 'ballastMiB': 67 if name == 'ballast' else None, 'samples': rows(60, *r1, renderer)})
+    put('ballast.r1.json', baseSamples=rows(60, 167.0, 148.0, 195.0, renderer), ballastTouched=67)(out)
     s = lambda name, **ev: dict(ev, session=name, renderers=[renderer])
     w('f1.json', {'starts': [{'ms': 110, 'route': 'Home', 'playlists': 34}] * 5, 'renderers': [renderer] * 5})
     w('f2.json', s('signedout', t0=1000.0, t1=1020.0, banner='SignInNeeded', playExit=5, played=False, streams=[]))
@@ -356,9 +357,13 @@ BALLAST = [
     ('ballast fails for another reason', edit('ballast.r1.json', lambda d: d['samples'][2].__setitem__('texturesUploaded', 0)), 'thresholdOnly', 'FAIL'),
     ('ballast fails only for another reason', both(every('ballast', 'uss', 150.0), every('ballast', 'rss', 199.0), edit('ballast.r1.json', lambda d: d['samples'][2].__setitem__('procs', 2))), 'thresholdOnly', 'FAIL'),
     ('ballast lands off band', every('ballast', 'uss', 225.0), 'landedWithinBand', 'FAIL'),
-    ('ballast lands off band with a matching rise', both(every('ballast', 'uss', 222.0), put('ballast.r1.json', ballastMiB=73)), 'landedWithinBand', 'FAIL'),
-    ('ballast did not raise USS', put('ballast.r1.json', ballastMiB=40), 'ussRoseByBallast', 'FAIL'),
-    ('ballast rise beyond its size plus kept covers', put('ballast.r1.json', ballastMiB=63), 'ussRoseByBallast', 'FAIL'),
+    ('ballast lands off band with a matching rise', both(every('ballast', 'uss', 222.0), put('ballast.r1.json', ballastMiB=73, ballastTouched=73)), 'landedWithinBand', 'FAIL'),
+    ('ballast did not raise USS', put('ballast.r1.json', ballastMiB=40, ballastTouched=40), 'ussRoseByBallast', 'FAIL'),
+    ('ballast rise beyond its size', put('ballast.r1.json', ballastMiB=63, ballastTouched=63), 'ussRoseByBallast', 'FAIL'),
+    ('ballast windows from two launches', edit('ballast.r1.json', lambda d: d['baseSamples'][0].__setitem__('pid', 8)), 'oneLaunch', 'FAIL'),
+    ('ballast without a pre-ballast window', put('ballast.r1.json', baseSamples=[]), 'oneLaunch', 'FAIL'),
+    ('ballast never confirmed touched', put('ballast.r1.json', ballastTouched=None), 'touched', 'FAIL'),
+    ('ballast touched at another size', put('ballast.r1.json', ballastTouched=66), 'touched', 'FAIL'),
     ('ballast-only void', put('ballast.guard.json', killed='linked to spdif'), 'thresholdOnly', 'VOID'),
 ]
 
@@ -412,12 +417,18 @@ class Verdict(unittest.TestCase):
                 v = gate.verdict(SCRATCH)
                 self.assertEqual((v['ballast'][clause], v['ballast']['holds'], v['gate']), (False, False, gate_verdict))
 
-    def test_the_ballast_rise_counts_the_cover_copies_the_sabotage_build_keeps(self):
+    def test_the_ballast_rise_is_measured_within_its_own_launch(self):
         write_valid(SCRATCH)
-        edit('ballast.r1.json', lambda d: d.update(ballastMiB=63, samples=[dict(r, decodedBytesKept=50 * 96 * 96 * 4) for r in d['samples']]))(SCRATCH)
+        kept = 50 * 96 * 96 * 4
+        edit('ballast.r1.json', lambda d: d.update(baseSamples=[dict(r, decodedBytesKept=kept) for r in d['baseSamples']],
+                                                   samples=[dict(r, decodedBytesKept=kept) for r in d['samples']]))(SCRATCH)
+        every('shipped', 'uss', 140.0)(SCRATCH)
         v = gate.verdict(SCRATCH)['ballast']
-        self.assertEqual((v['keptMiB'], v['ussRise'], v['holds']), (1.76, 67.0, True))
-        put('ballast.r1.json', ballastMiB=62)(SCRATCH)
+        self.assertEqual((v['keptAddedMiB'], v['ussRise'], v['holds']), (0.0, 67.0, True))
+        edit('ballast.r1.json', lambda d: d.update(ballastMiB=63, ballastTouched=63, baseSamples=[dict(r, decodedBytesKept=0) for r in d['baseSamples']]))(SCRATCH)
+        v = gate.verdict(SCRATCH)['ballast']
+        self.assertEqual((v['keptAddedMiB'], v['ussRoseByBallast']), (1.76, True))
+        put('ballast.r1.json', ballastMiB=62, ballastTouched=62)(SCRATCH)
         self.assertFalse(gate.verdict(SCRATCH)['ballast']['ussRoseByBallast'])
 
     def test_a_touched_real_token_or_keyring_or_a_missing_record_fails_the_gate(self):

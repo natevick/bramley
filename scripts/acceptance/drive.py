@@ -23,7 +23,7 @@ COUNTERS = ('sentMs', 'skippedMs', 'decryptedMs', 'readinessDips', 'outputUnderf
 SNAP_KEYS = ('pid', 'state', 'position', 'duration', 'itemId', 'banner', 'engineStarted', 'texturesUploaded', 'coversFailed', 'framesPainted',
              'glRenderer', 'applied', 'seq', 'engine', 'decodedBytesKept') + COUNTERS
 TICK, RUNTIME, CPU_EVERY_S, COTENANT_EVERY_S = os.sysconf('SC_CLK_TCK'), os.path.join(ROOT, 'target', 'x'), 10, 5
-ALBUM_ID, STOP_S, HOLD_S = '6781024026', 3, 0.3
+ALBUM_ID, STOP_S, HOLD_S, BALLAST_TRIGGER = '6781024026', 3, 0.3, 'ballast.trigger'
 
 
 def note_names(found, kind='catalog'):
@@ -422,11 +422,22 @@ def memory(a, name, extra):
         ev = {'t0': time.time()}
         play_song(a, SONG, 1, ev)
         r1['started'] = ev['started']
+        if ev['started'] and 'ballastMiB' in extra:
+            r1['baseSamples'] = sample(a, gate.R1_SAMPLES)
+            r1['ballastTouched'] = touch_ballast(a, extra['ballastMiB'])
         if ev['started']:
             r1['samples'] = sample(a, gate.R1_SAMPLES)
         r1['gpuAfter'] = cs.gpu()
     finally:
         gate.save(a.out, f'{name}.r1.json', r1)
+
+
+def touch_ballast(a, mib):
+    trigger = os.path.join(a.out, BALLAST_TRIGGER)
+    with open(trigger + '.part', 'w') as f:
+        f.write(str(mib))
+    os.replace(trigger + '.part', trigger)
+    return a.until(lambda s: s.get('ballastMiB') == mib, 30)[0].get('ballastMiB')
 
 
 def cpu_session(out, binary, env, sink):
@@ -810,7 +821,8 @@ def ballast_run(out, sabotage, sink, signed_in):
     mib = gate.ballast_size(out)
     if mib is None:
         raise RuntimeError('no shipped R1 median to size the ballast from')
-    signed_in('ballast', lambda e, c: main_session(out, sabotage, e, sink, '', ('r2', 'r1'), {'ballastMiB': mib}), BRAMLEY_GATE_BALLAST_MIB=str(mib))
+    trigger = os.path.join(out, BALLAST_TRIGGER)
+    signed_in('ballast', lambda e, c: main_session(out, sabotage, e, sink, '', ('r2', 'r1'), {'ballastMiB': mib}), BRAMLEY_GATE_BALLAST_FILE=trigger)
 
 
 def browse_nouser(out, binary, env, sink):
