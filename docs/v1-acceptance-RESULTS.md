@@ -1,6 +1,6 @@
 # v1 Linux acceptance: PASS (2026-10-13)
 
-The test half of the v1 bar in `acceptance.md` is met: `scripts/acceptance.sh` PASSed twice in a row on `main` (07be8d1), and the controls run held. The other half, Nate seeing that run's screenshots, is pending: they were sent to him by Taildrop on 2026-10-13.
+The test half of the v1 bar in `acceptance.md` is met: `scripts/acceptance.sh` PASSed twice in a row on `main` (07be8d1), and the controls run held. The other half is met too: Nate saw the screenshots, sent by Taildrop, and confirmed on 2026-10-13 ("Yes they look right"). **v1 Linux is done.**
 
 | Run | Mode | Start–end (PT) | Gate |
 |---|---|---|---|
