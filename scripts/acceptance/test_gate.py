@@ -220,6 +220,12 @@ FUNCTIONAL = [
     ('F9 a previous play flushed before this one was heard', edit('f9.json', lambda d: [d['judged'][0]['heard'].__setitem__('skippedMs', 1513), d['judged'][0]['end'].__setitem__('skippedMs', 1513)]), 'F9', 'PASS', None),
     ('F9 skipped while audible', edit('f9.json', lambda d: [d['judged'][0]['heard'].__setitem__('skippedMs', 1513), d['judged'][0]['end'].__setitem__('skippedMs', 1614)]), 'F9', 'FAIL', 'skipped 101 ms'),
     ('F4 a decrypt failure', edit('f4.json', lambda d: d['judged'][0]['end'].__setitem__('decryptFails', 1)), 'F4', 'FAIL', 'decrypt failures 1'),
+    ('F4 decrypt failures unreported', edit('f4.json', lambda d: [j[k].pop('decryptFails') for j in d['judged'] for k in ('base', 'heard', 'end')]), 'F4', 'FAIL', "counters missing: ['decryptFails']"),
+    ('F4 skipped unreported', edit('f4.json', lambda d: [j[k].pop('skippedMs') for j in d['judged'] for k in ('base', 'heard', 'end')]), 'F4', 'FAIL', "counters missing: ['skippedMs']"),
+    ('F4 skipped unreported at the end only', edit('f4.json', lambda d: d['judged'][3]['end'].__setitem__('skippedMs', None)), 'F4', 'FAIL', "counters missing: ['skippedMs']"),
+    ('F9 counters unreported', edit('f9.json', lambda d: [d['judged'][0][k].pop(c) for k in ('base', 'heard', 'end') for c in ('decryptFails', 'skippedMs')]), 'F9', 'FAIL', "counters missing: ['decryptFails', 'skippedMs']"),
+    ('F6 counters unreported', edit('f6.json', lambda d: d['transitions'][1]['end'].pop('skippedMs')), 'F6', 'FAIL', '2 of 3'),
+    ('F6 drain counters unreported', edit('f6.json', lambda d: [d['transitions'][0][k].pop('drainTimeouts') for k in ('base', 'flip', 'end')]), 'F6', 'FAIL', '2 of 3'),
     ('F4 position behind the wall clock', edit('f4.json', lambda d: d['judged'][1]['end'].__setitem__('t', 1039.1)), 'F4', 'FAIL', 'wall clock'),
     ('F4 position ahead of the wall clock', edit('f4.json', lambda d: d['judged'][1]['end'].__setitem__('t', 1035.9)), 'F4', 'FAIL', 'wall clock'),
     ('F4 pace at the tolerance', edit('f4.json', lambda d: d['judged'][1]['end'].__setitem__('t', 1038.0)), 'F4', 'PASS', None),
@@ -400,6 +406,7 @@ class Verdict(unittest.TestCase):
         for name, mutate in (('mtime', edit('realstate.json', lambda d: d['after'].__setitem__('tokenMtimeNs', 2))),
                              ('keyring', edit('realstate.json', lambda d: d['after'].__setitem__('keyringItems', ['/item/1']))),
                              ('cache', edit('realstate.json', lambda d: d['after'].__setitem__('cache', {'developer-token.json': [2, 300]}))),
+                             ('config only', edit('realstate.json', lambda d: d['after'].__setitem__('config', {'developer-token': [3, 2]}))),
                              ('unread keyring', edit('realstate.json', lambda d: [d[k].__setitem__('keyringItems', None) for k in d])),
                              ('missing', remove('realstate.json')), ('a name in the run', put('leakgrep.json', hits={'repo': 0, 'run': 1})),
                              ('a name in the repo', put('leakgrep.json', hits={'repo': 2, 'run': 0})), ('a grep that cannot fail', put('leakgrep.json', plantedCaught=False)),
@@ -456,6 +463,21 @@ def write_controls(out):
     edit('stall.stall.json', lambda d: [d[k].__setitem__('itemId', SONG) for k in ('before', 'after')])(out)
     gate.save(out, 'guardtest.json', {'defaultBefore': 'iec958', 'defaultAfter': 'iec958', 'wrongSinkPresent': True, 'appGone': True, 'wrongSinkSeen': True,
                                       'killed': "stream linked to ['bramley-gate-wrong-null-x']"})
+
+
+class Preflight(unittest.TestCase):
+    def test_standing_gpu_clients_are_recognised_by_pid_not_by_name(self):
+        procs = {101: ('gnome-shell', ['libgallium.so']), 102: ('gnome-shell', ['libgallium.so']), 103: ('Xvfb', ['libLLVM.so.21']),
+                 104: ('editor', []), 105: ('weston', []), 106: ('bramley', []), 107: ('sh', ['radeonsi_dri.so']), 108: ('weston', [])}
+        real = gate.gpu_processes
+        try:
+            gate.gpu_processes = lambda: procs
+            by_pid = gate.preflight(lambda pid: pid == 108, standing={101})
+            by_name = gate.preflight()
+        finally:
+            gate.gpu_processes = real
+        self.assertEqual(sorted(int(f.split()[0]) for f in by_pid), [102, 103, 105, 106, 107])
+        self.assertEqual(sorted(int(f.split()[0]) for f in by_name), [105, 106, 107, 108])
 
 
 class Controls(unittest.TestCase):

@@ -255,8 +255,15 @@ def delta(a, b, key):
     return (b.get(key) or 0) - (a.get(key) or 0)
 
 
+def missing(*reads):
+    return sorted({key for a, b, key in reads if a.get(key) is None or b.get(key) is None})
+
+
 def heard_play(j):
     base, heard, end = j.get('base') or {}, j.get('heard') or {}, j.get('end') or {}
+    gaps = missing((base, end, 'decryptedMs'), (heard, end, 'skippedMs'), (base, end, 'decryptFails'), (heard, end, 'position'), (heard, end, 't'))
+    if gaps:
+        return [f'counters missing: {gaps}']
     why = []
     if delta(base, end, 'decryptedMs') < DECRYPTED_MS:
         why.append(f'decrypted {delta(base, end, "decryptedMs")} ms < {DECRYPTED_MS}')
@@ -293,6 +300,9 @@ def f6_move(t):
     base, flip, end = t.get('base'), t.get('flip'), t.get('end')
     if not (base and flip and end):
         return {'pass': False, 'why': 'no applied seek, flip or window end'}
+    gaps = missing(*((x, y, k) for x, y in ((base, flip), (base, end)) for k in ('drainsAcked', 'drainTimeouts', 'sentMs', 'skippedMs', 'position', 't')))
+    if gaps:
+        return {'pass': False, 'why': f'counters missing: {gaps}'}
     if end['t'] < flip['t'] + F6_WINDOW_S:
         return {'pass': False, 'why': f'window ended {end["t"] - flip["t"]:.2f} s after the flip < {F6_WINDOW_S}'}
     window = [(ts, p) for ts, p in t.get('samples') or [] if abs(ts - flip['t']) <= F6_WINDOW_S]
