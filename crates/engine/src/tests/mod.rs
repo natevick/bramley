@@ -36,6 +36,7 @@ pub struct SinkState {
     pub drain_requested: bool,
     pub failed: bool,
     pub cork_positions: Vec<Option<i64>>,
+    pub underflows: u64,
 }
 
 #[derive(Clone, Default)]
@@ -113,6 +114,9 @@ impl AudioSink for FakeSink {
     }
     fn set_gain(&mut self, gain: f32) {
         self.0.borrow_mut().gain = gain;
+    }
+    fn take_output_underflows(&mut self) -> u64 {
+        std::mem::take(&mut self.0.borrow_mut().underflows)
     }
 }
 

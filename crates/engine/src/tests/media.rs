@@ -714,5 +714,22 @@ fn output_counts_keep_each_counter_in_its_own_slot() {
     (c.decrypted_us, c.underruns) = (5, 6);
     c.decrypt_fail.insert(7, 3);
     c.decrypt_fail.insert(9, 4);
-    assert_eq!(crate::runtime::output_counts(&c), [1, 2, 3, 4, 5, 6, 7]);
+    c.output_underflows = 8;
+    assert_eq!(crate::runtime::output_counts(&c), [1, 2, 3, 4, 5, 6, 7, 8]);
+}
+
+#[test]
+fn every_server_underflow_the_sink_reports_is_counted_once() {
+    let mut r = Rig::new(5, false);
+    r.m.play();
+    r.play_for(0.1);
+    r.sink.0.borrow_mut().underflows = 2;
+    r.pump();
+    r.sink.0.borrow_mut().underflows = 1;
+    r.pump();
+    r.pump();
+    assert_eq!(
+        (r.m.counters.output_underflows, r.m.counters.underruns),
+        (3, 0)
+    );
 }

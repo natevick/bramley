@@ -2926,7 +2926,11 @@ fn engine_counts_reach_their_own_status_keys() {
     let mut snap = Snapshot::default();
     (snap.drains_acked, snap.drain_timeouts) = (1, 2);
     (snap.sent_us, snap.skipped_us, snap.decrypted_us) = (3_000_000, 4_000_000, 5_000_000);
-    (snap.underruns, snap.decrypt_fails) = (6, 7);
+    (
+        snap.readiness_dips,
+        snap.decrypt_fails,
+        snap.output_underflows,
+    ) = (6, 7, 8);
     ends.borrow()[0].1.send(snap).unwrap();
     let s = frames(&ctx, &mut app, 3);
     std::fs::remove_dir_all(&dir).unwrap();
@@ -2936,11 +2940,12 @@ fn engine_counts_reach_their_own_status_keys() {
         "sentMs",
         "skippedMs",
         "decryptedMs",
-        "underruns",
+        "readinessDips",
         "decryptFails",
+        "outputUnderflows",
     ];
     let seen: Vec<_> = keys.iter().map(|k| s[*k].as_u64()).collect();
-    let want = [1, 2, 3000, 4000, 5000, 6, 7].map(Some);
+    let want = [1, 2, 3000, 4000, 5000, 6, 7, 8].map(Some);
     assert_eq!(seen, want);
 }
 

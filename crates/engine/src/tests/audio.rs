@@ -15,6 +15,7 @@ enum After {
     Serve,
     StopReading,
     HangUp,
+    Underflow,
 }
 
 fn handshake(r: &mut BufReader<UnixStream>, w: &mut UnixStream) -> Option<()> {
@@ -46,6 +47,13 @@ fn fake_server(after: After) -> (PulseSink, Receiver<Command>) {
         match after {
             After::HangUp => return None,
             After::StopReading => std::thread::sleep(Duration::from_secs(60)),
+            After::Underflow => {
+                let underflow = Command::Underflow(protocol::Underflow {
+                    channel: 3,
+                    offset: 9600,
+                });
+                protocol::write_command_message(&mut w, u32::MAX, &underflow, V).ok()?;
+            }
             After::Serve => {}
         }
         loop {
@@ -189,4 +197,21 @@ fn a_named_sink_the_server_does_not_have_fails_before_any_stream_exists() {
             .iter()
             .any(|c| matches!(c, Command::CreatePlaybackStream(_)))
     );
+}
+
+#[test]
+fn an_underflow_the_server_sends_is_counted_and_is_not_a_failure() {
+    let (mut sink, _server) = fake_server(After::Underflow);
+    sink.write(0, 48_000, 2, vec![0; TENTH_OF_A_SECOND]);
+    let mut seen = 0;
+    assert!(
+        within(Duration::from_secs(2), || {
+            seen += sink.take_output_underflows();
+            seen > 0
+        }),
+        "no underflow counted"
+    );
+    std::thread::sleep(Duration::from_millis(100));
+    seen += sink.take_output_underflows();
+    assert_eq!((seen, sink.failed()), (1, false));
 }

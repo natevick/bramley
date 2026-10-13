@@ -23,12 +23,12 @@ def rows(n, pss, uss, rss, renderer=RADEONSI, playing=True, pid=7):
 
 def soak(n=181, uss=148.0):
     return [{'t': 1000.0 + 10 * i, 'm': round(i / 6, 3), 'pid': 7, 'procs': 1, 'pss': 170.0, 'uss': uss, 'rss': 205.0, 'texturesUploaded': 50, 'state': 'Playing',
-             'banner': None, 'itemId': f'i{i // 15}', 'position': 20.0 + 10 * i, 'seeks': 0, 'underruns': 2} for i in range(n)]
+             'banner': None, 'itemId': f'i{i // 15}', 'position': 20.0 + 10 * i, 'seeks': 0, 'readinessDips': 2 + i // 10, 'outputUnderflows': 4} for i in range(n)]
 
 
 def counts(t, position, decrypted, skipped=0, fails=0, sent=None, acked=0, timeouts=0):
     return {'t': t, 'position': position, 'decryptedMs': decrypted, 'skippedMs': skipped, 'decryptFails': fails, 'sentMs': decrypted if sent is None else sent,
-            'underruns': 0, 'drainsAcked': acked, 'drainTimeouts': timeouts}
+            'readinessDips': 0, 'outputUnderflows': 0, 'drainsAcked': acked, 'drainTimeouts': timeouts}
 
 
 def judged():
@@ -322,8 +322,10 @@ FUNCTIONAL = [
     ('R3 lag at the tolerance', soak_edit(lambda r: r.__setitem__('position', r['position'] - (1.0 if r['m'] >= 11 else 0))), 'R3', 'PASS', None),
     ('R3 a seek is not a stall', both(soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 11 else 0))), put('r3.json', seekTimes=[1000.0 + 10 * 65 + 5])), 'R3', 'PASS', None),
     ('R3 a seek near a pair only excuses that pair', both(soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 11 else 0))), put('r3.json', seekTimes=[1000.0 + 10 * 30])), 'R3', 'FAIL', 'behind the wall clock'),
-    ('R3 an underrun', edit('r3.json', lambda d: d['samples'][-1].__setitem__('underruns', 3)), 'R3', 'FAIL', 'underruns during the soak: 1'),
-    ('R3 underruns unreadable', soak_edit(lambda r: r.pop('underruns')), 'R3', 'FAIL', 'underruns during the soak: None'),
+    ('R3 an output underflow', edit('r3.json', lambda d: d['samples'][-1].__setitem__('outputUnderflows', 5)), 'R3', 'FAIL', 'output underflows during the soak: 1'),
+    ('R3 output underflows unreadable', soak_edit(lambda r: r.pop('outputUnderflows')), 'R3', 'FAIL', 'outputUnderflows unreadable'),
+    ('R3 output underflows unreadable at the first sample', edit('r3.json', lambda d: d['samples'][0].pop('outputUnderflows')), 'R3', 'FAIL', 'outputUnderflows unreadable'),
+    ('R3 readiness dips are reported, not gated', edit('r3.json', lambda d: d['samples'][-1].__setitem__('readinessDips', 99)), 'R3', 'PASS', None),
     ('R3 banner', edit('r3.json', lambda d: d['samples'][50].__setitem__('banner', 'Error')), 'R3', 'FAIL', 'not Playing'),
     ('R3 a track change is not a stall', soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 10 else 0) if r['itemId'] != 'i4' or r['m'] < 10 else r['position'])), 'R3', 'PASS', None),
     ('R3 paused', edit('r3.json', lambda d: d['samples'][50].__setitem__('state', 'Paused')), 'R3', 'FAIL', 'not Playing'),
@@ -525,6 +527,16 @@ class Controls(unittest.TestCase):
                          ({'noUserToken': True, 'badDeveloperToken': True, 'noStream': True, 'cutTail': True, 'leak': True, 'stall': True, 'guardKill': True,
                            'missingArtifact': True}, 'PASS'))
 
+    def test_the_stall_control_holds_on_an_output_underflow_or_a_pacing_lag(self):
+        for name, mutate, reason in (('underflow only', edit('stall.stall.json', lambda d: d['after'].update(position=46.0, outputUnderflows=1)), ([], 1)),
+                                     ('lag only', lambda out: None, ([2.9], 0)),
+                                     ('both', edit('stall.stall.json', lambda d: d['after'].update(outputUnderflows=2)), ([2.9], 2))):
+            with self.subTest(name):
+                write_controls(SCRATCH)
+                mutate(SCRATCH)
+                stall = gate.verdict(SCRATCH)['controls']['stall']
+                self.assertEqual((stall['holds'], (stall['lagS'], stall['outputUnderflows'])), (True, reason))
+
     def test_each_control_breaks_when_its_check_passes_or_fails_vacuously(self):
         for name, mutate, control in (('signed-out F2 fails', put('nouser.f2.json', banner=None), 'noUserToken'),
                                       ('signed-out F4 passes', put('nouser.f4.json', started=True, reps=[{'audioMs': 800}] * 5), 'noUserToken'),
@@ -546,6 +558,8 @@ class Controls(unittest.TestCase):
                                       ('no stream F4 failed for another reason', put('nostream.f4.json', reps=[{'audioMs': None, 'exit': 0, 'banner': 'SignInNeeded'}] * 5), 'noStream'),
                                       ('leak failed on PSS, not USS', both(edit('leak.r3.json', lambda d: [r.update(uss=148.0, pss=170.0 + (12 if r['m'] >= 29 else 0)) for r in d['samples']])), 'leak'),
                                       ('a stall the pacing rule misses', edit('stall.stall.json', lambda d: d['after'].__setitem__('position', 46.0)), 'stall'),
+                                      ('a stall unseen by pacing with no underflow counter', edit('stall.stall.json', lambda d: [d['after'].update(position=46.0, outputUnderflows=None),
+                                                                                                                                 d['before'].update(outputUnderflows=None)]), 'stall'),
                                       ('a stall across a track change', edit('stall.stall.json', lambda d: d['after'].__setitem__('itemId', '2')), 'stall'),
                                       ('stall evidence missing', remove('stall.stall.json'), 'stall'),
                                       ('guard never killed', put('guardtest.json', killed=None), 'guardKill'),

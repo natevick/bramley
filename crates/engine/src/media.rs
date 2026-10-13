@@ -57,6 +57,7 @@ pub struct Counters {
     pub skipped_us: u64,
     pub decrypted_us: u64,
     pub sink_restarts: u64,
+    pub output_underflows: u64,
 }
 
 pub struct MediaEngine {
@@ -673,6 +674,9 @@ impl MediaEngine {
         mses: &HashMap<u32, MediaSourceNative>,
         cdms: &mut HashMap<u32, Box<dyn CdmBackend>>,
     ) {
+        if let Some(s) = self.sink.as_mut() {
+            self.counters.output_underflows += s.take_output_underflows();
+        }
         let Some(ms) = self.ms_id.and_then(|id| mses.get(&id)) else {
             return;
         };

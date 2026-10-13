@@ -235,9 +235,11 @@ def r3_rules(ev, fails, sink):
         fails.append(f'fewer than {COVERS} covers in some sample')
     if any(r.get('state') != 'Playing' or r.get('banner') is not None for r in rows):
         fails.append('not Playing with no banner in every sample')
-    underruns = (rows[-1].get('underruns') or 0) - (rows[0].get('underruns') or 0) if rows and rows[-1].get('underruns') is not None else None
-    if underruns != 0:
-        fails.append(f'underruns during the soak: {underruns}')
+    underflows = readable_delta(rows, 'outputUnderflows')
+    if underflows is None:
+        fails.append('outputUnderflows unreadable')
+    elif underflows:
+        fails.append(f'output underflows during the soak: {underflows}')
     stalls = lags(rows, ev.get('seekTimes') or [])
     if stalls:
         fails.append(f'position fell behind the wall clock by more than {PACE_S} s: {stalls}')
@@ -249,7 +251,12 @@ def r3_rules(ev, fails, sink):
     elif rows:
         fails.append('no samples at minute 5 or minute 30')
     return dict(g, zone=None if g.get('uss') is None else 1 if g['uss'] > R3_BAR else 3, tracks=played,
+                outputUnderflows=underflows, readinessDips=readable_delta(rows, 'readinessDips'),
                 changesAfter5=sum(1 for a, b in zip(rows, rows[1:]) if b['m'] >= 5 and a.get('itemId') != b.get('itemId')))
+
+
+def readable_delta(rows, key):
+    return rows[-1][key] - rows[0][key] if rows and rows[0].get(key) is not None and rows[-1].get(key) is not None else None
 
 
 def delta(a, b, key):
@@ -522,7 +529,9 @@ def controls(out, build):
     stall = load(out, 'stall.stall.json') or {}
     pair = [dict(stall[k], state='Playing') for k in ('before', 'after') if stall.get(k)]
     caught = lags(pair, []) if len(pair) == 2 else []
-    c['stall'] = {'lagS': caught, 'underruns': delta(*pair, 'underruns') if len(pair) == 2 else None, 'stoppedS': stall.get('stoppedS'), 'holds': bool(caught)}
+    underflows = readable_delta(pair, 'outputUnderflows')
+    c['stall'] = {'lagS': caught, 'outputUnderflows': underflows, 'readinessDips': readable_delta(pair, 'readinessDips'), 'stoppedS': stall.get('stoppedS'),
+                  'holds': bool(caught) or (underflows or 0) >= 1}
     g = load(out, 'guardtest.json') or {}
     c['guardKill'] = {k: g.get(k) for k in ('killed', 'appGone', 'wrongSinkPresent', 'wrongSinkSeen')}
     c['guardKill']['holds'] = bool(g.get('wrongSinkPresent') and g.get('appGone') and g.get('wrongSinkSeen') and 'stream linked to' in str(g.get('killed'))

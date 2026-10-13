@@ -877,7 +877,7 @@ impl Engine {
     }
 }
 
-pub const OUTPUT_COUNTS: usize = 7;
+pub const OUTPUT_COUNTS: usize = 8;
 pub type OutputCounts = [u64; OUTPUT_COUNTS];
 
 pub(crate) fn output_counts(c: &crate::media::Counters) -> OutputCounts {
@@ -890,6 +890,7 @@ pub(crate) fn output_counts(c: &crate::media::Counters) -> OutputCounts {
         c.decrypted_us,
         c.underruns,
         decrypt_fails,
+        c.output_underflows,
     ]
 }
 

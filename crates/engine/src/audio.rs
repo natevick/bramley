@@ -8,6 +8,9 @@ pub trait AudioSink {
     fn drain(&mut self);
     fn drained(&self) -> bool;
     fn failed(&self) -> bool;
+    fn take_output_underflows(&mut self) -> u64 {
+        0
+    }
 }
 
 pub fn apply_gain(pcm_le: &mut [u8], gain: f32) {
@@ -56,6 +59,7 @@ mod pulse {
         Drain(u64),
         Requested(usize),
         Replied(u32),
+        Underflow,
         ServerGone(String),
         Stop,
     }
@@ -68,6 +72,7 @@ mod pulse {
         gain: AtomicU32,
         drained_generation: AtomicU64,
         failed: AtomicBool,
+        underflows: AtomicU64,
         sock: Mutex<Option<UnixStream>>,
     }
 
@@ -154,6 +159,9 @@ mod pulse {
         }
         fn failed(&self) -> bool {
             self.shared.failed.load(SeqCst)
+        }
+        fn take_output_underflows(&mut self) -> u64 {
+            self.shared.underflows.swap(0, SeqCst)
         }
     }
 
@@ -272,6 +280,7 @@ mod pulse {
                     let msg = match protocol::read_command_message(&mut reader, version) {
                         Ok((_, Command::Request(r))) => Msg::Requested(r.length as usize),
                         Ok((seq, Command::Reply)) => Msg::Replied(seq),
+                        Ok((_, Command::Underflow(_))) => Msg::Underflow,
                         Ok((_, Command::Error(e))) => Msg::ServerGone(format!("{e:?}")),
                         Ok(_) => continue,
                         Err(e) => Msg::ServerGone(e.to_string()),
@@ -354,6 +363,9 @@ mod pulse {
                         shared.drained_generation.store(generation, SeqCst);
                         drain_reply = None;
                     }
+                }
+                Msg::Underflow => {
+                    shared.underflows.fetch_add(1, SeqCst);
                 }
                 Msg::ServerGone(e) => return Err(anyhow!("pulse connection lost: {e}")),
             }

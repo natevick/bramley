@@ -19,7 +19,7 @@ F8_ORDER, TERM, BAD_ID = [ALBUM[9], ALBUM[0], ALBUM[6], ALBUM[3]], 'bohemian rha
 SOAK_S, SOAK_EVERY_S, SOAK_TRACK_S, F6_WINDOW_S, RECOVER_S, CUT_BEFORE_END_S = 1800, 10, 150, 5, 90, 3
 HOLE_BAR_S = 20
 NAMES = {'library': set(), 'catalog': set()}
-COUNTERS = ('sentMs', 'skippedMs', 'decryptedMs', 'underruns', 'decryptFails', 'drainsAcked', 'drainTimeouts')
+COUNTERS = ('sentMs', 'skippedMs', 'decryptedMs', 'readinessDips', 'outputUnderflows', 'decryptFails', 'drainsAcked', 'drainTimeouts')
 SNAP_KEYS = ('pid', 'state', 'position', 'duration', 'itemId', 'banner', 'engineStarted', 'texturesUploaded', 'coversFailed', 'framesPainted',
              'glRenderer', 'applied', 'seq', 'engine', 'decodedBytesKept') + COUNTERS
 TICK, RUNTIME, CPU_EVERY_S, COTENANT_EVERY_S = os.sysconf('SC_CLK_TCK'), os.path.join(ROOT, 'target', 'x'), 10, 5
