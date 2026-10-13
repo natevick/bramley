@@ -879,7 +879,8 @@ fn after_one_dead_pooled_socket_the_pool_is_dropped_so_its_dead_sibling_is_never
     std::thread::scope(|s| {
         let search = || client.session().unwrap().search("queen").unwrap();
         let (a, b) = (s.spawn(search), s.spawn(search));
-        (a.join().unwrap(), b.join().unwrap());
+        a.join().unwrap();
+        b.join().unwrap();
     });
     client.session().unwrap().search("queen").unwrap();
     let at = Instant::now();
