@@ -387,13 +387,19 @@ def f8(a, pre):
 
 def r3(a, pre):
     a.safe_to_play()
-    ev = {'pid': a.pid, 't0': time.time(), 'seekTimes': []}
+    ev = {'pid': a.pid, 't0': time.time(), 'seekTimes': [], 'underflowEvents': []}
     queue_up(a, ALBUM, ev)
     seeks, starts, sought, start = [0], {}, set(), time.time()
+    underflows = [a.snap().get('outputUnderflows') or 0]
 
     def pace():
         s = a.snap()
         item, pos, dur = s.get('itemId'), s.get('position') or 0, s.get('duration') or 0
+        count = s.get('outputUnderflows')
+        if count is not None and count > underflows[0]:
+            ev['underflowEvents'].append({'t': round(time.time(), 2), 'itemId': item, 'position': pos, 'outputUnderflows': count,
+                                          'drainsAcked': s.get('drainsAcked'), 'lastSeekT': (ev['seekTimes'] or [None])[-1]})
+        underflows[0] = max(underflows[0], count or 0)
         if item and s.get('state') == 'Playing':
             starts.setdefault(item, pos)
         if item in starts and item not in sought and dur > SOAK_TRACK_S + 15 and pos - starts[item] >= SOAK_TRACK_S:
