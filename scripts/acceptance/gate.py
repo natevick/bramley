@@ -240,6 +240,11 @@ def r3_rules(ev, fails, sink):
         fails.append('outputUnderflows unreadable')
     elif underflows:
         fails.append(f'output underflows during the soak: {underflows}')
+    dips = readable_delta(rows, 'readinessDips')
+    if dips is None:
+        fails.append('readinessDips unreadable')
+    elif dips:
+        fails.append(f'readiness dips during the soak: {dips}')
     stalls = lags(rows, ev.get('seekTimes') or [])
     if stalls:
         fails.append(f'position fell behind the wall clock by more than {PACE_S} s: {stalls}')
@@ -251,7 +256,7 @@ def r3_rules(ev, fails, sink):
     elif rows:
         fails.append('no samples at minute 5 or minute 30')
     return dict(g, zone=None if g.get('uss') is None else 1 if g['uss'] > R3_BAR else 3, tracks=played,
-                outputUnderflows=underflows, readinessDips=readable_delta(rows, 'readinessDips'),
+                outputUnderflows=underflows, readinessDips=dips,
                 changesAfter5=sum(1 for a, b in zip(rows, rows[1:]) if b['m'] >= 5 and a.get('itemId') != b.get('itemId')))
 
 
@@ -493,14 +498,16 @@ def ballast(out, build):
     kept = lambda rows: ((rows or [{}])[-1].get('decodedBytesKept') or 0) / 2**20
     added = kept(post) - kept(pre)
     expected = ev['ballastMiB'] + added if ev.get('ballastMiB') is not None else None
-    one_launch = bool(pre) and len({r.get('pid') for r in pre + post}) == 1
+    one_launch = bool(pre) and ev.get('pid') is not None and all(r.get('pid') == ev['pid'] for r in pre + post)
+    pre_valid = len(pre) >= R1_SAMPLES and all(r.get('state') == 'Playing' and r.get('banner') is None and (r.get('texturesUploaded') or 0) >= COVERS
+                                               and r.get('procs') == 1 for r in pre)
     touched = ev.get('ballastMiB') is not None and ev.get('ballastTouched') == ev.get('ballastMiB')
     threshold_only = b['verdict'] == 'FAIL' and [r[:10] for r in b['reasons']] == ['USS median']
     landed = b.get('uss') is not None and abs(b['uss'] - (R1_BAR + BALLAST_OVER)) <= LANDING_BAND
     flagged = build.get('ballastFeaturesExit') == 1 and 'app/gate-sabotage' in (build.get('ballastFeaturesOutput') or '')
     rose = rise is not None and expected is not None and abs(rise - expected) <= RISE_TOLERANCE
-    return dict(b, ballastMiB=ev.get('ballastMiB'), keptAddedMiB=round(added, 2), ussRise=rise, holds=threshold_only and landed and flagged and rose and one_launch and touched,
-                oneLaunch=one_launch, touched=touched,
+    return dict(b, ballastMiB=ev.get('ballastMiB'), keptAddedMiB=round(added, 2), ussRise=rise, holds=threshold_only and landed and flagged and rose and one_launch and pre_valid and touched,
+                oneLaunch=one_launch, preWindowValid=pre_valid, touched=touched,
                 thresholdOnly=threshold_only, landedWithinBand=landed, failsShippedCheck=flagged, ussRoseByBallast=rose)
 
 
@@ -536,7 +543,7 @@ def controls(out, build):
     caught = lags(pair, []) if len(pair) == 2 else []
     underflows = readable_delta(pair, 'outputUnderflows')
     c['stall'] = {'lagS': caught, 'outputUnderflows': underflows, 'readinessDips': readable_delta(pair, 'readinessDips'), 'stoppedS': stall.get('stoppedS'),
-                  'holds': bool(caught) or (underflows or 0) >= 1}
+                  'holds': bool(caught) and (underflows or 0) >= 1}
     g = load(out, 'guardtest.json') or {}
     c['guardKill'] = {k: g.get(k) for k in ('killed', 'appGone', 'wrongSinkPresent', 'wrongSinkSeen')}
     c['guardKill']['holds'] = bool(g.get('wrongSinkPresent') and g.get('appGone') and g.get('wrongSinkSeen') and 'stream linked to' in str(g.get('killed'))

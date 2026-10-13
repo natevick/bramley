@@ -23,7 +23,7 @@ def rows(n, pss, uss, rss, renderer=RADEONSI, playing=True, pid=7):
 
 def soak(n=181, uss=148.0):
     return [{'t': 1000.0 + 10 * i, 'm': round(i / 6, 3), 'pid': 7, 'procs': 1, 'pss': 170.0, 'uss': uss, 'rss': 205.0, 'texturesUploaded': 50, 'state': 'Playing',
-             'banner': None, 'itemId': f'i{i // 15}', 'position': 20.0 + 10 * i, 'seeks': 0, 'readinessDips': 2 + i // 10, 'outputUnderflows': 4} for i in range(n)]
+             'banner': None, 'itemId': f'i{i // 15}', 'position': 20.0 + 10 * i, 'seeks': 0, 'readinessDips': 2, 'outputUnderflows': 4} for i in range(n)]
 
 
 def counts(t, position, decrypted, skipped=0, fails=0, sent=None, acked=0, timeouts=0):
@@ -326,7 +326,8 @@ FUNCTIONAL = [
     ('R3 an output underflow', edit('r3.json', lambda d: d['samples'][-1].__setitem__('outputUnderflows', 5)), 'R3', 'FAIL', 'output underflows during the soak: 1'),
     ('R3 output underflows unreadable', soak_edit(lambda r: r.pop('outputUnderflows')), 'R3', 'FAIL', 'outputUnderflows unreadable'),
     ('R3 output underflows unreadable at the first sample', edit('r3.json', lambda d: d['samples'][0].pop('outputUnderflows')), 'R3', 'FAIL', 'outputUnderflows unreadable'),
-    ('R3 readiness dips are reported, not gated', edit('r3.json', lambda d: d['samples'][-1].__setitem__('readinessDips', 99)), 'R3', 'PASS', None),
+    ('R3 a readiness dip', edit('r3.json', lambda d: d['samples'][-1].__setitem__('readinessDips', 3)), 'R3', 'FAIL', 'readiness dips during the soak: 1'),
+    ('R3 readiness dips unreadable', edit('r3.json', lambda d: d['samples'][0].pop('readinessDips')), 'R3', 'FAIL', 'readinessDips unreadable'),
     ('R3 banner', edit('r3.json', lambda d: d['samples'][50].__setitem__('banner', 'Error')), 'R3', 'FAIL', 'not Playing'),
     ('R3 a track change is not a stall', soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 10 else 0) if r['itemId'] != 'i4' or r['m'] < 10 else r['position'])), 'R3', 'PASS', None),
     ('R3 paused', edit('r3.json', lambda d: d['samples'][50].__setitem__('state', 'Paused')), 'R3', 'FAIL', 'not Playing'),
@@ -364,6 +365,13 @@ BALLAST = [
     ('ballast without a pre-ballast window', put('ballast.r1.json', baseSamples=[]), 'oneLaunch', 'FAIL'),
     ('ballast never confirmed touched', put('ballast.r1.json', ballastTouched=None), 'touched', 'FAIL'),
     ('ballast touched at another size', put('ballast.r1.json', ballastTouched=66), 'touched', 'FAIL'),
+    ('ballast samples without a pid', edit('ballast.r1.json', lambda d: [r.pop('pid') for r in d['baseSamples'] + d['samples']] and d.pop('pid')), 'oneLaunch', 'FAIL'),
+    ('ballast windows from another pid', edit('ballast.r1.json', lambda d: [r.__setitem__('pid', 8) for r in d['baseSamples'] + d['samples']]), 'oneLaunch', 'FAIL'),
+    ('ballast pre window not playing', edit('ballast.r1.json', lambda d: d['baseSamples'][4].__setitem__('state', 'Paused')), 'preWindowValid', 'FAIL'),
+    ('ballast pre window short', edit('ballast.r1.json', lambda d: d['baseSamples'].pop()), 'preWindowValid', 'FAIL'),
+    ('ballast pre window without covers', edit('ballast.r1.json', lambda d: d['baseSamples'][4].__setitem__('texturesUploaded', 0)), 'preWindowValid', 'FAIL'),
+    ('ballast pre window forked', edit('ballast.r1.json', lambda d: d['baseSamples'][4].__setitem__('procs', 2)), 'preWindowValid', 'FAIL'),
+    ('ballast pre window with a banner', edit('ballast.r1.json', lambda d: d['baseSamples'][4].__setitem__('banner', 'Error')), 'preWindowValid', 'FAIL'),
     ('ballast-only void', put('ballast.guard.json', killed='linked to spdif'), 'thresholdOnly', 'VOID'),
 ]
 
@@ -490,6 +498,7 @@ def write_controls(out):
     edit('leak.r3.json', lambda d: [r.__setitem__('uss', r['uss'] + 3 * int(r['itemId'][1:])) for r in d['samples']])(out)
     gate.save(out, 'stall.stall.json', {'before': counts(1000.0, 37.0, 38000), 'after': counts(1010.0, 44.1, 45000), 'stoppedS': 3})
     edit('stall.stall.json', lambda d: [d[k].__setitem__('itemId', SONG) for k in ('before', 'after')])(out)
+    edit('stall.stall.json', lambda d: d['after'].__setitem__('outputUnderflows', 1))(out)
     gate.save(out, 'guardtest.json', {'defaultBefore': 'iec958', 'defaultAfter': 'iec958', 'wrongSinkPresent': True, 'appGone': True, 'wrongSinkSeen': True,
                                       'killed': "stream linked to ['bramley-gate-wrong-null-x']"})
 
@@ -538,15 +547,15 @@ class Controls(unittest.TestCase):
                          ({'noUserToken': True, 'badDeveloperToken': True, 'noStream': True, 'cutTail': True, 'leak': True, 'stall': True, 'guardKill': True,
                            'missingArtifact': True}, 'PASS'))
 
-    def test_the_stall_control_holds_on_an_output_underflow_or_a_pacing_lag(self):
-        for name, mutate, reason in (('underflow only', edit('stall.stall.json', lambda d: d['after'].update(position=46.0, outputUnderflows=1)), ([], 1)),
-                                     ('lag only', lambda out: None, ([2.9], 0)),
-                                     ('both', edit('stall.stall.json', lambda d: d['after'].update(outputUnderflows=2)), ([2.9], 2))):
+    def test_the_stall_control_needs_both_an_output_underflow_and_a_pacing_lag(self):
+        for name, mutate, seen in (('both', lambda out: None, (True, [2.9], 1)),
+                                   ('underflow only', edit('stall.stall.json', lambda d: d['after'].update(position=46.0)), (False, [], 1)),
+                                   ('lag only: a dead counter', edit('stall.stall.json', lambda d: d['after'].update(outputUnderflows=0)), (False, [2.9], 0))):
             with self.subTest(name):
                 write_controls(SCRATCH)
                 mutate(SCRATCH)
                 stall = gate.verdict(SCRATCH)['controls']['stall']
-                self.assertEqual((stall['holds'], (stall['lagS'], stall['outputUnderflows'])), (True, reason))
+                self.assertEqual((stall['holds'], stall['lagS'], stall['outputUnderflows']), seen)
 
     def test_each_control_breaks_when_its_check_passes_or_fails_vacuously(self):
         for name, mutate, control in (('signed-out F2 fails', put('nouser.f2.json', banner=None), 'noUserToken'),
