@@ -551,6 +551,8 @@ fn handle_completion(ctx: &Ctx, n: &N, c: Completion) {
 }
 
 fn dispatch_cdm(ctx: &Ctx, n: &N, keys_id: u32, e: CdmEvent) {
+    #[cfg(feature = "trace")]
+    let traced = format!("{:.3}", n.borrow().start.elapsed().as_secs_f64() * 1000.0);
     let (meta, body) = match e {
         CdmEvent::Initialized(ok) => (json!({"type": "initialized", "ok": ok}), None),
         CdmEvent::NewSession { promise, sid } => (
@@ -586,7 +588,11 @@ fn dispatch_cdm(ctx: &Ctx, n: &N, keys_id: u32, e: CdmEvent) {
         n,
         "__platform",
         "dispatchCdm",
-        (keys_id, meta.to_string(), buffer_or_null(ctx, body)),
+        (keys_id, {
+            #[cfg(feature = "trace")]
+            eprintln!("TRACE {traced} cdm-event keys={keys_id} {meta}");
+            meta.to_string()
+        }, buffer_or_null(ctx, body)),
     );
 }
 

@@ -31,7 +31,13 @@
       if (typeof f !== "function") continue;
       C.prototype[name] = function (...a) {
         log("call", id(this), name, a.map(show).join(","));
-        try { const r = f.apply(this, a); log("ret", id(this), name, show(r)); return r; } catch (e) { log("throw", id(this), name, e && e.name); throw e; }
+        try {
+          const r = f.apply(this, a);
+          const me = id(this);
+          log("ret", me, name, show(r));
+          if (r && typeof r.then === "function") r.then(v => log("settled", me, name, "ok", show(v)), e => log("settled", me, name, "rejected", e && e.name, e && String(e.message).slice(0, 80)));
+          return r;
+        } catch (e) { log("throw", id(this), name, e && e.name); throw e; }
       };
     }
   }
@@ -100,6 +106,19 @@
   wrapAccessors(ME, ["src", "currentTime", "readyState", "paused", "seeking", "ended", "buffered", "duration", "error", "networkState"]);
   wrapHandlerProps(ME, ["play", "playing", "pause", "waiting", "seeking", "seeked", "ended", "error", "canplay", "canplaythrough", "loadedmetadata", "loadeddata", "durationchange", "emptied", "stalled", "suspend", "progress", "ratechange", "volumechange", "encrypted", "waitingforkey"]);
   wrapHandlerProps(XHR, ["readystatechange", "load", "loadend", "loadstart", "error", "abort", "timeout", "progress"]);
+  const MK = G.MediaKeys, MKS = G.MediaKeySession, MKSA = G.MediaKeySystemAccess;
+  traced.push(MKS);
+  wrapMethods(MKSA, ["createMediaKeys"]);
+  wrapMethods(MK, ["createSession", "setServerCertificate"]);
+  wrapMethods(MKS, ["generateRequest", "update", "close", "remove", "load"]);
+  wrapHandlerProps(MKS, ["message", "keystatuseschange"]);
+  const rmksa = G.navigator.requestMediaKeySystemAccess;
+  G.navigator.requestMediaKeySystemAccess = function (...a) {
+    log("call", "navigator", "requestMediaKeySystemAccess", show(a[0]));
+    const r = rmksa.apply(this, a);
+    r.then(v => log("settled", "navigator", "requestMediaKeySystemAccess", "ok", show(v)), e => log("settled", "navigator", "requestMediaKeySystemAccess", "rejected", e && e.name));
+    return r;
+  };
   const xopen = XHR.prototype.open, xsend = XHR.prototype.send, xabort = XHR.prototype.abort;
   XHR.prototype.open = function (m, u, ...r) { log("call", id(this), "open", m, host(u)); return xopen.call(this, m, u, ...r); };
   XHR.prototype.send = function (...a) {
