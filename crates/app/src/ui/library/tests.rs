@@ -918,3 +918,121 @@ fn a_pinned_scroll_end_repaints_only_while_a_page_can_be_sent() {
         "a failed page waits its backoff: {seen:?}"
     );
 }
+
+type Nodes = Vec<(String, egui::accesskit::Node)>;
+
+fn sidebar(
+    ctx: &egui::Context,
+    lib: &mut Library,
+    route: &Route,
+    height: f32,
+    events: Vec<Event>,
+) -> (Nodes, Vec<Nav>) {
+    ctx.enable_accesskit();
+    let mut navs = Vec::new();
+    let input = RawInput {
+        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(220.0, height))),
+        events,
+        ..RawInput::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        crate::ui::sidebar::show(ui, route, lib, &mut navs);
+        crate::ui::sidebar::account(ui, true, None);
+    });
+    out.textures_delta.clear();
+    let tree = out.platform_output.accesskit_update.expect("a tree");
+    let nodes = tree.nodes.into_iter().map(|(_, n)| n);
+    let named = nodes.filter_map(|n| Some((n.label()?.to_owned(), n)));
+    (named.collect(), navs)
+}
+
+fn bounds(nodes: &Nodes, label: &str) -> egui::accesskit::Rect {
+    let node = nodes.iter().find(|(l, _)| l == label);
+    node.and_then(|(_, n)| n.bounds())
+        .unwrap_or_else(|| panic!("no {label} in the sidebar"))
+}
+
+fn press(ctx: &egui::Context, lib: &mut Library, route: &Route, label: &str) -> (Nodes, Vec<Nav>) {
+    let at = bounds(&sidebar(ctx, lib, route, 600.0, vec![]).0, label);
+    let pos = Pos2::new((at.x0 + at.x1) as f32 / 2.0, (at.y0 + at.y1) as f32 / 2.0);
+    let button = |pressed| Event::PointerButton {
+        pos,
+        button: PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    let (_, mut navs) = sidebar(
+        ctx,
+        lib,
+        route,
+        600.0,
+        vec![Event::PointerMoved(pos), button(true)],
+    );
+    let (_, released) = sidebar(ctx, lib, route, 600.0, vec![button(false)]);
+    navs.extend(released);
+    (sidebar(ctx, lib, route, 600.0, vec![]).0, navs)
+}
+
+fn playlists(n: usize) -> Library {
+    let mut lib = Library::default();
+    lib.lists[List::Playlists as usize].items = (0..n).map(item).collect();
+    lib
+}
+
+#[test]
+fn the_sidebar_nests_playlists_under_the_playlists_link_before_albums_and_songs() {
+    let (ctx, mut lib) = (egui::Context::default(), playlists(3));
+    let route = Route::Playlist("i.1".into());
+    let (nodes, _) = sidebar(&ctx, &mut lib, &route, 600.0, vec![]);
+    let order = [
+        "Artists",
+        "Playlists",
+        "Secret Song 0",
+        "Secret Song 1",
+        "Secret Song 2",
+        "Albums",
+        "Songs",
+    ];
+    let tops: Vec<f64> = order.iter().map(|l| bounds(&nodes, l).y0).collect();
+    assert!(tops.is_sorted_by(|a, b| a < b), "{order:?} at {tops:?}");
+    let link = bounds(&nodes, "Playlists");
+    assert!(
+        bounds(&nodes, "Secret Song 0").x0 > link.x0,
+        "rows are indented"
+    );
+    let selected: Vec<_> = nodes
+        .iter()
+        .filter(|(l, n)| {
+            l.starts_with("Secret") && n.toggled() == Some(egui::accesskit::Toggled::True)
+        })
+        .map(|(l, _)| l.as_str())
+        .collect();
+    assert_eq!(selected, ["Secret Song 1"]);
+}
+
+#[test]
+fn the_chevron_folds_and_unfolds_the_playlists_and_the_link_still_opens_the_page() {
+    let (ctx, mut lib) = (egui::Context::default(), playlists(3));
+    let rows = |nodes: &Nodes| {
+        nodes
+            .iter()
+            .filter(|(l, _)| l.starts_with("Secret"))
+            .count()
+    };
+    let (nodes, navs) = press(&ctx, &mut lib, &Route::Home, "Collapse playlists");
+    assert_eq!((rows(&nodes), navs), (0, vec![]));
+    assert!(bounds(&nodes, "Albums").y0 > bounds(&nodes, "Playlists").y1);
+    let (nodes, navs) = press(&ctx, &mut lib, &Route::Home, "Expand playlists");
+    assert_eq!((rows(&nodes), navs), (3, vec![]));
+    let (nodes, navs) = press(&ctx, &mut lib, &Route::Home, "Playlists");
+    assert_eq!((rows(&nodes), navs), (3, vec![Nav::Go(Route::Playlists)]));
+}
+
+#[test]
+fn hundreds_of_playlists_still_leave_albums_songs_and_sign_out_on_screen() {
+    let (ctx, mut lib) = (egui::Context::default(), playlists(300));
+    let (nodes, _) = sidebar(&ctx, &mut lib, &Route::Home, 420.0, vec![]);
+    let (songs, out) = (bounds(&nodes, "Songs"), bounds(&nodes, "Sign out"));
+    assert!(bounds(&nodes, "Albums").y1 <= songs.y0);
+    assert!(songs.y1 <= out.y0 && out.y1 <= 420.0, "{songs:?} {out:?}");
+}
