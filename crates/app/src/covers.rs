@@ -466,10 +466,6 @@ impl Grid {
         self.rejected
     }
 
-    pub fn developer_rejected(&self) -> bool {
-        self.developer_rejected.is_some()
-    }
-
     pub fn rejected_developer_token(&self) -> Option<&str> {
         self.developer_rejected.as_deref()
     }

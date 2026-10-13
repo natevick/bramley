@@ -1054,7 +1054,7 @@ fn settle(grid: &mut Grid, ctx: &egui::Context) {
     let until = Instant::now() + Duration::from_secs(20);
     while grid.uploaded() + grid.failures() < 50
         && !grid.rejected()
-        && !grid.developer_rejected()
+        && !grid.rejected_developer_token().is_some()
         && Instant::now() < until
     {
         grid.receive(ctx);
@@ -1169,7 +1169,11 @@ fn covers_need_a_storefront_200_and_a_refusal_reads_as_sign_in() {
         (0, false, false, Some("sign-in check")),
     ] {
         let (grid, fx, _) = load_covers(Serve { me, ..SERVE }, true);
-        let seen = (grid.rejected(), grid.developer_rejected(), grid.uploaded());
+        let seen = (
+            grid.rejected(),
+            grid.rejected_developer_token().is_some(),
+            grid.uploaded(),
+        );
         assert_eq!(seen, (rejected, developer, 0), "{me}");
         assert_eq!(
             grid.failed().map(|e| e.split(':').next().unwrap()),
@@ -2820,7 +2824,7 @@ fn a_developer_token_401_on_covers_refetches_once_and_only_a_new_token_is_retrie
         std::fs::remove_dir_all(&config).unwrap();
         let seen = (
             grid.uploaded() == 50,
-            grid.developer_rejected(),
+            grid.rejected_developer_token().is_some(),
             grid.rejected(),
         );
         assert_eq!(seen, (loads, !loads, false), "{served}");
