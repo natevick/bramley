@@ -588,11 +588,15 @@ fn dispatch_cdm(ctx: &Ctx, n: &N, keys_id: u32, e: CdmEvent) {
         n,
         "__platform",
         "dispatchCdm",
-        (keys_id, {
-            #[cfg(feature = "trace")]
-            eprintln!("TRACE {traced} cdm-event keys={keys_id} {meta}");
-            meta.to_string()
-        }, buffer_or_null(ctx, body)),
+        (
+            keys_id,
+            {
+                #[cfg(feature = "trace")]
+                eprintln!("TRACE {traced} cdm-event keys={keys_id} {meta}");
+                meta.to_string()
+            },
+            buffer_or_null(ctx, body),
+        ),
     );
 }
 
