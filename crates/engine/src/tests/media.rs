@@ -639,6 +639,30 @@ fn a_new_load_at_another_rate_gets_its_own_output() {
 }
 
 #[test]
+fn underflows_reported_as_a_new_rate_replaces_the_sink_are_still_counted() {
+    let (init, media) = fixture_segments();
+    let (mut m, sinks) = engine_with_fresh_sinks();
+    let mut now = Instant::now();
+    for init in [init.clone(), init_at_44k(&init)] {
+        if let Some(old) = sinks.borrow().first() {
+            old.0.borrow_mut().late_underflows = 2;
+        }
+        let mut sb = SourceBufferNative::new("audio/mp4".into(), usize::MAX);
+        sb.append(&init, 0.0).unwrap();
+        for seg in &media {
+            sb.append(seg, 0.0).unwrap();
+        }
+        let sbs = HashMap::from([(SB, sb)]);
+        m.detach();
+        m.attach(MS);
+        m.play();
+        step(&mut m, &sinks, &sbs, &mut now);
+    }
+    let seen = (sinks.borrow().len(), m.counters.output_underflows);
+    assert_eq!(seen, (2, 2));
+}
+
+#[test]
 fn a_failed_output_reopens_where_it_left_off_and_a_dead_one_is_an_error() {
     let (init, media) = fixture_segments();
     let (mut m, sinks) = engine_with_fresh_sinks();
