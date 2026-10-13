@@ -281,3 +281,43 @@ fix-1 (at 5fae888) is reported under Amendment 4's rules. It does not count, bec
   - fix-2 and fix-3 had 275 names each, so their verdicts are unchanged.
   - Re-scored, fix-controls' gate is FAIL on the blind grep, although every control held.
   - Re-running the controls needs a valid user token. The real token file is unchanged since 2026-10-09, yet Apple now refuses it. A fresh sign-in by Nate is needed first.
+
+## Amendment 7 (2026-10-12, S14c; written after fix-1, fix-2, fix-3 and fix-controls, before any code for it and before any further run)
+**This amendment is made after seeing data.** Every change below was prompted by fix-1 to fix-controls. It is stated plainly so a reader can weigh it. None of those runs is re-scored: their evidence has no `outputUnderflows`, no in-launch ballast window and the old banner.
+
+**1. R3 gates output starvation, not readiness dips (measurement validity).**
+- **Evidence:** the engine's `underruns` counter counts the media element falling below `HAVE_FUTURE_DATA` while potentially playing. fix-2 and fix-3 read 51 and 47 per soak, on specific tracks, with pacing lag ≤ 0.2 s. In fix-controls the 3 s SIGSTOP, a real output starvation, left it at 0; only pacing caught it. A counter that is blind to the one starvation we caused on purpose cannot stand for "no underruns logged". This corrects what R3 measures; it is not a retro-fit to make a FAIL pass. If anything it can add FAILs, because the new counter sees starvation the old one missed.
+- **New counter:** the engine counts PulseAudio `UNDERFLOW` commands the server sends for our playback stream. Verified against source, not memory: command 63 (`PA_COMMAND_UNDERFLOW`, `src/pulsecore/native-common.h`; `COMMAND_UNDERFLOW` in pipewire-pulse's `commands.h` at tag 1.6.2, the version installed here), payload `u32` stream channel, then an `s64` read offset when the protocol version is ≥ 23 (`protocol-native.c` `PLAYBACK_STREAM_MESSAGE_UNDERFLOW`; pipewire's `stream_send_underflow`). Every server underflow is counted; nothing is excused in the engine. Status key: `outputUnderflows`.
+- **Old counter:** same semantics, renamed `readinessDips` in the status. It is reported, never gated. (The engine's dev-only diagnostics status keeps its old `underruns` key.)
+- **New R3 rule:** `outputUnderflows` (last sample − first sample) = **0**, **and** the Amendment 4 pacing rule (no lag > 1.0 s between consecutive same-item Playing samples outside a seek window). Both must hold. The counter must be readable in the first and the last sample; otherwise R3 is FAIL ("outputUnderflows unreadable"), as the old rule did. `readinessDips` delta is recorded in the verdict for information.
+- **Named false positives, fixed before any data:**
+  - **Drain.** pipewire-pulse 1.6.2 sends one `UNDERFLOW` when a stream that has drained sits empty (`do_process_done` after `draining` clears). R3 in fix-2 and fix-3 had 0 drains (gapless album), so none is expected.
+  - **Seek on stock PulseAudio.** PulseAudio's flush does not mark the stream underrun, so a seek can report one `UNDERFLOW`. pipewire-pulse's `stream_flush` sets `is_underrun = true` without sending, and cork and stream creation do the same, so on this box seeks, pauses and new streams should report none. The harness runs on pipewire-pulse 1.6.2.
+  - An `UNDERFLOW` that clusters at seeks or drains in a live run is **investigated, not excused**. Excusing it needs another amendment.
+  - **Unmeasured:** whether readiness dips cause real underflows. If R3 now FAILs on `outputUnderflows`, that is a finding about the dips, not a reason to drop the rule.
+- **Stall control:** it holds if the SIGSTOP pair shows `outputUnderflows` Δ ≥ 1 **and/or** a pacing lag > 1.0 s. Both are recorded. A missing counter never counts as firing. Expected live reason: **"output underflow and/or pacing lag"**, and we expect both, because the stream's buffer target is 200 ms and the app is stopped for 3 s.
+
+**2. The bad-developer-token control expects the developer banner.**
+- S14c makes the developer-token-rejected banner outrank `SignInNeeded` in `app.rs` `banner()`.
+- **Rule:** the control's F4 holds only if every rep's banner contains "developer token was rejected" (it was `SignInNeeded`, which could not be told from the no-user-token control). F3's rule is unchanged.
+- **Known dependency:** the app learns the developer token is rejected from a cover or catalog request getting HTTP 401. If a rep's play fails before that 401 lands, its banner can still read `SignInNeeded`; that is an app finding, not excused.
+
+**3. The ballast is measured inside one launch.**
+- **Evidence:** across runs the ballast's rise residual (measured − (requested + kept covers)) spanned −3.3 to +0.9 MiB, and fix-1's −3.3 missed the 3.0 tolerance. The rise was the ballast launch's USS minus a different launch's (shipped) USS, so launch-to-launch variance sat inside it.
+- **Change:** the gate-sabotage build allocates nothing at start. It allocates and touches the ballast once, when the file named by `BRAMLEY_GATE_BALLAST_FILE` appears, holding the MiB to allocate, and reports the touched MiB in the status as `ballastMiB`.
+- **Procedure in the ballast session (same binary, same process):**
+  1. play the R1 song and take the **pre** window: `R1_SAMPLES` samples at 1 s, as R1;
+  2. write the trigger; wait until the status reports `ballastMiB` equal to the size;
+  3. take the **post** window the same way. The post window is the one R1's rules judge (zone 1 required, as before).
+- **Size:** unchanged: `ceil(200 + 15 − shipped R1 USS median)`, from the same run's shipped R1.
+- **Rise:** median post USS − median pre USS. **Expected:** the size + (kept covers at the end of post − kept covers at the end of pre). Both windows hold the same kept covers, so the old fixed +1.76 MiB term goes away. **Tolerance stays 3.0 MiB.**
+- **Also required:** every sample in both windows has the same pid; a missing or empty pre window, or a `ballastMiB` that never matched, means the ballast does not hold.
+- The landing band, the zone-1-only rule and the shipped-feature check are unchanged. The trigger and the status key exist only behind `gate-sabotage`, whose `bramley-unshipped-feature:app/gate-sabotage` marker stays.
+
+**Live checks this amendment still owes** (the real user token is refused by Apple, HTTP 403; no signed-in run is possible until Nate signs in again):
+- the stall control firing on `outputUnderflows` (and pacing);
+- R3's `outputUnderflows` and `readinessDips` on main, after S14b;
+- the in-launch ballast residual;
+- the bad-token control's banner.
+
+**Counted set:** a new pair of consecutive counted runs plus a `--controls` run, at the commit that implements this amendment or a later one.
