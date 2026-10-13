@@ -112,11 +112,11 @@ Both runs are valid: no co-tenant, the leak grep is clean and caught its plant, 
 
 | Control | What fired |
 |---|---|
-| No user token | F2 PASS. F4 and F9 never started, under `SignInNeeded`. F5 had 0 rounds; F6 had 0 of 3 transitions. R1 never started |
-| Bad-signature token (a real JWT, signature reversed) | F3 failed with "developer token was rejected" (Apple's 401). F4 never started; the banner read `SignInNeeded` |
+| No user token | F2 PASS. F4 never started, under `SignInNeeded`. F9 never started (F9 records no banner). F5 had 0 rounds; F6 had 0 of 3 transitions. R1 never started |
+| Bad-signature token (a real JWT, signature reversed) | F3 failed with "developer token was rejected" (Apple's 401). F4 never started; the banner read `SignInNeeded`. **That F4 reason can't be told apart from the no-user-token control**; S14c fixes the banner priority |
 | No stream | F4 never started: "the audio output could not be opened" |
 | Cut tail | F6 failed 2 of 3; the cut transition was caught by its skip count |
-| Leak | R3 FAIL in zone 1, USS +13.7 MiB. Only 5 changes after minute 5 (10 in earlier runs), above the 4 required |
+| Leak | R3 FAIL in zone 1, USS +13.7 MiB. Only 5 changes after minute 5 (10 in earlier runs), above the 4 required. **The soak froze from 16:35:42 to 16:48:47**, on one item at position 383.8 s, in Playing with no banner (see finding 7) |
 | Stall (SIGSTOP for 3 s) | the pacing rule caught a 2.92 s lag. `underruns` stayed at 0 |
 | Guard kill (a second, existing null sink) | the guard killed the app with "stream linked to" that sink; the app was gone; the default sink was unchanged |
 | Missing artifact | all 16 checks FAILed on missing evidence |
@@ -130,12 +130,37 @@ Both runs are valid: no co-tenant, the leak grep is clean and caught its plant, 
 4. **The bad developer token shows `SignInNeeded`:** the developer-rejected banner is outranked in `app.rs` `banner()`.
 5. **R5:** 1.8 % CPU while paused. An idle, never-played app reads 0.0 %, so the cost is the started engine.
 6. **F10:** Home never reloads after the network returns.
-7. **Not reproduced:** in fix-1, F8 and R3 stalled with `seq` frozen while 18 commands exited 0. A smoke repro, fix-2 and fix-3 all played normally, and queue replies are now recorded.
+7. **Playback freezes at an item transition.**
+   - In fix-1, F8 and R3 stalled with `seq` frozen while 18 commands exited 0.
+   - In fix-controls, the leak soak froze from 16:35:42 to 16:48:47 on one item, in Playing with no banner.
+   - A smoke repro, fix-2 and fix-3 played normally.
+   - Very likely race 3, which S14b fixed on its branch. Queue replies are now recorded.
 
 **Ballast note:** across runs the rise residual (measured minus requested plus kept) spans −3.3 to +0.9 MiB. fix-1's −3.3 missed the 3.0 tolerance. This is launch-to-launch USS variance; the tolerance was not widened. **Proposal:** allocate the ballast inside the same launch after a first R1 window, so the rise is measured within one process.
 
 **After the fix round (Amendment 6)**
-- **The leak grep was blind in fix-controls:** it fetched 0 library names, because Apple began refusing the real user token (HTTP 403 on `/v1/me/storefront` and the library API) between ~16:47 and 16:49. Library names are now required.
+- **The leak grep was blind in fix-controls:** it fetched 0 library names, because Apple was refusing the real user token (HTTP 403 on `/v1/me/storefront` and the library API) by 16:49. Library names are now required.
+  - **Correction:** this and Amendment 6 said the leak soak "was still playing" at ~16:47. It wasn't: it had frozen at 16:35:42. So the start of the token refusal is not bracketed by playback evidence.
 - **Re-scored:** fix-controls' gate is FAIL on the blind grep, though every control still holds. fix-2 and fix-3 (275 names each) are unchanged.
 - **Committed docs:** grepped again at the final commit. Tokens: 0 hits. Names couldn't be fetched, for the same reason.
 - **Before any further signed-in run,** Nate must sign in again. The real token file is unchanged since 2026-10-09, so this is Apple's refusal, not a harness write.
+
+**Deviation pending the coordinator's approval: F9 under Amendment 5**
+
+Amendment 5 moved the F4/F9 skipped baseline from the command to the first audible snapshot, after fix-1 (which Amendment 4 had named counted) had run. That is a loosening.
+- **Under Amendment 4, F9 FAILs:** fix-1 1,513 ms, fix-2 1,510 ms, fix-3 1,463 ms skipped.
+- **Under Amendment 5, F9 PASSes.**
+- **No gate verdict flips:** every run FAILs anyway, on F5, F10, R3 and R5.
+
+What was skipped: the previous song's queued audio, flushed at the switch. The new song's head was not cut.
+
+| Judged play | Position at first audible snapshot | skippedMs at command / first audible / end | Decrypted before first audible |
+|---|---|---|---|
+| fix-1 F9 | 0.67 s | 4,435 / 5,948 / 5,948 | 2.28 s |
+| fix-2 F9 | 0.50 s | 4,520 / 6,030 / 6,030 | 2.14 s |
+| fix-3 F9 | 0.46 s | 4,474 / 5,937 / 5,937 | 2.09 s |
+| cold F4, 15 launches (fix-1–3), for comparison | 0.07–0.50 s | 0 / 0 / 0 | 1.51–2.02 s |
+
+- **All of the jump comes before audio starts:** the ~1.5 s rise lands between the command and first audible, and nothing is skipped after.
+- **The new song starts near its head:** at 0.46–0.67 s, which is within or just above the cold-play range. A cut head would show the song starting at about 1.5 s.
+- **Limit:** F9 judges only its last rep, so first-audible positions exist for that rep only, one per run.

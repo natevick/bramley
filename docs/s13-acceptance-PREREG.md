@@ -275,6 +275,8 @@ fix-1 (at 5fae888) is reported under Amendment 4's rules. It does not count, bec
 ## Amendment 6 (2026-10-12, after fix-controls; procedure only)
 - **Evidence:** fix-controls' leak grep fetched 0 library names. The real user token began getting HTTP 403 from `/v1/me/storefront` and the library API between ~16:47 (the leak soak was still playing) and 16:49 (the grep). The fetch failed inside a suppressed block, and the plant self-test passed on a token fragment. So that run's "clean" grep checked tokens only.
 - **Rule:** the leak grep is clean only if it held **> 0 library names**. A grep that couldn't fetch names now fails the gate.
+- **Correction (2026-10-12, verification):** the leak soak was not playing at ~16:47; it had frozen at 16:35:42. So the start of the token refusal is not bracketed by playback evidence.
+- **Amendment 5 was a loosening applied after fix-1,** which this file had named counted. It is disclosed as a deviation pending approval in RESULTS, with the evidence.
 - **Status of the runs:**
   - fix-2 and fix-3 had 275 names each, so their verdicts are unchanged.
   - Re-scored, fix-controls' gate is FAIL on the blind grep, although every control held.
