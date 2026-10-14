@@ -487,3 +487,20 @@ Seam samples are handled like this:
   - If it PASSes under the gate it ran with, a regate of a copy under this amendment may confirm the PASS.
   - A regate cannot rescue a FAIL. If it FAILs only on a seam sample, the decision run becomes `s17-counted-3`, run at the commit that carries this amendment's code.
 - The PASS of `s17-soak-120` is regated on a copy under this amendment. A FAIL there would mean re-running the soak.
+
+## Amendment 14 (2026-10-14, the co-tenant watch: libLLVM alone is not a GPU client; written before s17-counted-3)
+**What happened.** Two runs were voided by postgres backends whose only match on the GPU library list was `libLLVM`, which postgres's query JIT maps:
+- `s15c-soak-120`, at 21:43;
+- `s17-counted-2` (abe64ed), with 4 polls from 1791987558.8.
+
+`libLLVM` is a general compiler library. It is not a GPU driver.
+
+**The rule.** The watch, the preflight and the standing-client snapshot count a process as a GPU client when its comm is `weston` or `bramley`, or when it maps one of:
+- `libgallium` or `radeonsi`, the Mesa GL drivers;
+- `libvulkan_radeon` (RADV), which is new and closes a gap.
+
+A process whose only match is `libLLVM` is not a GPU client.
+
+**Nothing escapes.** Every Mesa GL client also maps `libgallium` or `radeonsi`, so dropping `libLLVM` alone hides none of them.
+
+**What counts.** `s17-counted-2` stays VOID on record. Its other readings are not judged. The decision run of `docs/s17-verification-PREREG.md` is `s17-counted-3`, run at the commit that carries Amendments 13 and 14 in code.
