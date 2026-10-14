@@ -399,13 +399,14 @@ def f8(a, pre):
     evidence(a.out, f'{pre}f8.json', ev, a)
 
 
-def r3(a, pre):
+def r3(a, pre, loop=False):
     a.safe_to_play()
-    ev = {'pid': a.pid, 't0': time.time(), 'seekTimes': [], 'underflowEvents': []}
+    ev = {'pid': a.pid, 't0': time.time(), 'seekTimes': [], 'underflowEvents': [], 'changes': [], 'stalls': [], 'refills': [], 'soakS': SOAK_S}
     PACER.room(gate.R3_RESERVE)
     queue_up(a, ALBUM, ev)
     seeks, starts, sought, start = [0], {}, set(), time.time()
-    underflows = [a.snap().get('outputUnderflows') or 0]
+    underflows, queued, cur, stalls = [a.snap().get('outputUnderflows') or 0], [len(ALBUM)], [None], gate.StallWatch()
+    ev['stalls'] = stalls.stalls
 
     def pace():
         s = a.snap()
@@ -415,12 +416,20 @@ def r3(a, pre):
             ev['underflowEvents'].append({'t': round(time.time(), 2), 'itemId': item, 'position': pos, 'outputUnderflows': count,
                                           'drainsAcked': s.get('drainsAcked'), 'lastSeekT': (ev['seekTimes'] or [None])[-1]})
         underflows[0] = max(underflows[0], count or 0)
-        if item and s.get('state') == 'Playing':
-            if starts and item not in starts:
+        stalls.update(time.time(), s.get('state'), item, pos)
+        if item and s.get('state') == 'Playing' and item != cur[0]:
+            cur[0] = item
+            ev['changes'].append([round(time.time(), 2), item])
+            if len(ev['changes']) > 1:
                 PACER.note('item-change')
-            starts.setdefault(item, pos)
-        if item in starts and item not in sought and dur > SOAK_TRACK_S + 15 and pos - starts[item] >= SOAK_TRACK_S:
-            sought.add(item)
+            starts[len(ev['changes'])] = pos
+        at = len(ev['changes'])
+        if gate.needs_refill(loop, queued[0], at):
+            [a.cli('queue', 'add', i) for i in ALBUM]
+            queued[0] += len(ALBUM)
+            ev['refills'].append(round(time.time(), 2))
+        if at in starts and at not in sought and item == cur[0] and dur > SOAK_TRACK_S + 15 and pos - starts[at] >= SOAK_TRACK_S:
+            sought.add(at)
             ev['seekTimes'].append(round(time.time(), 2))
             a.cli('seek', str(round(dur - 10, 1)))
             ev['seekTimes'].append(round(time.time(), 2))
@@ -428,13 +437,15 @@ def r3(a, pre):
         return {'m': round((time.time() - start) / 60, 3), 'seeks': seeks[0]}
 
     rows = []
-    while time.time() - start < SOAK_S + SOAK_EVERY_S:
-        rows += sample(a, 1, 0, pace)
-        for _ in range(SOAK_EVERY_S):
-            time.sleep(1)
-            pace()
-    ev['samples'] = rows
-    evidence(a.out, f'{pre}r3.json', ev, a)
+    try:
+        while time.time() - start < SOAK_S + SOAK_EVERY_S:
+            rows += sample(a, 1, 0, pace)
+            for _ in range(SOAK_EVERY_S):
+                time.sleep(1)
+                pace()
+    finally:
+        ev['samples'] = rows
+        evidence(a.out, f'{pre}r3.json', ev, a)
 
 
 def memory(a, name, extra):
@@ -485,7 +496,7 @@ def main_session(out, binary, env, sink, pre, steps, extra=None):
             if a.guard.killed:
                 raise RuntimeError(f'{name}: the guard fired: {a.guard.killed}')
             {'f4': f4, 'f5': f5, 'f6': f6, 'f8': f8, 'r3': r3, 'r2': lambda a, p: None, 'r1': lambda a, p: memory(a, name, extra or {}),
-             'cut': lambda a, p: f6(a, p, cut=True), 'stall': stall}[step](a, pre)
+             'cut': lambda a, p: f6(a, p, cut=True), 'stall': stall, 'soak': lambda a, p: r3(a, p, loop=True)}[step](a, pre)
 
 
 def stall(a, pre):
@@ -814,7 +825,9 @@ def phases(out, mode, bins, sock, sink):
 
     found = {}
     yield 'reference', lambda: reference(out, sock, sink, 'reference')
-    if mode == 'llvmpipe':
+    if mode == 'soak':
+        yield 'soak', lambda: signed_in('soak', lambda e, c: main_session(out, shipped, e, sink, 'soak.', ('soak',)))
+    elif mode == 'llvmpipe':
         yield 'f1', lambda: signed_in('f1', lambda e, c: f1(out, shipped, e, sink))
         yield 'f4', lambda: signed_in('f4', lambda e, c: f4_cold(out, shipped, e, sink))
         yield 'shipped', lambda: signed_in('shipped', lambda e, c: main_session(out, shipped, e, sink, '', ('r2', 'r1')))
@@ -885,8 +898,9 @@ def prior_actions():
         return []
 
 
-def run(out, mode):
-    global PACER
+def run(out, mode, soak_minutes=None):
+    global PACER, SOAK_S
+    SOAK_S = int(soak_minutes * 60) if soak_minutes else SOAK_S
     PACER = gate.Pacer(prior_actions(), keep=keep_actions)
     os.makedirs(os.path.join(ROOT, 'target', 'tmp'), exist_ok=True)
     before, bins = real_state(), os.path.join(out, 'bin')
@@ -928,12 +942,13 @@ def cleanup(run):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out')
-    ap.add_argument('--mode', choices=('counted', 'llvmpipe', 'controls'), default='counted')
+    ap.add_argument('--mode', choices=('counted', 'llvmpipe', 'controls', 'soak'), default='counted')
+    ap.add_argument('--soak-minutes', type=float)
     ap.add_argument('--cleanup')
     a = ap.parse_args()
     if a.cleanup:
         return cleanup(a.cleanup)
-    run(a.out, a.mode)
+    run(a.out, a.mode, a.soak_minutes)
 
 
 if __name__ == '__main__':

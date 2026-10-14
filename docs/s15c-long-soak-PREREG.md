@@ -37,3 +37,6 @@ All must hold:
 ## Plan
 - The 120-minute run starts only after the coordinator's counted run releases the GPU lock, from a clean worktree at the final commit.
 - No counted run is made in this session, and nothing here adds to the number of runs v1 needs.
+
+## Clarification (written with the code; no rule change)
+The last snapshot of a soak can fall up to one 10 s snapshot period short of the requested minutes, so "reaches the requested minutes" is checked with a 10 s tolerance. A stall is a stretch of more than 30 s: a stretch of exactly 30 s is not one.

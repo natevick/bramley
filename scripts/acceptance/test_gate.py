@@ -629,6 +629,159 @@ class PacingVerdict(unittest.TestCase):
         self.assertEqual((p['ok'], p['peak'], p['reasons']), (False, 21, ['harness defect: 21 license-requesting actions in 600 s > 20']))
 
 
+def soak_rows(n=721):
+    return [{'t': 1000.0 + 10 * i, 'm': round(i / 6, 3), 'pid': 7, 'procs': 1, 'pss': 170.0, 'uss': 148.0, 'rss': 205.0, 'texturesUploaded': 50, 'state': 'Playing', 'banner': None,
+             'itemId': f'i{i // 16}', 'position': 20.0 + 10 * (i % 16), 'outputUnderflows': 3, 'readinessDips': 5} for i in range(n)]
+
+
+def write_soak(out):
+    write_valid(out, mode='soak')
+    put('build.json', soakMinutes=120)(out)
+    gate.save(out, 'soak.shipped.guard.json', {'pid': 7, 'killed': None, 'log': [[990.0 + i / 4, [SINK]] for i in range(400)]})
+    gate.save(out, 'soak.r3.json', {'pid': 7, 't0': 1000.0, 't1': 8210.0, 'session': 'soak.shipped', 'renderers': [RADEONSI], 'samples': soak_rows(),
+                                    'changes': [[1000.0 + 160 * i, f'i{i}'] for i in range(45)], 'stalls': [], 'refills': [3000.0, 5500.0], 'soakS': 7200})
+
+
+def soak_edit(fn):
+    return edit('soak.r3.json', lambda d: fn(d))
+
+
+def freeze(first, count):
+    return soak_edit(lambda d: [d['samples'][i].__setitem__('position', 77.0) or d['samples'][i].__setitem__('itemId', 'x') for i in range(first, first + count)])
+
+
+SOAK = [
+    ('valid soak', lambda out: None, 'PASS', None),
+    ('a driver stall', soak_edit(lambda d: d.__setitem__('stalls', [{'t0': 5000.0, 't1': 5031.0, 'item': 'i3', 'position': 4.0, 'state': 'Loading'}])), 'FAIL', 'permanent stall (race 3 reopens)'),
+    ('frozen snapshots over 30 s', freeze(100, 5), 'FAIL', '1 frozen snapshot runs'),
+    ('frozen snapshots at exactly 30 s', freeze(100, 4), 'PASS', None),
+    ('frozen while Paused is not a stall', both(freeze(100, 8), soak_edit(lambda d: [d['samples'][i].__setitem__('state', 'Paused') for i in range(100, 108)])), 'PASS', None),
+    ('frozen while Loading', both(freeze(100, 6), soak_edit(lambda d: [d['samples'][i].__setitem__('state', 'Loading') for i in range(100, 106)])), 'FAIL', 'permanent stall'),
+    ('stall record missing', soak_edit(lambda d: d.pop('stalls')), 'FAIL', 'stall record missing'),
+    ('29 item changes', soak_edit(lambda d: d.__setitem__('changes', d['changes'][:29])), 'FAIL', '29 item changes < 30'),
+    ('30 item changes', soak_edit(lambda d: d.__setitem__('changes', d['changes'][:30])), 'PASS', None),
+    ('item changes unrecorded', soak_edit(lambda d: d.pop('changes')), 'FAIL', 'None item changes'),
+    ('an output underflow', soak_edit(lambda d: d['samples'][-1].__setitem__('outputUnderflows', 4)), 'FAIL', 'output underflows during the soak: 1'),
+    ('output underflows unreadable', soak_edit(lambda d: d['samples'][-1].pop('outputUnderflows')), 'FAIL', 'outputUnderflows unreadable'),
+    ('a readiness dip', soak_edit(lambda d: d['samples'][-1].__setitem__('readinessDips', 6)), 'FAIL', 'readiness dips during the soak: 1'),
+    ('readiness dips unreadable', soak_edit(lambda d: d['samples'][0].pop('readinessDips')), 'FAIL', 'readinessDips unreadable'),
+    ('another pid', soak_edit(lambda d: d['samples'][300].__setitem__('pid', 8)), 'FAIL', 'crashed, restarted or forked'),
+    ('a child process', soak_edit(lambda d: d['samples'][300].__setitem__('procs', 2)), 'FAIL', 'crashed, restarted or forked'),
+    ('ended 20 minutes early', soak_edit(lambda d: d.__setitem__('samples', d['samples'][:600])), 'FAIL', 'soak ended at minute 99.833 < 120'),
+    ('ended within one snapshot period', soak_edit(lambda d: d['samples'][-1].__setitem__('m', 119.84)), 'PASS', None),
+    ('ended just past the tolerance', soak_edit(lambda d: d['samples'][-1].__setitem__('m', 119.8)), 'FAIL', 'soak ended at minute 119.8 < 120'),
+    ('no soak evidence', remove('soak.r3.json'), 'FAIL', 'missing evidence: soak.r3.json'),
+    ('no guard record', remove('soak.shipped.guard.json'), 'FAIL', 'soak.shipped.guard.json'),
+    ('guard killed the app', put('soak.shipped.guard.json', killed='linked to spdif'), 'VOID', 'guard killed'),
+    ('not radeonsi', soak_edit(lambda d: d.__setitem__('renderers', [LLVMPIPE])), 'VOID', 'renderer'),
+    ('a reference on the wrong sha', put('reference.json', sha256='feed'), 'VOID', 'sha'),
+    ('banners are information only', soak_edit(lambda d: d['samples'][50].__setitem__('banner', 'Error')), 'PASS', None),
+]
+
+
+class FrozenRuns(unittest.TestCase):
+    def rows(self, span):
+        return [{'t': 1000.0, 'itemId': 'a', 'position': 5.0, 'state': 'Playing'}, {'t': 1000.0 + span, 'itemId': 'a', 'position': 5.0, 'state': 'Playing'},
+                {'t': 1001.0 + span, 'itemId': 'a', 'position': 6.0, 'state': 'Playing'}]
+
+    def test_a_run_counts_only_when_it_spans_more_than_thirty_seconds(self):
+        self.assertEqual([len(gate.frozen_runs(self.rows(s))) for s in (29.9, 30.0, 30.5, 32.0)], [0, 0, 1, 1])
+
+    def test_a_frozen_pause_is_not_a_run(self):
+        rows = [dict(r, state='Paused') for r in self.rows(100.0)]
+        self.assertEqual(gate.frozen_runs(rows), [])
+
+
+class Soak(unittest.TestCase):
+    def setUp(self):
+        shutil.rmtree(SCRATCH, ignore_errors=True)
+        os.makedirs(SCRATCH)
+        self.addCleanup(shutil.rmtree, SCRATCH, True)
+
+    def test_each_soak_rule_moves_the_soak_with_its_own_reason(self):
+        for name, mutate, want, reason in SOAK:
+            with self.subTest(name):
+                write_soak(SCRATCH)
+                mutate(SCRATCH)
+                got = gate.verdict(SCRATCH)['soak']
+                self.assertEqual(got['verdict'], want, got['reasons'])
+                self.assertTrue(reason is None or any(reason in r for r in got['reasons']), got['reasons'])
+
+    def test_growth_is_read_from_minute_five_not_from_the_start(self):
+        write_soak(SCRATCH)
+        soak_edit(lambda d: [r.__setitem__('pss', 160.0) for r in d['samples'] if r['m'] < 1])(SCRATCH)
+        self.assertEqual(gate.verdict(SCRATCH)['soak']['pss'], 0.0)
+
+    def test_a_passing_soak_reports_growth_counters_and_never_counts_toward_v1(self):
+        write_soak(SCRATCH)
+        soak_edit(lambda d: [r.__setitem__('pss', 170.0 + (3.0 if r['m'] >= 100 else 0)) for r in d['samples']])(SCRATCH)
+        v = gate.verdict(SCRATCH)
+        s = v['soak']
+        self.assertEqual((v['gate'], v['countsTowardV1'], 'checks' in v), ('PASS', False, False))
+        self.assertEqual((s['pss'], s['itemChanges'], s['stalls'], s['frozenRuns'], s['refills'], s['outputUnderflows'], s['readinessDips'], s['minutes']), (3.0, 45, 0, 0, 2, 0, 0, 120.0))
+        self.assertEqual(s['growthPerHour']['pss'], round(3.0 / ((120.0 - 5) / 60), 2))
+        self.assertEqual(s['bannerSamples'], 0)
+
+    def test_the_soak_gate_needs_pacing_and_a_void_soak_is_a_void_gate(self):
+        write_soak(SCRATCH)
+        put('pacing.json', prior=[995.0])(SCRATCH)
+        self.assertEqual(gate.verdict(SCRATCH)['gate'], 'FAIL')
+        write_soak(SCRATCH)
+        put('soak.shipped.guard.json', killed='linked to spdif')(SCRATCH)
+        self.assertEqual(gate.verdict(SCRATCH)['gate'], 'VOID')
+        write_soak(SCRATCH)
+        soak_edit(lambda d: d.__setitem__('stalls', [{'t0': 1.0}]))(SCRATCH)
+        self.assertEqual(gate.verdict(SCRATCH)['gate'], 'FAIL')
+
+    def test_a_counted_run_has_no_soak_section(self):
+        write_valid(SCRATCH)
+        v = gate.verdict(SCRATCH)
+        self.assertEqual(('soak' in v, v.get('countsTowardV1')), (False, None))
+
+
+class StallWatchTests(unittest.TestCase):
+    def test_a_stall_opens_after_thirty_seconds_extends_and_a_move_ends_it(self):
+        w = gate.StallWatch()
+        for t in range(0, 31):
+            w.update(100.0 + t, 'Playing', 'a', 5.0)
+        self.assertEqual(w.stalls, [])
+        w.update(130.5, 'Playing', 'a', 5.0)
+        self.assertEqual(len(w.stalls), 1)
+        w.update(131.0, 'Playing', 'a', 5.0)
+        w.update(140.0, 'Loading', 'a', 5.0)
+        self.assertEqual([(s['t0'], s['t1'], s['state']) for s in w.stalls], [(100.0, 140.0, 'Playing')])
+        w.update(141.0, 'Playing', 'a', 6.0)
+        for t in range(142, 180):
+            w.update(float(t), 'Playing', 'a', 6.0)
+        self.assertEqual(len(w.stalls), 2)
+
+    def test_paused_stopped_and_moving_playback_never_stall(self):
+        w = gate.StallWatch()
+        for t in range(0, 200):
+            w.update(float(t), 'Paused', 'a', 5.0)
+        for t in range(200, 400):
+            w.update(float(t), 'Stopped', None, None)
+        for t in range(400, 600):
+            w.update(float(t), 'Playing', 'a', float(t))
+        self.assertEqual(w.stalls, [])
+
+    def test_a_new_item_at_the_same_position_resets_the_clock(self):
+        w = gate.StallWatch()
+        for t in range(0, 100):
+            w.update(float(t), 'Playing', f'i{t // 20}', 0.0)
+        self.assertEqual(w.stalls, [])
+
+
+class Refill(unittest.TestCase):
+    def test_no_refill_before_the_first_change_even_with_a_short_queue(self):
+        self.assertFalse(gate.needs_refill(True, 4, 0))
+
+    def test_the_soak_refills_when_four_or_fewer_items_remain_and_the_counted_soak_never_does(self):
+        self.assertEqual([gate.needs_refill(True, 18, c) for c in (0, 1, 13, 14, 15, 18)], [False, False, False, True, True, True])
+        self.assertFalse(any(gate.needs_refill(False, 18, c) for c in range(0, 19)))
+        self.assertEqual(gate.needs_refill(True, 36, 14), False)
+
+
 class Preflight(unittest.TestCase):
     def test_standing_gpu_clients_are_recognised_by_pid_not_by_name(self):
         procs = {101: ('gnome-shell', ['libgallium.so']), 102: ('gnome-shell', ['libgallium.so']), 103: ('Xvfb', ['libLLVM.so.21']),

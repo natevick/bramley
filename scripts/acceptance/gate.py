@@ -7,6 +7,7 @@ COVERS, ADVANCE_S, MIN_WINDOW_POLLS, RISE_TOLERANCE, REPS = 50, 50.0, 30, 3.0, 5
 F1_MS, F3_MS, F4_MS, F5_MS, F4_PLAYED_S, FULL_SONG_S, R3_TRACKS = 500, 2000, 3000, 500, 35.0, 300.0, 8
 REFERENCE_RUNS = ('reference', 'reference-after')
 R1_SAMPLES, R2_SAMPLES, REF_SAMPLES, CPU_SAMPLES, CPU_BIN_S = 60, 20, 20, 30, 10
+STALL_S, SOAK_CHANGES, SOAK_SLACK_MIN, REFILL_AT = 30.0, 30, 10 / 60, 4
 F5_COMMANDS, EVERY_REP = ('pause', 'seek', 'resume', 'next', 'prev'), ('pause', 'resume')
 ADVANCE_EPS_S, F5_SEEK_S, F5_POSITION_S, F5_ADVANCING_MS = 0.05, 120.0, 0.1, 3000
 DECRYPTED_MS, SKIPPED_MS, PACE_S = 35000, 100, 1.0
@@ -333,6 +334,83 @@ def r3_rules(ev, fails, sink):
                 changesAfter5=sum(1 for a, b in zip(rows, rows[1:]) if b['m'] >= 5 and a.get('itemId') != b.get('itemId')))
 
 
+def needs_refill(loop, queued, changes):
+    return bool(loop and changes and queued - changes <= REFILL_AT)
+
+
+class StallWatch:
+    def __init__(self):
+        self.frozen, self.stalls = None, []
+
+    def update(self, now, state, item, position):
+        live = state in ('Loading', 'Playing')
+        if not live or self.frozen is None or (self.frozen['item'], self.frozen['position']) != (item, position):
+            self.frozen = {'t0': round(now, 2), 'item': item, 'position': position, 'state': state, 'open': None} if live else None
+            return
+        if now - self.frozen['t0'] > STALL_S:
+            if self.frozen['open'] is None:
+                self.frozen['open'] = len(self.stalls)
+                self.stalls.append(dict(self.frozen))
+            self.stalls[self.frozen['open']]['t1'] = round(now, 2)
+
+
+def frozen_runs(rows):
+    runs, i = [], 0
+    while i < len(rows):
+        j = i
+        key = lambda r: (r.get('itemId'), r.get('position'), r.get('state') in ('Loading', 'Playing'))
+        while j + 1 < len(rows) and key(rows[j + 1]) == key(rows[i]):
+            j += 1
+        if key(rows[i])[2] and rows[j]['t'] - rows[i]['t'] > STALL_S:
+            runs.append([rows[i]['t'], rows[j]['t']])
+        i = j + 1
+    return runs
+
+
+def soak_rules(ev, fails, minutes):
+    rows = ev.get('samples') or []
+    changes = ev.get('changes')
+    if not rows or rows[-1]['m'] < minutes - SOAK_SLACK_MIN:
+        fails.append(f'soak ended at minute {rows[-1]["m"] if rows else 0} < {minutes}')
+    if any(r.get('pid') != ev.get('pid') or r.get('procs') != 1 for r in rows):
+        fails.append('the app crashed, restarted or forked during the soak')
+    stalls, frozen = ev.get('stalls'), frozen_runs(rows)
+    if stalls is None:
+        fails.append('stall record missing')
+    elif stalls or frozen:
+        fails.append(f'permanent stall (race 3 reopens): {len(stalls)} driver stalls > {STALL_S} s, {len(frozen)} frozen snapshot runs; first at {(stalls or [{"t0": frozen[0][0]}])[0]["t0"]}')
+    if changes is None or len(changes) < SOAK_CHANGES:
+        fails.append(f'{None if changes is None else len(changes)} item changes < {SOAK_CHANGES}')
+    counters = {}
+    for key, name in (('outputUnderflows', 'output underflows'), ('readinessDips', 'readiness dips')):
+        counters[key] = readable_delta(rows, key)
+        if counters[key] is None:
+            fails.append(f'{key} unreadable')
+        elif counters[key]:
+            fails.append(f'{name} during the soak: {counters[key]}')
+    g = growth(rows, 5, rows[-1]['m']) if rows and rows[-1]['m'] > 6 else {}
+    hours = (rows[-1]['m'] - 5) / 60 if rows else 0
+    return dict(g, itemChanges=None if changes is None else len(changes), stalls=len(stalls or []), frozenRuns=len(frozen), refills=len(ev.get('refills') or []),
+                growthPerHour={k: round(v / hours, 2) for k, v in g.items()} if hours > 0 else {}, bannerSamples=sum(1 for r in rows if r.get('banner') is not None),
+                minutes=rows[-1]['m'] if rows else 0, **counters)
+
+
+def soak_check(out, minutes):
+    missing, fails, voids = session_problems(out)
+    ref_missing, ref_voids, _ = reference_problems(out)
+    ev, sink = load(out, 'soak.r3.json'), (load(out, 'session.verdict.json') or {}).get('sink')
+    missing += ref_missing + ([] if ev else ['missing evidence: soak.r3.json'])
+    voids += ref_voids
+    if ev:
+        more_voids, more_missing = guard_voids(out, ev, sink, True)
+        voids, missing = voids + more_voids, missing + more_missing
+        voids += renderer_voids(ev.get('renderers') or [], 'soak')
+    if missing:
+        return {'verdict': 'FAIL', 'reasons': missing + fails + voids}
+    extra = soak_rules(ev, fails, minutes)
+    return dict(extra, verdict='VOID' if voids else 'FAIL' if fails else 'PASS', reasons=voids + fails)
+
+
 def readable_delta(rows, key):
     return rows[-1][key] - rows[0][key] if rows and rows[0].get(key) is not None and rows[-1].get(key) is not None else None
 
@@ -639,6 +717,11 @@ def verdict(out):
     v['phaseErrors'] = {k: e for k, e in v['errors'].items() if not e.startswith('RuntimeError: skipped: the guard fired')}
     v['pacing'] = pacing(out)
     safe = v['realStateUnchanged'] and v['leakGrep']['clean'] and not v['phaseErrors'] and v['pacing']['ok']
+    if build.get('mode') == 'soak':
+        v['countsTowardV1'] = False
+        v['soak'] = soak_check(out, build.get('soakMinutes') or 0)
+        v['gate'] = 'PASS' if safe and v['soak']['verdict'] == 'PASS' else 'VOID' if v['soak']['verdict'] == 'VOID' and safe else 'FAIL'
+        return v
     if build.get('mode') == 'controls':
         v['controls'] = controls(out, build)
         v['gate'] = 'PASS' if safe and v['controls']['holds'] else 'FAIL'
@@ -660,7 +743,7 @@ def verdict(out):
 
 def brief(v):
     keep = lambda c: {k: x for k, x in c.items() if k not in ('reasons',) or x}
-    return dict(gate=v['gate'], realStateUnchanged=v['realStateUnchanged'], leakGrep=v['leakGrep'], pacing=v.get('pacing'), checks={n: keep(c) for n, c in (v.get('checks') or {}).items()},
+    return dict(gate=v['gate'], realStateUnchanged=v['realStateUnchanged'], leakGrep=v['leakGrep'], pacing=v.get('pacing'), soak=v.get('soak'), countsTowardV1=v.get('countsTowardV1'), checks={n: keep(c) for n, c in (v.get('checks') or {}).items()},
                 ballast=v.get('ballast') and keep(v['ballast']), reference=v['reference'], controls=v.get('controls'), llvmpipeControl=v.get('llvmpipeControl'), errors=v['errors'])
 
 
