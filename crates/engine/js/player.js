@@ -87,7 +87,7 @@
   const within = (p, ms) => Promise.race([settled(p), new Promise(r => setTimeout(r, ms))]);
   const turnOf = p => within(p, C.commandWaitMs);
   const add = p => { adding = settled(p); return p; };
-  const note = (name, what) => { S.steps.push([Math.round(performance.now()), name, what]); if (S.steps.length > 20) S.steps.shift(); };
+  const note = (name, what) => { S.steps.push([Math.round(performance.now()), name, what]); if (S.steps.length > 20) S.steps.shift(); if (globalThis.__traceMark) globalThis.__traceMark("step", name, what); };
   function enqueue(name, f, needsQueue) {
     const n = ++seq, prev = last;
     last = ready.then(() => turnOf(prev)).then(async () => {

@@ -298,3 +298,22 @@ fn an_aborted_request_does_not_keep_the_engine_polling() {
     assert!(first_idle_wait(&mut e) >= Duration::from_secs(1));
     drop(listener);
 }
+
+#[cfg(feature = "trace")]
+#[test]
+fn the_cdm_trace_shows_key_and_message_counts_never_key_ids_or_message_text() {
+    use serde_json::json;
+    let keys = json!({"type": "keys", "sid": 3, "keys": [{"kid": "00112233445566778899aabbccddeeff", "status": "usable"}]});
+    let shown = crate::runtime::trace_meta(&keys).to_string();
+    assert!(
+        shown.contains(r#""keys":1"#) && !shown.contains("00112233"),
+        "{shown}"
+    );
+    let reject =
+        json!({"type": "reject", "promise": 1, "message": "license for Some Song Title refused"});
+    let shown = crate::runtime::trace_meta(&reject).to_string();
+    assert!(
+        shown.contains(r#""message":35"#) && !shown.contains("Song Title"),
+        "{shown}"
+    );
+}

@@ -557,6 +557,18 @@ fn handle_completion(ctx: &Ctx, n: &N, c: Completion) {
     }
 }
 
+#[cfg(feature = "trace")]
+pub(crate) fn trace_meta(meta: &J) -> J {
+    let mut shown = meta.clone();
+    if let Some(count) = shown["keys"].as_array().map(Vec::len) {
+        shown["keys"] = json!(count);
+    }
+    if let Some(len) = shown["message"].as_str().map(str::len) {
+        shown["message"] = json!(len);
+    }
+    shown
+}
+
 fn dispatch_cdm(ctx: &Ctx, n: &N, keys_id: u32, e: CdmEvent) {
     #[cfg(feature = "trace")]
     let traced = format!("{:.3}", n.borrow().start.elapsed().as_secs_f64() * 1000.0);
@@ -599,7 +611,10 @@ fn dispatch_cdm(ctx: &Ctx, n: &N, keys_id: u32, e: CdmEvent) {
             keys_id,
             {
                 #[cfg(feature = "trace")]
-                eprintln!("TRACE {traced} cdm-event keys={keys_id} {meta}");
+                eprintln!(
+                    "TRACE {traced} cdm-event keys={keys_id} {}",
+                    trace_meta(&meta)
+                );
                 meta.to_string()
             },
             buffer_or_null(ctx, body),
