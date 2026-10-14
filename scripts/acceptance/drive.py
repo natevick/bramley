@@ -375,10 +375,9 @@ def queue_up(a, ids, ev):
 def f6(a, pre, cut=False):
     ids, ev = ALBUM[2:6], {'t0': time.time()}
     queue_up(a, ids, ev)
-    ev['transitions'], start = [], 0.0
+    ev['transitions'] = []
     for i in range(3):
-        ev['transitions'].append(transition(a, ids, i, start, cut and i == 2))
-        start = (ev['transitions'][-1].get('flip') or {}).get('position') or start
+        ev['transitions'].append(transition(a, ids, i, 0.0, cut and i == 2))
     evidence(a.out, f'{pre}f6.json', ev, a)
 
 
