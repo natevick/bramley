@@ -2536,6 +2536,48 @@ fn click(ctx: &egui::Context, app: &mut crate::app::App, label: &str) {
 }
 
 #[test]
+fn a_search_past_its_deadline_is_not_applied_and_leaves_the_next_one_alone() {
+    use crate::cli::Request;
+    let ctx = egui::Context::default();
+    let spawn = spawning(|| Err(anyhow!("no player in this test")));
+    let (inbox_tx, inbox) = channel();
+    let config =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/no-config");
+    let user = (mock_user(&config), false);
+    let args = crate::Args::default();
+    let mut app = crate::app::App::new(&ctx, args, spawn, user, (inbox, true), None);
+    let mut search = |agent: bool, late: bool| {
+        let deadline = match late {
+            true => Instant::now() - Duration::from_millis(1),
+            false => Instant::now() + Duration::from_secs(5),
+        };
+        if agent {
+            inbox_tx
+                .send((Request::Agent, deadline, channel().0))
+                .unwrap();
+        }
+        let (reply, answered) = channel();
+        let request = Request::Search("queen".into());
+        inbox_tx.send((request, deadline, reply)).unwrap();
+        app.pump(&ctx);
+        let answer = answered.recv_timeout(Duration::from_secs(5));
+        let refused = answer.map(|r| r.contains(crate::cli::LATE));
+        (refused.ok(), app.status_json()["route"].clone())
+    };
+    let by_cli = search(false, true);
+    let by_agent = search(true, true);
+    let applied = search(false, false);
+    assert_eq!(
+        (by_cli, by_agent, applied),
+        (
+            (Some(true), json!("Home")),
+            (Some(true), json!("Home")),
+            (Some(false), json!("Search"))
+        )
+    );
+}
+
+#[test]
 fn an_agent_request_raises_the_app_notice_and_only_dismissal_records_it() {
     use crate::cli::Request;
     let line = crate::cli::agent_wire(&words("now"));

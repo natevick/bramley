@@ -587,6 +587,22 @@ mod search {
     }
 
     #[test]
+    fn a_cli_search_never_outlives_the_deadline_its_client_was_given() {
+        let (mut search, t0) = (Search::new(None), Instant::now());
+        let limit = ms(t0, 3_000);
+        search.enter_by("queen", t0, limit);
+        let job = search.tick(t0, true, || {}).expect("a search job");
+        search.tick(ms(t0, 3_001), true, || {});
+        let loading = matches!(search.state, State::Loading(_));
+        search.enter("queen", t0);
+        let typed = search.tick(t0, true, || {}).expect("a search job");
+        assert_eq!(
+            (job.deadline, loading, typed.deadline),
+            (limit, true, t0 + crate::ui::search::DEADLINE)
+        );
+    }
+
+    #[test]
     fn a_failed_search_shows_neither_the_term_nor_the_wire_detail() {
         let wire = Error::Network("GET https://x/search?term=bohemian: refused".into());
         assert_eq!(cause(&wire), "Apple Music could not be reached");

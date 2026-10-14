@@ -369,6 +369,7 @@ impl App {
         let mut any = false;
         while let Ok((request, deadline, reply)) = self.inbox.try_recv() {
             any = true;
+            let late = Instant::now() > deadline;
             if matches!(request, Request::Agent | Request::Library(_)) {
                 self.agent_notice |= !self.user.dir().join(crate::mcp::DISCLOSED).exists();
             }
@@ -376,15 +377,15 @@ impl App {
                 self.agent_asking = true;
                 continue;
             }
-            if let (Request::Search(term), false) =
-                (&request, std::mem::take(&mut self.agent_asking))
-            {
+            let from_agent = std::mem::take(&mut self.agent_asking);
+            if let (Request::Search(term), false, false) = (&request, from_agent, late) {
                 self.shell.apply(Nav::Go(ui::nav::Route::Search));
                 self.shell.query.clone_from(term);
-                self.search.enter(term, Instant::now());
+                self.search
+                    .enter_by(term, Instant::now(), deadline + cli::REPLY_MARGIN);
             }
             if let Some(call) = cli::api_call(&request)
-                && Instant::now() <= deadline
+                && !late
             {
                 let job = bramley_api::Job::new(call, deadline, move |found| {
                     let _ = reply.send(cli::api_reply(found));
@@ -394,7 +395,7 @@ impl App {
             }
             let show = request == Request::Show;
             let outcome = match request {
-                _ if Instant::now() > deadline => Some(("error", cli::LATE)),
+                _ if late => Some(("error", cli::LATE)),
                 Request::SignIn => self.start_sign_in().err().map(|why| ("error", why)),
                 Request::SignOut => {
                     self.sign_out();

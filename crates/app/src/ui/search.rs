@@ -32,7 +32,7 @@ pub enum State {
 }
 
 pub struct Search {
-    pending: Option<(String, Instant)>,
+    pending: Option<(String, Instant, Option<Instant>)>,
     seq: u64,
     pub(super) state: State,
     asked: Option<Instant>,
@@ -70,15 +70,19 @@ impl Search {
     }
 
     pub fn edited(&mut self, text: &str, now: Instant) {
-        self.pending = Some((text.trim().to_owned(), now + DEBOUNCE));
+        self.pending = Some((text.trim().to_owned(), now + DEBOUNCE, None));
     }
 
     pub fn enter(&mut self, text: &str, now: Instant) {
-        self.pending = Some((text.trim().to_owned(), now));
+        self.pending = Some((text.trim().to_owned(), now, None));
+    }
+
+    pub fn enter_by(&mut self, text: &str, now: Instant, limit: Instant) {
+        self.pending = Some((text.trim().to_owned(), now, Some(limit)));
     }
 
     pub fn wait(&self, now: Instant) -> Option<Duration> {
-        let (_, due) = self.pending.as_ref()?;
+        let (_, due, _) = self.pending.as_ref()?;
         Some(due.saturating_duration_since(now))
     }
 
@@ -105,7 +109,7 @@ impl Search {
                 "Timeout".into(),
             ));
         }
-        let (term, _) = self.pending.take_if(|(_, due)| *due <= now)?;
+        let (term, _, limit) = self.pending.take_if(|(_, due, _)| *due <= now)?;
         if term.is_empty() {
             self.replace(State::Idle);
             return None;
@@ -113,7 +117,8 @@ impl Search {
         self.replace(State::Loading(now + DEADLINE));
         (self.asked, self.took) = (Some(now), None);
         let (tx, seq) = (self.tx.clone(), self.seq);
-        let job = Job::new(Call::Search(term), now + DEADLINE, move |found| {
+        let deadline = limit.map_or(now + DEADLINE, |limit| limit.min(now + DEADLINE));
+        let job = Job::new(Call::Search(term), deadline, move |found| {
             let _ = tx.send((seq, found));
             wake();
         });

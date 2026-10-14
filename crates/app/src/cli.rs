@@ -16,7 +16,7 @@ pub const NOT_RUNNING: i32 = 3;
 pub const REFUSED: i32 = 5;
 const MAX_ID: usize = 64;
 const APPLY_TIME: Duration = Duration::from_secs(3);
-const REPLY_MARGIN: Duration = Duration::from_secs(1);
+pub(crate) const REPLY_MARGIN: Duration = Duration::from_secs(1);
 const LIBRARY_VIA_MCP: &str =
     "your library is shared only with an agent you connect through `bramley mcp`";
 const AGENT: &str = "mcp";
