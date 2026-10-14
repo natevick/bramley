@@ -180,12 +180,12 @@ class Sequence2(unittest.TestCase):
         verdict = gate.probe2_rules(run(None, IDS2, slow_by=entry_slow))
         self.assertEqual((verdict['verdict'], verdict['entryEffect']), ('PASS', 'supports'), verdict['reasons'])
         ev = run.ev
-        self.assertEqual((ev['entry']['from'], ev['entry']['item'], ev['entry']['seqAtEntry'] == ev['entry']['seekSeq']), ('PRED', 'LONG', True))
+        self.assertEqual((ev['entry']['from'], ev['entry']['item'], ev['entry']['seqAtEntry'] == ev['entry']['lastSeq']), ('PRED', 'LONG', True))
         self.assertEqual(([x['polls'] for x in verdict['arms'].values()], run.world.adds), ([71, 71, 71], 3))
         self.assertEqual([[k for _, k, _ in ev['arms'][a]['trace']] for a in 'AFC'], [['seekToTime', 'currentTime', 'seekToTime']] * 3)
         self.assertEqual([ev['arms'][k]['target'] for k in 'AFC'], [490.8, 490.8, 110.0])
         kinds = [k for _, k in run.world.pacer.actions]
-        self.assertTrue(len(kinds) <= gate.PROBE2_ACTIONS and kinds[:3] == ['play', 'seek-to-end', 'item-change'], kinds)
+        self.assertTrue(len(kinds) <= gate.PROBE2_ACTIONS and kinds[:3] == ['play', 'item-change', 'seek-to-end'], kinds)
 
     def test_a_player_that_lands_fast_everywhere_does_not_reproduce(self):
         verdict = gate.probe2_rules(run(None, IDS2, slow_by=lambda w, target: 0.3))
@@ -216,7 +216,7 @@ class Sequence2(unittest.TestCase):
 
     def test_the_cap_refuses_an_eleventh_action(self):
         w = World(None, slow_by=entry_slow)
-        w.pacer.note('earlier', 9)
+        w.pacer.note('earlier', 8)
         d = types.SimpleNamespace(gate=gate, PACER=w.pacer, ALBUM=ALBUM, note_names=lambda *a: None)
         with self.assertRaisesRegex(RuntimeError, 'refusing'):
             probe_seek.sequence2(d, w, IDS2, {'arms': {}}, w.clock, w.sleep, Log(w))

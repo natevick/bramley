@@ -3,7 +3,7 @@ import json, os, re, time
 FIELDS = ('position', 'applied', 'seq', 'skippedMs', 'sentMs', 'duration', 'state')
 ID = re.compile(r'[A-Za-z0-9._-]+')
 STEP_S, BACK_TO_S, NATURAL_S, SHORT_REACH_S, LONG_REACH_S, ENTRY_REACH_S = 0.05, 280.0, 15.0, 150.0, 150.0, 143.0
-PLAY_TIMEOUT_S, REACH_TIMEOUT_S, SEEK_TIMEOUT_S, ENTRY_TIMEOUT_S, MAX_TRACE_EVENTS = 60, 400, 90, 240, 400
+PLAY_TIMEOUT_S, REACH_TIMEOUT_S, SEEK_TIMEOUT_S, ENTRY_TIMEOUT_S, MAX_TRACE_EVENTS = 60, 400, 90, 330, 400
 TRACE_MARKER = b'bramley-unshipped-feature:engine/trace'
 TRACE_LINE = re.compile(r'TRACE (\d+\.\d+) (\S.*)$')
 TRACE_KINDS = (('seekToTime', r'mark step seek (\w+)$'), ('fetch', r'call \S+ (?:fetch|open) (\w+) (\S+)$'), ('fetch', r'(?:resolve|done) \S+ (\d+)\b'),
@@ -135,8 +135,7 @@ def sequence2(d, a, ids, ev, clock=time.time, sleep=time.sleep, trace=None):
         raise RuntimeError('the engine did not install the trace')
     queued = [a.cli('queue', 'add', i)[1] for i in tail[1:]][-1]
     seen = run.wait_for(lambda s: applied(s, queued), SEEK_TIMEOUT_S, 'the queue to settle')
-    code, sought, _ = run.spend('seek', str(round(seen['duration'] - 10, 1)))
-    entry = {'from': run.names.get(seen.get('itemId')), 'seekSeq': sought.get('seq'), 'seqAtEntry': None}
+    entry = {'from': run.names.get(seen.get('itemId')), 'lastSeq': queued.get('seq'), 'seqAtEntry': None}
 
     def entered(s):
         if s.get('itemId') != ids['LONG']:

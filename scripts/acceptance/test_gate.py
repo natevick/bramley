@@ -1105,7 +1105,7 @@ class ProbeVerdict(unittest.TestCase):
         self.assertEqual(gate.verdict(SCRATCH)['gate'], 'REFUTED')
 
 
-ENTRY = {'from': 'PRED', 'item': 'LONG', 'seekSeq': 5, 'seqAtEntry': 5}
+ENTRY = {'from': 'PRED', 'item': 'LONG', 'lastSeq': 5, 'seqAtEntry': 5}
 V2 = {'A': dict(t_skip=4.4, t_app=4.6, origin=145.0), 'F': dict(FAST, origin=152.0), 'C': dict(FAST, item='SHORT', duration=200.0, origin=150.0)}
 SEEN = [[0.0, 'seekToTime', 'start'], [900.0, 'currentTime', '490.8']]
 
@@ -1135,7 +1135,7 @@ class ProbeV2(unittest.TestCase):
             ('LONG entered from another item', {'entry': {'from': 'other'}}, 'INCONCLUSIVE', 'natural item change'),
             ('LONG entered by a command', {'entry': {'seqAtEntry': 6}}, 'INCONCLUSIVE', 'natural item change'),
             ('entry never observed', {'entry': {'seqAtEntry': None}}, 'INCONCLUSIVE', 'natural item change'),
-            ('entry and seek seq both missing', {'entry': {'seqAtEntry': None, 'seekSeq': None}}, 'INCONCLUSIVE', 'natural item change'),
+            ('entry and seek seq both missing', {'entry': {'seqAtEntry': None, 'lastSeq': None}}, 'INCONCLUSIVE', 'natural item change'),
             ('a different item entered', {'entry': {'item': 'SHORT'}}, 'INCONCLUSIVE', 'natural item change'),
             ('no trace at all', {'trace': []}, 'INCONCLUSIVE', 'no seek event'),
             ('trace without a seek event', {'trace': [[0.0, 'fetch', 'GET h~1']]}, 'INCONCLUSIVE', 'no seek event'),

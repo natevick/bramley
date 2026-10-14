@@ -496,7 +496,7 @@ def probe2_rules(ev):
     seen = {kind for _, kind, _ in ((ev.get('arms') or {}).get('A') or {}).get('trace') or []}
     uncounted = [why for ok, why in ((armA['itemId'] == 'LONG', f'arm A item {armA["itemId"]}'),
                                      (within(armA['duration'], PROBE_LONG_S - PROBE_LONG_TOL_S, PROBE_LONG_S + PROBE_LONG_TOL_S), f'arm A duration {armA["duration"]}'),
-                                     (entry.get('from') == 'PRED' and entry.get('item') == 'LONG' and entry.get('seqAtEntry') is not None and entry.get('seqAtEntry') == entry.get('seekSeq'),
+                                     (entry.get('from') == 'PRED' and entry.get('item') == 'LONG' and entry.get('seqAtEntry') is not None and entry.get('seqAtEntry') == entry.get('lastSeq'),
                                       f'LONG was not entered by a natural item change: {entry}'),
                                      (within(armA['origin'], *PROBE2_ORIGIN_S), f'arm A origin {armA["origin"]}'), (armA['seqDelta'] == 1, f'arm A seq delta {armA["seqDelta"]}'),
                                      (bool(seen & {'seekToTime', 'currentTime'}), 'the trace shows no seek event in arm A')) if not ok]

@@ -6,9 +6,9 @@ Written before the first run. Item ids are runtime arguments and appear in no co
 In every slow R3 seek, LONG (500.79 s) was entered by a natural seamless transition from PRED (139.88 s), its predecessor in the queue. A seek to `dur-10` about 145 s into LONG then stalls upstream of the engine for about 4.5 s: `skippedMs` stays flat while `sentMs` rises at wall rate. The same seek after a fresh single-song entry lands in under 1 s. The trace build shows which step waits.
 
 ## Sequence
-Counted license actions: plays, seeks to `dur-10`, and item changes (the natural PRED to LONG change, and any change seen inside arm A). Expected 8 or 9. **Cap: 10**, refused in the runner and failed by the gate.
+Counted license actions: plays, seeks to `dur-10`, and item changes (the natural PRED to LONG change, and any change seen inside arm A). Expected 7 or 8. **Cap: 10**, refused in the runner and failed by the gate.
 1. Play PRED (abort unless 139.88 ± 0.5). Queue the rest of the acceptance album from LONG on, as R3 does (`queue add`; the CLI has no play-a-playlist-from-an-index).
-2. Seek PRED to `dur-10`. Wait for LONG to start by itself and reach position 143 (abort unless its duration is 500.79 ± 0.5).
+2. Let PRED play through, as R3 does: R3 never seeks PRED. Wait for LONG to start by itself and reach position 143 (abort unless its duration is 500.79 ± 0.5).
 3. **Arm A:** seek to `round(dur-10, 1)`.
 4. **Arm F (fresh-entry control, probe-1's re-run folded in):** play LONG as a single-song queue, wait for position 150, seek to `round(dur-10, 1)`.
 5. **Arm C (control):** play SHORT (abort unless duration < 300), wait for position 150 or `dur-40` if smaller, seek to `round(dur-10, 1)`.
@@ -25,10 +25,10 @@ Each arm records status every 200 ms from 2 s before the seek to 12 s after (exp
 
 ## Interpretations (mine)
 - t_skip, t_app and slope are derived as in probe-1's PREREG. F never settling counts as `t_app ≥ 3.0 s`.
-- "No command in between" means the `seq` of LONG's first snapshot equals the `seq` of the PRED seek's reply.
+- "No command in between" means the `seq` of LONG's first snapshot equals the `seq` of the last `queue add` reply.
 - A seek-related event is a `seekToTime` step mark or a `currentTime` set in the trace. A's duration must also be 500.79 ± 0.5.
 - Polls are reads of the status file; the engine publishes every 250 ms. The leak grep, pacing and safe-flag rules are unchanged.
-- R3 does not seek PRED (it is shorter than R3's 165 s bar); it plays PRED through. This probe seeks it, to save 130 s. That is a difference from R3's context and is not tested.
+- R3 does not seek PRED (it is shorter than R3's 165 s bar); it plays PRED through, and so does this probe. This was amended before the first run; the first draft seeked PRED to save about 130 s, a context R3 never produced.
 - A trace build logs every `currentTime` read and may perturb timing. That is not tested offline.
 
 ## Verdicts and decision table
