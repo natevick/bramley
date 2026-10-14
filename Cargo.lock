@@ -566,7 +566,7 @@ dependencies = [
 
 [[package]]
 name = "bramley"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "apple-native-keyring-store",
@@ -605,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "bramley-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "cc",
