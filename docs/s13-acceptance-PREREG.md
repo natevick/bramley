@@ -461,3 +461,29 @@ No threshold changes.
 The window is up to about 0.5 s, not 250 ms. The `lags` carve-out of Amendment 11 is unchanged.
 
 **What counts.** `s17-counted-1` stays a FAIL on record. The decision of `docs/s17-verification-PREREG.md` uses the re-run `s17-counted-2` at the commit that carries this amendment and the fix, with the same pass rule.
+
+## Amendment 13 (2026-10-14 07:2x, S17: the other direction of the seam; committed before s17-counted-2 ends and before any of its evidence was read)
+No threshold changes.
+
+**The defect.** Amendment 12 recorded that the seam skews both ways. Amendment 11's carve-out handles only one of them: the position resets before the `itemId` flips. In the other direction the `itemId` flips first, so for up to about 0.5 s a sample carries the new `itemId` and the new duration but the old item's position. A 10 s R3 or soak snapshot that lands there fails a correct build in one of two ways:
+- If the new item is shorter than the old position by more than 1 s, `position_overruns` reports it.
+- If the new item is more than about 11 s longer, `seam_reset` reads the new duration, so it does not excuse the pair, and `lags` reports a stall of about the old position.
+
+The reviewer confirmed both shapes against the real gate functions. The recorded runs have no such sample in 70 item changes, which is a rate of up to about 4 % per change at 95 %.
+
+**The rule.** A *seam sample* is the first Playing sample at a new `itemId` whose position continues the previous sample's clock:
+- the previous sample is Playing;
+- `prev.position + (t − prev.t)` is within `PACE_S` of its position;
+- `prev.position + (t − prev.t) >= prev.duration − SEAM_S`.
+
+Seam samples are handled like this:
+- `position_overruns` judges a seam sample against the previous item's duration, not its own, so the overrun check still runs on it.
+- `lags` skips a pair whose first sample is a seam sample.
+
+**Can it still fail?** Under the original bug, the first sample of every new item continues the old clock, which looks like a seam sample. The regates of `v1-2` and `s15c-soak-120b` must therefore still FAIL on position. The count may drop, but not to zero, because most of their overrun samples are not the first at their item.
+
+**How the decision runs are judged.**
+- `s17-counted-2` was started at abe64ed, before this amendment.
+  - If it PASSes under the gate it ran with, a regate of a copy under this amendment may confirm the PASS.
+  - A regate cannot rescue a FAIL. If it FAILs only on a seam sample, the decision run becomes `s17-counted-3`, run at the commit that carries this amendment's code.
+- The PASS of `s17-soak-120` is regated on a copy under this amendment. A FAIL there would mean re-running the soak.

@@ -37,3 +37,6 @@ Each verdict must show:
 The soak must also have:
 - ≥ 700 snapshots;
 - ≥ 30 seeks.
+
+## Amendment (2026-10-14)
+The judging of both decision runs under the seam rule follows Amendment 13 of `docs/s13-acceptance-PREREG.md`.
