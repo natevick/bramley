@@ -12,6 +12,7 @@ const RANGE_GAP_US: i64 = 50_000;
 pub struct Frame {
     pub pts_us: i64,
     pub dur_us: i64,
+    pub offset_us: i64,
     pub data: Vec<u8>,
     pub enc: Option<SampleEnc>,
     pub init: Rc<TrackInit>,
@@ -145,6 +146,7 @@ impl SourceBufferNative {
                     .map(|s| Frame {
                         pts_us: mp4::ticks_to_us(s.dts, ts).saturating_add(offset_us),
                         dur_us: mp4::ticks_to_us(s.dur as i64, ts),
+                        offset_us,
                         data: s.data,
                         enc: s.enc,
                         init: init.clone(),
@@ -200,6 +202,16 @@ impl SourceBufferNative {
 
     pub fn end_us(&self) -> Option<i64> {
         self.frames.values().next_back().map(Frame::end_us)
+    }
+
+    pub fn offset_us_at(&self, t_us: i64) -> Option<i64> {
+        let frame = self
+            .frames
+            .range(..=t_us)
+            .next_back()
+            .map(|(_, f)| f)
+            .or_else(|| self.frames.values().next());
+        frame.map(|f| f.offset_us)
     }
 }
 

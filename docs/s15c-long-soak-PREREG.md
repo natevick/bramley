@@ -40,3 +40,8 @@ All must hold:
 
 ## Clarification (written with the code; no rule change)
 The last snapshot of a soak can fall up to one 10 s snapshot period short of the requested minutes, so "reaches the requested minutes" is checked with a 10 s tolerance. A stall is a stretch of more than 30 s: a stretch of exactly 30 s is not one.
+
+## Amendment (2026-10-14, S17)
+Amendment 11 of `docs/s13-acceptance-PREREG.md` adds a gate check on every Playing sample, `position <= duration + 1`, that FAILs soak runs too.
+
+Amendment 13 of `docs/s13-acceptance-PREREG.md` applies to the soak mode's position and lags checks.

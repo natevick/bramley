@@ -24,6 +24,7 @@ struct Fake {
     panic_at_tick: Option<usize>,
     state: J,
     time: Option<f64>,
+    item_offset: f64,
     output_failed: bool,
     output: crate::runtime::OutputCounts,
     wait: Option<Duration>,
@@ -70,8 +71,9 @@ impl Backend for FakeEngine {
             .as_u64()
             .unwrap_or(0)
     }
-    fn current_time(&self) -> Option<f64> {
-        self.0.lock().unwrap().time
+    fn item_time(&self) -> Option<f64> {
+        let f = self.0.lock().unwrap();
+        f.time.map(|t| t - f.item_offset)
     }
     fn output_failed(&self) -> bool {
         self.0.lock().unwrap().output_failed
@@ -286,6 +288,25 @@ fn snapshots_use_native_time_and_map_errors_redacted() {
     fake.set(json!({"playbackState": 2}), Some(1.0));
     let output = PlayerError::Playback(crate::player::OUTPUT_FAILED.into());
     wait_for(&rx, |s| s.error.as_ref() == Some(&output));
+    tx.send(Command::Shutdown).unwrap();
+}
+
+#[test]
+fn the_snapshot_position_is_the_item_relative_time_not_the_element_clock() {
+    let fake = FakeEngine::default();
+    fake.0.lock().unwrap().item_offset = 244.4;
+    fake.set(
+        json!({"playbackState": 2, "item": {"id": "7", "durationInMillis": 139900}}),
+        Some(247.6),
+    );
+    let f = fake.clone();
+    let (tx, rx, _) = spawn_fake(move || Ok(f), SNAPSHOT_EVERY);
+    let s = wait_for(&rx, |s| s.item_id.is_some());
+    let position = s.position.unwrap();
+    assert!(
+        (position - 3.2).abs() < 1e-6,
+        "position {position} for element time 247.6 and item offset 244.4"
+    );
     tx.send(Command::Shutdown).unwrap();
 }
 

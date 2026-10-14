@@ -156,7 +156,7 @@ pub(crate) trait Backend {
     fn eval_script(&self, name: &str, source: &str) -> Result<()>;
     fn eval_json(&self, expression: &str) -> Result<J>;
     fn applied(&self) -> u64;
-    fn current_time(&self) -> Option<f64>;
+    fn item_time(&self) -> Option<f64>;
     fn output_failed(&self) -> bool;
     fn output_counts(&self) -> crate::runtime::OutputCounts;
     #[cfg(feature = "diagnostics")]
@@ -176,8 +176,8 @@ impl Backend for Engine {
     fn applied(&self) -> u64 {
         Engine::global_number(self, "__player", "applied").map_or(0, |n| n as u64)
     }
-    fn current_time(&self) -> Option<f64> {
-        Engine::current_time(self)
+    fn item_time(&self) -> Option<f64> {
+        Engine::item_time(self)
     }
     fn output_failed(&self) -> bool {
         Engine::output_failed(self)
@@ -466,7 +466,7 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
         item_id: text(&js["item"]["id"]),
         title: text(&js["item"]["title"]),
         artist: text(&js["item"]["artistName"]),
-        position: b.current_time(),
+        position: b.item_time(),
         duration: seconds(&js["item"]["durationInMillis"]),
         state: match js["playbackState"].as_u64() {
             Some(1 | 6 | 8 | 9) => PlayState::Loading,

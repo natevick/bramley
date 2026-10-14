@@ -23,7 +23,7 @@ def rows(n, pss, uss, rss, renderer=RADEONSI, playing=True, pid=7):
 
 def soak(n=181, uss=148.0):
     return [{'t': 1000.0 + 10 * i, 'm': round(i / 6, 3), 'pid': 7, 'procs': 1, 'pss': 170.0, 'uss': uss, 'rss': 205.0, 'texturesUploaded': 50, 'state': 'Playing',
-             'banner': None, 'itemId': f'i{i // 15}', 'position': 20.0 + 10 * i, 'seeks': 0, 'readinessDips': 2, 'outputUnderflows': 4} for i in range(n)]
+             'banner': None, 'itemId': f'i{i // 15}', 'position': 20.0 + 10 * (i % 15), 'duration': 160.0, 'seeks': 0, 'readinessDips': 2, 'outputUnderflows': 4} for i in range(n)]
 
 
 def counts(t, position, decrypted, skipped=0, fails=0, sent=None, acked=0, timeouts=0):
@@ -320,6 +320,18 @@ FUNCTIONAL = [
     ('R3 seven tracks', soak_edit(lambda r: r.__setitem__('itemId', f'i{min(6, r["m"] // 2.5)}')), 'R3', 'FAIL', '7 tracks played'),
     ('R3 crash', edit('r3.json', lambda d: d['samples'][100].__setitem__('pid', 8)), 'R3', 'FAIL', 'crashed'),
     ('R3 forked', edit('r3.json', lambda d: d['samples'][100].__setitem__('procs', 2)), 'R3', 'FAIL', 'crashed'),
+    ('R3 positions carried across items', soak_edit(lambda r: r.__setitem__('position', r['position'] + 160.0 * int(r['itemId'][1:]))), 'R3', 'FAIL', 'position beyond duration + 1.0 s in'),
+    ('R3 position at duration + 1', edit('r3.json', lambda d: d['samples'][5].__setitem__('duration', 69.0)), 'R3', 'PASS', None),
+    ('R3 position past duration + 1', edit('r3.json', lambda d: d['samples'][5].__setitem__('duration', 68.9)), 'R3', 'FAIL', 'worst +1.1 s on item i0'),
+    ('R3 a Playing sample without a duration', edit('r3.json', lambda d: d['samples'][5].pop('duration')), 'R3', 'FAIL', '1 Playing samples without a position or duration'),
+    ('R3 a Playing sample without a position', edit('r3.json', lambda d: d['samples'][5].__setitem__('position', None)), 'R3', 'FAIL', '1 Playing samples without a position or duration'),
+    ('R3 a seam sample is judged on the old duration and is not a stall', both(edit('r3.json', lambda d: d['samples'][14].__setitem__('duration', 171.0)), edit('r3.json', lambda d: d['samples'][15].update(position=170.4, duration=140.0))), 'R3', 'PASS', None),
+    ('R3 a first sample off the old clock is judged on its own duration', both(edit('r3.json', lambda d: d['samples'][14].__setitem__('duration', 171.0)), edit('r3.json', lambda d: d['samples'][15].update(position=160.4, duration=140.0))), 'R3', 'FAIL', 'worst +20.4 s on item i1'),
+    ('R3 a seam reset is not a stall', edit('r3.json', lambda d: d['samples'][14].__setitem__('position', 0.2)), 'R3', 'PASS', None),
+    ('R3 a seam reset up to the end of the item', both(edit('r3.json', lambda d: d['samples'][14].__setitem__('position', 0.2)), edit('r3.json', lambda d: d['samples'][13].__setitem__('duration', 161.0))), 'R3', 'PASS', None),
+    ('R3 a drop short of the end of the item is a stall', both(edit('r3.json', lambda d: d['samples'][14].__setitem__('position', 0.2)), edit('r3.json', lambda d: d['samples'][13].__setitem__('duration', 161.1))), 'R3', 'FAIL', 'behind the wall clock'),
+    ('R3 lagging at the end of an item is still a stall', edit('r3.json', lambda d: d['samples'][14].__setitem__('position', 158.9)), 'R3', 'FAIL', 'behind the wall clock'),
+    ('R3 a drop in mid-item is a stall', edit('r3.json', lambda d: d['samples'][5].__setitem__('position', 0.2)), 'R3', 'FAIL', 'behind the wall clock'),
     ('R3 stall', soak_edit(lambda r: r.__setitem__('position', r['position'] - (1.1 if r['m'] >= 11 else 0))), 'R3', 'FAIL', 'behind the wall clock'),
     ('R3 lag at the tolerance', soak_edit(lambda r: r.__setitem__('position', r['position'] - (1.0 if r['m'] >= 11 else 0))), 'R3', 'PASS', None),
     ('R3 a seek is not a stall', both(soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 11 else 0))), put('r3.json', seekTimes=[1000.0 + 10 * 65 + 5])), 'R3', 'PASS', None),
@@ -631,7 +643,7 @@ class PacingVerdict(unittest.TestCase):
 
 def soak_rows(n=721):
     return [{'t': 1000.0 + 10 * i, 'm': round(i / 6, 3), 'pid': 7, 'procs': 1, 'pss': 170.0, 'uss': 148.0, 'rss': 205.0, 'texturesUploaded': 50, 'state': 'Playing', 'banner': None,
-             'itemId': f'i{i // 16}', 'position': 20.0 + 10 * (i % 16), 'outputUnderflows': 3, 'readinessDips': 5} for i in range(n)]
+             'itemId': f'i{i // 16}', 'position': 20.0 + 10 * (i % 16), 'duration': 180.0, 'outputUnderflows': 3, 'readinessDips': 5} for i in range(n)]
 
 
 def write_soak(out):
@@ -675,6 +687,12 @@ SOAK = [
     ('guard killed the app', put('soak.shipped.guard.json', killed='linked to spdif'), 'VOID', 'guard killed'),
     ('not radeonsi', soak_edit(lambda d: d.__setitem__('renderers', [LLVMPIPE])), 'VOID', 'renderer'),
     ('a reference on the wrong sha', put('reference.json', sha256='feed'), 'VOID', 'sha'),
+    ('positions carried across items', soak_edit(lambda d: [r.__setitem__('position', r['position'] + 180.0 * int(r['itemId'][1:])) for r in d['samples']]), 'FAIL', 'position beyond duration + 1.0 s in'),
+    ('position at duration + 1', soak_edit(lambda d: d['samples'][50].__setitem__('duration', d['samples'][50]['position'] - 1.0)), 'PASS', None),
+    ('position past duration + 1', soak_edit(lambda d: d['samples'][50].__setitem__('duration', d['samples'][50]['position'] - 1.1)), 'FAIL', 'worst +1.1 s on item i3'),
+    ('a Playing sample without a duration', soak_edit(lambda d: d['samples'][50].pop('duration')), 'FAIL', '1 Playing samples without a position or duration'),
+    ('a Playing sample without a position', soak_edit(lambda d: d['samples'][50].__setitem__('position', None)), 'FAIL', '1 Playing samples without a position or duration'),
+    ('a Paused sample past the end is not judged', soak_edit(lambda d: d['samples'][50].update(state='Paused', duration=1.0)), 'PASS', None),
     ('banners are information only', soak_edit(lambda d: d['samples'][50].__setitem__('banner', 'Error')), 'PASS', None),
 ]
 
@@ -720,7 +738,7 @@ class Soak(unittest.TestCase):
         self.assertEqual((v['gate'], v['countsTowardV1'], 'checks' in v), ('PASS', False, False))
         self.assertEqual((s['pss'], s['itemChanges'], s['stalls'], s['frozenRuns'], s['refills'], s['outputUnderflows'], s['readinessDips'], s['minutes']), (3.0, 45, 0, 0, 2, 0, 0, 120.0))
         self.assertEqual(s['growthPerHour']['pss'], round(3.0 / ((120.0 - 5) / 60), 2))
-        self.assertEqual(s['bannerSamples'], 0)
+        self.assertEqual((s['bannerSamples'], s['maxPositionOverrunS']), (0, -10.0))
 
     def test_the_soak_gate_needs_pacing_and_a_void_soak_is_a_void_gate(self):
         write_soak(SCRATCH)
@@ -737,6 +755,61 @@ class Soak(unittest.TestCase):
         write_valid(SCRATCH)
         v = gate.verdict(SCRATCH)
         self.assertEqual(('soak' in v, v.get('countsTowardV1')), (False, None))
+
+
+def sample(t, item, position, duration, state='Playing'):
+    return {'t': t, 'itemId': item, 'state': state, 'position': position, 'duration': duration}
+
+
+class SeamSample(unittest.TestCase):
+    def overruns(self, rows):
+        fails = []
+        gate.position_overruns(rows, fails)
+        return fails
+
+    def test_a_seam_sample_with_a_shorter_new_item_is_judged_on_the_old_duration(self):
+        rows = [sample(1000.0, 'a', 172.6, 172.9), sample(1000.25, 'b', 172.85, 140.0)]
+        self.assertEqual(self.overruns(rows), [])
+
+    def test_a_seam_sample_with_a_longer_new_item_is_not_a_stall(self):
+        rows = [sample(1000.0, 'a', 172.6, 172.9), sample(1000.25, 'b', 172.85, 200.0), sample(1010.25, 'b', 9.5, 200.0)]
+        self.assertEqual(gate.lags(rows, []), [])
+
+    def test_a_first_sample_that_does_not_continue_the_old_clock_is_judged_on_its_own_duration(self):
+        rows = [sample(1000.0, 'a', 172.6, 172.9), sample(1000.25, 'b', 150.0, 140.0)]
+        self.assertEqual(len(self.overruns(rows)), 1)
+        self.assertIn('worst +10.0 s on item b', self.overruns(rows)[0])
+
+    def test_the_sample_after_a_seam_sample_is_judged_on_its_own_duration(self):
+        rows = [sample(1000.0, 'a', 172.6, 172.9), sample(1000.25, 'b', 172.85, 140.0), sample(1010.25, 'b', 182.85, 140.0)]
+        self.assertIn('in 1 of 3 Playing samples, worst +42.8 s', self.overruns(rows)[0])
+
+    def test_a_first_sample_after_a_sample_that_is_not_playing_is_not_a_seam_sample(self):
+        rows = [sample(1000.0, 'a', 172.6, 172.9, 'Paused'), sample(1000.25, 'b', 172.85, 140.0)]
+        self.assertEqual(len(self.overruns(rows)), 1)
+
+    def test_a_sample_at_the_same_item_is_not_a_seam_sample(self):
+        rows = [sample(1000.0, 'a', 172.6, 172.9), sample(1000.25, 'a', 172.85, 140.0)]
+        self.assertEqual(len(self.overruns(rows)), 1)
+
+    def test_the_clock_must_continue_to_within_the_pace_tolerance(self):
+        within = [sample(1000.0, 'a', 171.75, 173.0), sample(1000.25, 'b', 173.0, 140.0)]
+        beyond = [sample(1000.0, 'a', 171.75, 173.0), sample(1000.25, 'b', 173.1, 140.0)]
+        self.assertEqual((len(self.overruns(within)), len(self.overruns(beyond))), (0, 1))
+
+    def test_a_position_below_the_old_clock_by_more_than_the_pace_tolerance_is_not_a_seam_sample(self):
+        within = [sample(1000.0, 'a', 171.75, 173.0), sample(1000.25, 'b', 171.0, 140.0)]
+        beyond = [sample(1000.0, 'a', 171.75, 173.0), sample(1000.25, 'b', 170.9, 140.0)]
+        self.assertEqual((len(self.overruns(within)), len(self.overruns(beyond))), (0, 1))
+
+    def test_an_unreadable_sample_before_an_item_change_is_reported_not_a_crash(self):
+        for old in (sample(1000.0, 'a', None, 172.9), sample(1000.0, 'a', 172.6, None)):
+            self.assertEqual(len(self.overruns([old, sample(1000.25, 'b', 172.85, 140.0)])), 2)
+
+    def test_the_old_item_must_be_within_the_seam_tolerance_of_its_end(self):
+        at_edge = [sample(1000.0, 'a', 171.75, 173.0), sample(1000.25, 'b', 172.0, 100.0)]
+        short = [sample(1000.0, 'a', 171.5, 173.0), sample(1000.25, 'b', 171.75, 100.0)]
+        self.assertEqual((len(self.overruns(at_edge)), len(self.overruns(short))), (0, 1))
 
 
 class StallWatchTests(unittest.TestCase):
@@ -784,7 +857,7 @@ class Refill(unittest.TestCase):
 
 class Preflight(unittest.TestCase):
     def test_standing_gpu_clients_are_recognised_by_pid_not_by_name(self):
-        procs = {101: ('gnome-shell', ['libgallium.so']), 102: ('gnome-shell', ['libgallium.so']), 103: ('Xvfb', ['libLLVM.so.21']),
+        procs = {101: ('gnome-shell', ['libgallium.so']), 102: ('gnome-shell', ['libgallium.so']), 103: ('Xvfb', ['libvulkan_radeon.so']),
                  104: ('editor', []), 105: ('weston', []), 106: ('bramley', []), 107: ('sh', ['radeonsi_dri.so']), 108: ('weston', [])}
         real = gate.gpu_processes
         try:
@@ -795,6 +868,38 @@ class Preflight(unittest.TestCase):
             gate.gpu_processes = real
         self.assertEqual(sorted(int(f.split()[0]) for f in by_pid), [102, 103, 105, 106, 107])
         self.assertEqual(sorted(int(f.split()[0]) for f in by_name), [105, 106, 107, 108])
+
+
+def maps(*libs):
+    return [f'7f00 r-xp 00000000 08:01 {i} /usr/lib/x86_64-linux-gnu/{lib}' for i, lib in enumerate(libs)]
+
+
+class GpuClients(unittest.TestCase):
+    def reported(self, comm, *libs):
+        real = gate.gpu_processes
+        try:
+            gate.gpu_processes = lambda: {101: (comm, gate.matched_libs(maps(*libs)))}
+            return [f.split(' ', 1)[1] for f in gate.preflight()]
+        finally:
+            gate.gpu_processes = real
+
+    def test_a_process_mapping_only_libllvm_is_not_a_gpu_client(self):
+        self.assertEqual(self.reported('postgres', 'libLLVM.so.21.1'), [])
+
+    def test_libllvm_does_not_hide_a_mesa_client_and_only_the_driver_is_reported(self):
+        self.assertEqual(self.reported('app', 'libLLVM.so.21.1', 'libgallium-25.so'), ["app ['libgallium-25.so']"])
+
+    def test_a_process_mapping_only_radv_is_a_gpu_client(self):
+        self.assertEqual(self.reported('app', 'libvulkan_radeon.so'), ["app ['libvulkan_radeon.so']"])
+
+    def test_a_process_mapping_radeonsi_is_a_gpu_client(self):
+        self.assertEqual(self.reported('app', 'radeonsi_dri.so'), ["app ['radeonsi_dri.so']"])
+
+    def test_weston_and_bramley_are_gpu_clients_without_any_library(self):
+        self.assertEqual((self.reported('weston'), self.reported('bramley')), (['weston []'], ['bramley []']))
+
+    def test_a_process_with_no_gpu_library_and_another_name_is_not_a_gpu_client(self):
+        self.assertEqual(self.reported('editor', 'libc.so.6'), [])
 
 
 class Controls(unittest.TestCase):

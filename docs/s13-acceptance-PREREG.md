@@ -426,3 +426,81 @@ Signed-out and no-stream plays are counted too, even though they never reach the
 - **Clarification (written with the code; no rule change):** a wait ends 1 ms past the boundary. A wait that ended exactly on the boundary could round to zero, and the pacer would then make no progress.
 
 **Run length.** The estimate is reported with the S13c hand-back. Nothing is cut here: any cut to plays is proposed for the coordinator to decide.
+
+## Amendment 11 (2026-10-14, S17: item-relative position; fixed before any code for it and before any run)
+A new check on the `position` the app reports. No threshold of any other check changes.
+
+**Why.** The status `position` was the media element clock. MusicKit's seamless transitions append the next item to the same SourceBuffer at `timestampOffset = endOfBufferTime`, so that clock runs on across items, and a seek with no transition pending carries the offset (MusicKit sets `currentTime = t + offset`). Two recorded runs show it: in the 2 h soak `s15c-soak-120b`, 547 of 716 Playing samples have position > duration + 1, up to +815.9 s; in v1's counted R3 (`v1-2`), 122 of 180, up to +815.7 s. The UI clamps it, so the status file, CLI `now` and MCP `now_playing` carried a raw value that no check looked at.
+
+**The check.** In counted R3 and in `--soak` mode, on every sample whose state is Playing: `position <= duration + 1` (seconds). Any violation is a FAIL, with the count, the worst excess and the item in the reason. A Playing sample with no position or no duration is a FAIL too (missing evidence). In `--soak` mode it joins the pass condition of `docs/s15c-long-soak-PREREG.md`; a soak run still never counts toward v1.
+
+**Scope: v1 stays done.**
+- v1's recorded verdict stands. It is not voided and not reopened by this amendment.
+- The check applies to runs made at or after this commit.
+- `gate.py` does not look at commit ancestry. Gating an older run directory with it is a probe of the check, not a re-judgement of that run.
+
+**One consequence, stated now.** The app resets the reported position when the audio crosses the seam, which can be up to one timeupdate (about 250 ms) before MusicKit's `itemId` flips. A 10 s snapshot can land in that window with the old `itemId` and a position near 0. The pacing check (`lags`) compares positions of consecutive samples of one item, so it would read that reset as a stall. It therefore skips a pair only when the position fell and the wall clock between the two samples carried the earlier position to within 1 s of the item's duration. Every other pair is judged as before.
+
+**Not changed.** Seek input was already item-relative. `HTMLMediaElement.currentTime`, as MusicKit sees it, is unchanged; only the reported snapshot position is item-relative.
+
+## Amendment 12 (2026-10-14, S17: the F6 driver under item-relative positions; fixed before the re-run)
+No threshold changes.
+
+**What happened.** `s17-counted-1` (a08dca0) FAILed F6 with "2 of 3 transitions passed". The third transition never started.
+- The driver seeded each transition's `start` from the flip sample's position.
+- Under the carried clock that was the offset of the new item. Under item-relative positions it is about 0, unless the flip sample lands in the seam window.
+- Transition 2's flip sample read 172.6, the old item's time with the new `itemId`. The next transition then waited for a position above 173.6 on a fresh item and timed out after 40 s.
+- This is a harness defect: the check did not run.
+
+**The fix.** `start` is 0 for every F6 transition, because every position is item-relative. `landedOff` is therefore `base.position − target`, the same quantity it measured before. The next transition starts at least `F6_WINDOW_S` (5 s) after the previous flip, which is well past the seam window.
+
+**Amendment 11's seam note, corrected from evidence.** The F6 samples, polled every 20 ms, show the seam window in both directions:
+- the position reset about 0.5 s before the `itemId` flipped (transition 1);
+- the `itemId` flipped about 0.5 s before the position reset (transition 2).
+
+The window is up to about 0.5 s, not 250 ms. The `lags` carve-out of Amendment 11 is unchanged.
+
+**What counts.** `s17-counted-1` stays a FAIL on record. The decision of `docs/s17-verification-PREREG.md` uses the re-run `s17-counted-2` at the commit that carries this amendment and the fix, with the same pass rule.
+
+## Amendment 13 (2026-10-14 07:2x, S17: the other direction of the seam; committed before s17-counted-2 ends and before any of its evidence was read)
+No threshold changes.
+
+**The defect.** Amendment 12 recorded that the seam skews both ways. Amendment 11's carve-out handles only one of them: the position resets before the `itemId` flips. In the other direction the `itemId` flips first, so for up to about 0.5 s a sample carries the new `itemId` and the new duration but the old item's position. A 10 s R3 or soak snapshot that lands there fails a correct build in one of two ways:
+- If the new item is shorter than the old position by more than 1 s, `position_overruns` reports it.
+- If the new item is more than about 11 s longer, `seam_reset` reads the new duration, so it does not excuse the pair, and `lags` reports a stall of about the old position.
+
+The reviewer confirmed both shapes against the real gate functions. The recorded runs have no such sample in 70 item changes, which is a rate of up to about 4 % per change at 95 %.
+
+**The rule.** A *seam sample* is the first Playing sample at a new `itemId` whose position continues the previous sample's clock:
+- the previous sample is Playing;
+- `prev.position + (t − prev.t)` is within `PACE_S` of its position;
+- `prev.position + (t − prev.t) >= prev.duration − SEAM_S`.
+
+Seam samples are handled like this:
+- `position_overruns` judges a seam sample against the previous item's duration, not its own, so the overrun check still runs on it.
+- `lags` skips a pair whose first sample is a seam sample.
+
+**Can it still fail?** Under the original bug, the first sample of every new item continues the old clock, which looks like a seam sample. The regates of `v1-2` and `s15c-soak-120b` must therefore still FAIL on position. The count may drop, but not to zero, because most of their overrun samples are not the first at their item.
+
+**How the decision runs are judged.**
+- `s17-counted-2` was started at abe64ed, before this amendment.
+  - If it PASSes under the gate it ran with, a regate of a copy under this amendment may confirm the PASS.
+  - A regate cannot rescue a FAIL. If it FAILs only on a seam sample, the decision run becomes `s17-counted-3`, run at the commit that carries this amendment's code.
+- The PASS of `s17-soak-120` is regated on a copy under this amendment. A FAIL there would mean re-running the soak.
+
+## Amendment 14 (2026-10-14, the co-tenant watch: libLLVM alone is not a GPU client; written before s17-counted-3)
+**What happened.** Two runs were voided by postgres backends whose only match on the GPU library list was `libLLVM`, which postgres's query JIT maps:
+- `s15c-soak-120`, at 21:43;
+- `s17-counted-2` (abe64ed), with 4 polls from 1791987558.8.
+
+`libLLVM` is a general compiler library. It is not a GPU driver.
+
+**The rule.** The watch, the preflight and the standing-client snapshot count a process as a GPU client when its comm is `weston` or `bramley`, or when it maps one of:
+- `libgallium` or `radeonsi`, the Mesa GL drivers;
+- `libvulkan_radeon` (RADV), which is new and closes a gap.
+
+A process whose only match is `libLLVM` is not a GPU client.
+
+**Nothing escapes.** Every Mesa GL client also maps `libgallium` or `radeonsi`, so dropping `libLLVM` alone hides none of them.
+
+**What counts.** `s17-counted-2` stays VOID on record. Its other readings are not judged. The decision run of `docs/s17-verification-PREREG.md` is `s17-counted-3`, run at the commit that carries Amendments 13 and 14 in code.
