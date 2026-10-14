@@ -12,6 +12,7 @@ def load(name, path):
 
 cs, gate = load('covers_session', 'scripts/app/covers-session.py'), load('gate', 'scripts/acceptance/gate.py')
 s6, s9 = load('s6_shots', 'scripts/app/s6-shots.py'), load('s9_session', 'scripts/app/s9-session.py')
+probe_seek = load('probe_seek', 'scripts/acceptance/probe_seek.py')
 SONG, SECOND = '6781024437', '6781079518'
 ALBUM = ['6781024028', '6781024424', '6781024426', '6781024428', '6781024429', '6781024431', '6781024433', '6781024434', '6781024435',
          '6781024436', '6781024437', '6781024440', '6781024441', '6781024442', '6781024443', '6781024444', '6781024445', '6781024448']
@@ -823,6 +824,9 @@ def phases(out, mode, bins, sock, sink):
             return go(env_for(sock, sink, **env))
 
     found = {}
+    if mode == 'probe':
+        yield 'probe', lambda: signed_in('probe', lambda e, c: probe_seek.session(sys.modules[__name__], out, shipped, e, sink))
+        return
     yield 'reference', lambda: reference(out, sock, sink, 'reference')
     if mode == 'soak':
         yield 'soak', lambda: signed_in('soak', lambda e, c: main_session(out, shipped, e, sink, 'soak.', ('soak',)))
@@ -941,7 +945,7 @@ def cleanup(run):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out')
-    ap.add_argument('--mode', choices=('counted', 'llvmpipe', 'controls', 'soak'), default='counted')
+    ap.add_argument('--mode', choices=('counted', 'llvmpipe', 'controls', 'soak', 'probe'), default='counted')
     ap.add_argument('--soak-minutes', type=float)
     ap.add_argument('--cleanup')
     a = ap.parse_args()
