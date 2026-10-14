@@ -39,3 +39,9 @@ The reference readings were 88.6 and 88.4 MiB PSS (recorded value 88.6). The co-
 
 ## What this does and doesn't show
 It shows no stall, underflow or readiness dip over 51 item changes and 2 hours. It doesn't prove the HTTP-cache fix's residual of ≤ 1.6 % per duplicated preload is zero: 51 changes at that rate would still leave a roughly 1-in-2 chance of a stall in a run of this size if the residual were real, so one clean run is encouraging but not conclusive. A second clean run would raise the confidence.
+
+## Coordinator verification (2026-10-14, Norm)
+- Re-derived from `soak.r3.json`: 716 snapshots, all Playing, one pid, 1 process; snapshot gaps 10.0 to 11.0 s; no span of unchanged position; `outputUnderflows`, `readinessDips`, `decryptFails` and `drainTimeouts` 0 throughout; 0 banners.
+- The driver's 51 changes include the first item starting. There were 50 transitions; the ≥ 30 bar holds.
+- The run's `commit` (874ebe0) became 00488be when the branch was rebased onto eb1ba68. Main had no harness changes in between, so the code that ran is the code merged.
+- Separate finding: the reported `position` does not reset at a gapless item change (547 of 716 snapshots exceed the item's duration). It is pre-existing (also in v1-2 R3) and is fixed in S17. It does not affect this verdict: a real stall freezes the continuous clock too, so the stall checks still hold.
