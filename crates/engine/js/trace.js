@@ -9,9 +9,17 @@
     if (!v) { v = (o.constructor && o.constructor.name || "Obj") + "#" + ++next; ids.set(o, v); }
     return v;
   };
+  const SAFE = new Set(("GET HEAD POST PUT cenc keyids sinf webm segments sequence temporary network decode com.widevine.alpha start done fail skip superseded " +
+    "setQueue play pause seek next previous volume playLater shuffle playNext jumpTo addSourceBuffer removeSourceBuffer endOfStream setLiveSeekableRange clearLiveSeekableRange " +
+    "appendBuffer remove abort changeType load setMediaKeys removeAttribute createMediaKeys createSession setServerCertificate generateRequest update close " +
+    "sourceopen sourceended sourceclose updatestart updateend error playing waiting seeking seeked ended canplay canplaythrough loadedmetadata loadeddata durationchange emptied " +
+    "stalled suspend progress ratechange volumechange encrypted waitingforkey readystatechange loadend loadstart timeout message keystatuseschange").split(" "));
+  const tok = s => SAFE.has(s) ? s : "str" + String(s).length;
+  const figure = s => /^\d+$/.test(s) ? s : "str" + s.length;
+  const errName = n => /^[A-Za-z]+(Error|Exception)$/.test(String(n)) ? String(n) : "err";
   const show = v => {
     if (v === null || v === undefined || typeof v === "number" || typeof v === "boolean") return String(v);
-    if (typeof v === "string") return v.length > 40 ? "str" + v.length : JSON.stringify(v);
+    if (typeof v === "string") return tok(v);
     if (v instanceof ArrayBuffer) return "ab" + v.byteLength;
     if (ArrayBuffer.isView(v)) return "u8:" + v.byteLength;
     if (v instanceof G.TimeRanges) { const r = []; for (let i = 0; i < v.length; i++) r.push(v.start(i).toFixed(3) + "-" + v.end(i).toFixed(3)); return "[" + r.join(",") + "]"; }
@@ -19,11 +27,12 @@
     if (typeof v.then === "function") return "promise";
     return id(v);
   };
+  G.__traceMark = (...parts) => console.log("TRACE " + G.performance.now().toFixed(3) + " mark " + parts.map(tok).join(" "));
   const log = (...parts) => console.log("TRACE " + G.performance.now().toFixed(3) + " " + parts.join(" "));
-  const host = u => { const m = /^[a-z]+:\/\/([^/]+)/i.exec(String(u)); return (m ? m[1] : "rel") + "~" + hash(String(u)); };
+  const host = u => { const m = /^[a-z]+:\/\/(?:[^/?#@]*@)?([^/?#@]+)/i.exec(String(u)); return (m ? m[1] : "rel") + "~" + hash(String(u)); };
   const hash = t => { let h = 0x811c9dc5; for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 0x01000193) >>> 0; return h.toString(16); };
   const CACHE_HEADERS = ["cache-control", "expires", "age", "etag", "last-modified", "content-type", "content-length", "vary", "pragma"];
-  const cacheInfo = get => CACHE_HEADERS.map(h => [h, get(h)]).filter(([, v]) => v !== null && v !== undefined).map(([h, v]) => h + "=" + JSON.stringify(String(v).slice(0, 60))).join(" ");
+  const cacheInfo = get => CACHE_HEADERS.map(h => [h, get(h)]).filter(([, v]) => v !== null && v !== undefined).map(([h, v]) => h + "=" + figure(String(v))).join(" ");
 
   function wrapMethods(C, names) {
     for (const name of names) {
@@ -35,9 +44,9 @@
           const r = f.apply(this, a);
           const me = id(this);
           log("ret", me, name, show(r));
-          if (r && typeof r.then === "function") r.then(v => log("settled", me, name, "ok", show(v)), e => log("settled", me, name, "rejected", e && e.name, e && String(e.message).slice(0, 80)));
+          if (r && typeof r.then === "function") r.then(v => log("settled", me, name, "ok", show(v)), e => log("settled", me, name, "rejected", errName(e && e.name), "msg" + String(e && e.message).length));
           return r;
-        } catch (e) { log("throw", id(this), name, e && e.name); throw e; }
+        } catch (e) { log("throw", id(this), name, errName(e && e.name)); throw e; }
       };
     }
   }
@@ -49,7 +58,7 @@
       Object.defineProperty(C.prototype, name, {
         configurable: true,
         get: d.get && function () { const v = d.get.call(this); log("get", id(this), name, show(v)); return v; },
-        set: d.set && function (v) { log("set", id(this), name, show(v)); try { d.set.call(this, v); } catch (e) { log("throw", id(this), name + "=", e && e.name); throw e; } },
+        set: d.set && function (v) { log("set", id(this), name, show(v)); try { d.set.call(this, v); } catch (e) { log("throw", id(this), name + "=", errName(e && e.name)); throw e; } },
       });
     }
   }
@@ -82,10 +91,10 @@
     let w = per.get(k);
     if (!w) {
       const target = this;
-      w = function (ev) { log("evt", id(target), type); try { return typeof cb === "function" ? cb.call(this, ev) : cb.handleEvent(ev); } finally { log("evt-end", id(target), type); } };
+      w = function (ev) { log("evt", id(target), tok(type)); try { return typeof cb === "function" ? cb.call(this, ev) : cb.handleEvent(ev); } finally { log("evt-end", id(target), tok(type)); } };
       per.set(k, w);
     }
-    log("listen", id(this), type);
+    log("listen", id(this), tok(type));
     return origAdd.call(this, type, w, opts);
   };
   G.EventTarget.prototype.removeEventListener = function (type, cb, opts) {
@@ -116,11 +125,11 @@
   G.navigator.requestMediaKeySystemAccess = function (...a) {
     log("call", "navigator", "requestMediaKeySystemAccess", show(a[0]));
     const r = rmksa.apply(this, a);
-    r.then(v => log("settled", "navigator", "requestMediaKeySystemAccess", "ok", show(v)), e => log("settled", "navigator", "requestMediaKeySystemAccess", "rejected", e && e.name));
+    r.then(v => log("settled", "navigator", "requestMediaKeySystemAccess", "ok", show(v)), e => log("settled", "navigator", "requestMediaKeySystemAccess", "rejected", errName(e && e.name)));
     return r;
   };
   const xopen = XHR.prototype.open, xsend = XHR.prototype.send, xabort = XHR.prototype.abort;
-  XHR.prototype.open = function (m, u, ...r) { log("call", id(this), "open", m, host(u)); return xopen.call(this, m, u, ...r); };
+  XHR.prototype.open = function (m, u, ...r) { log("call", id(this), "open", tok(m), host(u)); return xopen.call(this, m, u, ...r); };
   XHR.prototype.send = function (...a) {
     const x = this;
     log("call", id(x), "send");
@@ -133,8 +142,8 @@
   const realFetch = G.fetch;
   G.fetch = function (input, init) {
     const n = "fetch#" + ++fetches, url = typeof input === "string" ? input : input && input.url;
-    log("call", n, "fetch", (init && init.method) || "GET", host(url));
-    return realFetch.call(this, input, init).then(r => { log("resolve", n, r.status, id(r), cacheInfo(h => r.headers.get(h))); return r; }, e => { log("reject", n, e && e.name); throw e; });
+    log("call", n, "fetch", tok((init && init.method) || "GET"), host(url));
+    return realFetch.call(this, input, init).then(r => { log("resolve", n, r.status, id(r), cacheInfo(h => r.headers.get(h))); return r; }, e => { log("reject", n, errName(e && e.name)); throw e; });
   };
   for (const name of ["arrayBuffer", "json", "text"]) {
     const f = G.Response.prototype[name];
