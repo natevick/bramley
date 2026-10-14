@@ -1696,6 +1696,10 @@ fn the_sign_in_page_needs_the_exact_host_and_the_nonce_and_carries_a_csp() {
         header_value(&reply, "x-content-type-options").as_deref(),
         Some("nosniff")
     );
+    assert_eq!(
+        header_value(&reply, "referrer-policy").as_deref(),
+        Some("strict-origin-when-cross-origin")
+    );
     let port = host.rsplit(':').next().unwrap();
     for bad in [
         Some(format!("localhost:{port}")),

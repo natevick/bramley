@@ -119,7 +119,7 @@ impl Site {
             ""
         };
         let head = format!(
-            "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: {}\r\nX-Content-Type-Options: nosniff\r\n{wipe}Connection: close\r\n\r\n",
+            "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nReferrer-Policy: strict-origin-when-cross-origin\r\nContent-Security-Policy: {}\r\nX-Content-Type-Options: nosniff\r\n{wipe}Connection: close\r\n\r\n",
             body.len(),
             self.csp
         );
