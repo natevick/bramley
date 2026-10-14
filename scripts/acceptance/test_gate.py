@@ -1105,5 +1105,102 @@ class ProbeVerdict(unittest.TestCase):
         self.assertEqual(gate.verdict(SCRATCH)['gate'], 'REFUTED')
 
 
+ENTRY = {'from': 'PRED', 'item': 'LONG', 'seekSeq': 5, 'seqAtEntry': 5}
+V2 = {'A': dict(t_skip=4.4, t_app=4.6, origin=145.0), 'F': dict(FAST, origin=152.0), 'C': dict(FAST, item='SHORT', duration=200.0, origin=150.0)}
+SEEN = [[0.0, 'seekToTime', 'start'], [900.0, 'currentTime', '490.8']]
+
+
+def v2_ev(entry=None, trace=SEEN, **arms):
+    ev = {'arms': {k: probe_arm(**dict(V2[k], **arms.get(k, {}))) for k in 'AFC'}, 'entry': dict(ENTRY, **(entry or {}))}
+    ev['arms']['A']['trace'] = trace
+    return ev
+
+
+class ProbeV2(unittest.TestCase):
+    def test_each_outcome_is_reached_with_its_own_reason(self):
+        for name, kw, verdict, reason in (
+            ('A reproduces and the fresh entry is fast', {}, 'PASS', None),
+            ('every threshold exactly on its bar', {'A': dict(t_skip=3.0, t_app=4.0), 'F': dict(t_app=1.0), 'C': dict(t_skip=1.0, t_app=1.0)}, 'PASS', None),
+            ('origin 138 is inclusive', {'A': dict(origin=138.0)}, 'PASS', None),
+            ('origin 160 is inclusive', {'A': dict(origin=160.0)}, 'PASS', None),
+            ('a currentTime event is a seek event', {'trace': [[1.0, 'currentTime', '1']]}, 'PASS', None),
+            ('a seekToTime event is a seek event', {'trace': [[0.0, 'seekToTime', 'start']]}, 'PASS', None),
+            ('other trace events are recorded, not judged', {'trace': SEEN + [[5.0, 'fetch', 'GET h~1'], [6.0, 'appendThrow', 'QuotaExceededError']]}, 'PASS', None),
+            ('80% of the polls is enough', {'F': dict(polls=56)}, 'PASS', None),
+            ('origin under 138', {'A': dict(origin=137.8)}, 'INCONCLUSIVE', 'origin 137.8'),
+            ('origin over 160', {'A': dict(origin=160.2)}, 'INCONCLUSIVE', 'origin 160.2'),
+            ('A on the wrong item', {'A': dict(item='other')}, 'INCONCLUSIVE', 'item other'),
+            ('A duration off', {'A': dict(duration=499.0)}, 'INCONCLUSIVE', 'duration 499.0'),
+            ('A seq delta 2', {'A': dict(seq_delta=2)}, 'INCONCLUSIVE', 'seq delta 2'),
+            ('LONG entered from another item', {'entry': {'from': 'other'}}, 'INCONCLUSIVE', 'natural item change'),
+            ('LONG entered by a command', {'entry': {'seqAtEntry': 6}}, 'INCONCLUSIVE', 'natural item change'),
+            ('entry never observed', {'entry': {'seqAtEntry': None}}, 'INCONCLUSIVE', 'natural item change'),
+            ('entry and seek seq both missing', {'entry': {'seqAtEntry': None, 'seekSeq': None}}, 'INCONCLUSIVE', 'natural item change'),
+            ('a different item entered', {'entry': {'item': 'SHORT'}}, 'INCONCLUSIVE', 'natural item change'),
+            ('no trace at all', {'trace': []}, 'INCONCLUSIVE', 'no seek event'),
+            ('trace without a seek event', {'trace': [[0.0, 'fetch', 'GET h~1']]}, 'INCONCLUSIVE', 'no seek event'),
+            ('A lands fast', {'A': FAST}, 'INCONCLUSIVE', 'A reproduces False'),
+            ('stall under 3 s', {'A': dict(t_skip=2.8, t_app=3.4)}, 'INCONCLUSIVE', 'A reproduces False'),
+            ('settle gap over 1 s', {'A': dict(t_skip=4.0, t_app=5.2)}, 'INCONCLUSIVE', 'A reproduces False'),
+            ('settle before the discard', {'A': dict(t_skip=4.0, t_app=3.8)}, 'INCONCLUSIVE', 'A reproduces False'),
+            ('slope under 0.9', {'A': dict(slope=0.8)}, 'INCONCLUSIVE', 'A reproduces False'),
+            ('slope over 1.1', {'A': dict(slope=1.2)}, 'INCONCLUSIVE', 'A reproduces False'),
+            ('A fast beats a slow F', {'A': FAST, 'F': dict(t_app=5.0)}, 'INCONCLUSIVE', 'A reproduces False'),
+            ('F slow: the entry effect is refuted', {'F': dict(t_app=3.0)}, 'REFUTED', 'entry effect refutes'),
+            ('F never settles', {'F': dict(t_app=None)}, 'REFUTED', 'entry effect refutes'),
+            ('F at 2.8 s is unresolved', {'F': dict(t_app=2.8)}, 'INCONCLUSIVE', 'entry effect unresolved'),
+            ('F just over 1 s is unresolved', {'F': dict(t_app=1.2)}, 'INCONCLUSIVE', 'entry effect unresolved'),
+            ('C discards after 1 s', {'C': dict(t_skip=1.2)}, 'VOID', 'control'),
+            ('C settles after 1 s', {'C': dict(t_app=1.2)}, 'VOID', 'control'),
+            ('C never settles', {'C': dict(t_app=None)}, 'VOID', 'control'),
+            ('C slow beats a PASS', {'C': dict(t_skip=3.0, t_app=3.2)}, 'VOID', 'control'),
+            ('C slow beats an uncounted A', {'A': dict(item='other'), 'C': dict(t_app=2.0)}, 'VOID', 'control'),
+            ('A with 55 of 70 polls', {'A': dict(polls=55)}, 'VOID', 'arm A: 55 polls'),
+            ('F with 55 of 70 polls', {'F': dict(polls=55)}, 'VOID', 'arm F: 55 polls'),
+            ('C with 55 of 70 polls', {'C': dict(polls=55)}, 'VOID', 'arm C: 55 polls'),
+        ):
+            with self.subTest(name):
+                got = gate.probe2_rules(v2_ev(**kw))
+                self.assertEqual(got['verdict'], verdict, got['reasons'])
+                self.assertTrue(reason is None or any(reason in r for r in got['reasons']), got['reasons'])
+
+    def test_a_missing_arm_is_void(self):
+        for gone in 'AFC':
+            ev = v2_ev()
+            del ev['arms'][gone]
+            self.assertEqual(gate.probe2_rules(ev)['verdict'], 'VOID', gone)
+
+    def test_a_missing_entry_record_leaves_arm_a_uncounted(self):
+        ev = v2_ev()
+        del ev['entry']
+        self.assertEqual(gate.probe2_rules(ev)['verdict'], 'INCONCLUSIVE')
+
+
+class ProbeV2Verdict(unittest.TestCase):
+    def setUp(self):
+        shutil.rmtree(SCRATCH, ignore_errors=True)
+        os.makedirs(SCRATCH)
+        self.addCleanup(shutil.rmtree, SCRATCH, True)
+        write_valid(SCRATCH, mode='probe2')
+        gate.save(SCRATCH, 'probe.json', dict(v2_ev(), session='probe', t0=1000.0, t1=1060.0, started=True, renderers=[RADEONSI]))
+        self.actions = lambda n: put('pacing.json', prior=[], waits=[], actions=[[1000.0 + 30 * i, 'play'] for i in range(n)])(SCRATCH)
+
+    def test_a_clean_run_passes_with_nine_actions_and_names_the_entry_effect(self):
+        self.actions(9)
+        v = gate.verdict(SCRATCH)
+        self.assertEqual((v['gate'], v['probe']['entryEffect']), ('PASS', 'supports'))
+
+    def test_the_cap_is_ten_not_six(self):
+        self.actions(10)
+        self.assertEqual(gate.verdict(SCRATCH)['gate'], 'PASS')
+        self.actions(11)
+        self.assertEqual(gate.verdict(SCRATCH)['gate'], 'FAIL')
+
+    def test_a_stream_off_the_null_sink_voids_a_passing_probe(self):
+        self.actions(9)
+        put('probe.guard.json', log=[])(SCRATCH)
+        self.assertEqual(gate.verdict(SCRATCH)['gate'], 'VOID')
+
+
 if __name__ == '__main__':
     unittest.main(argv=sys.argv[:1] + [a for a in sys.argv[1:] if a.startswith('-')])

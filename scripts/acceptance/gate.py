@@ -19,6 +19,7 @@ PROBE_LONG_S, PROBE_LONG_TOL_S, PROBE_ACTIONS, PROBE_ORIGIN_S = 500.79, 0.5, 6, 
 PROBE_POLL_S, PROBE_PRE_S, PROBE_POST_S, PROBE_POLL_SHARE = 0.2, 2.0, 12.0, 0.8
 PROBE_STALL_S, PROBE_GAP_S, PROBE_SLOPE, PROBE_IDLE_S, PROBE_STALE_S, PROBE_SILENCE = 3.0, 1.0, (0.9, 1.1), 0.5, 3.0, 0.5
 PROBE_SETTLE_S, PROBE_NEAR_S, PROBE_FAR_S = 2.0, 1.0, 3.0
+PROBE2_ACTIONS, PROBE2_PRED_S, PROBE2_ORIGIN_S = 10, 139.88, (138.0, 160.0)
 CHECKS = ('F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6')
 EVIDENCE = {'F1': ('f1',), 'F2': ('f2',), 'F3': ('f3',), 'F4': ('f4',), 'F5': ('f5',), 'F6': ('f6',), 'F7': ('f7',), 'F8': ('f8',), 'F9': ('f9',),
             'F10': ('f10-badid', 'f10-net'), 'R3': ('r3',), 'R4': ('r4',), 'R5': ('r5',)}
@@ -486,7 +487,27 @@ def probe_seek_rules(ev):
             'defect': defect, 'originEffect': origin, 'arms': arms}
 
 
-def probe_check(out):
+def probe2_rules(ev):
+    arms = {k: probe_seek_derive(x['rows'], x['tSeek'], x.get('seq')) for k, x in (ev.get('arms') or {}).items()}
+    armA, armF, armC = (arms.get(k) or probe_seek_derive([], 0, None) for k in 'AFC')
+    need, within, entry = PROBE_POLL_SHARE * (PROBE_PRE_S + PROBE_POST_S) / PROBE_POLL_S, lambda x, lo, hi: x is not None and lo <= x <= hi, ev.get('entry') or {}
+    voids = [f'arm {k}: {x["polls"]} polls < {need:g}' for k, x in zip('AFC', (armA, armF, armC)) if x['polls'] < need]
+    voids += [] if all(within(armC[k], 0, PROBE_NEAR_S) for k in ('tSkip', 'tApp')) else [f'arm C control did not land fast: t_skip {armC["tSkip"]}, t_app {armC["tApp"]}']
+    seen = {kind for _, kind, _ in ((ev.get('arms') or {}).get('A') or {}).get('trace') or []}
+    uncounted = [why for ok, why in ((armA['itemId'] == 'LONG', f'arm A item {armA["itemId"]}'),
+                                     (within(armA['duration'], PROBE_LONG_S - PROBE_LONG_TOL_S, PROBE_LONG_S + PROBE_LONG_TOL_S), f'arm A duration {armA["duration"]}'),
+                                     (entry.get('from') == 'PRED' and entry.get('item') == 'LONG' and entry.get('seqAtEntry') is not None and entry.get('seqAtEntry') == entry.get('seekSeq'),
+                                      f'LONG was not entered by a natural item change: {entry}'),
+                                     (within(armA['origin'], *PROBE2_ORIGIN_S), f'arm A origin {armA["origin"]}'), (armA['seqDelta'] == 1, f'arm A seq delta {armA["seqDelta"]}'),
+                                     (bool(seen & {'seekToTime', 'currentTime'}), 'the trace shows no seek event in arm A')) if not ok]
+    stall, landed, rate = armA['tSkip'], armA['tApp'], armA['slope']
+    defect = within(stall, PROBE_STALL_S, math.inf) and landed is not None and 0 <= landed - stall <= PROBE_GAP_S and within(rate, *PROBE_SLOPE)
+    origin = 'supports' if within(armF['tApp'], 0, PROBE_NEAR_S) else 'refutes' if armF['tApp'] is None or armF['tApp'] >= PROBE_FAR_S else 'unresolved'
+    verdict = 'VOID' if voids else 'INCONCLUSIVE' if uncounted or not defect else 'REFUTED' if origin == 'refutes' else 'PASS' if origin == 'supports' else 'INCONCLUSIVE'
+    return {'verdict': verdict, 'reasons': voids or uncounted or ([] if verdict == 'PASS' else [f'A reproduces {defect}, entry effect {origin}']), 'defect': defect, 'entryEffect': origin, 'arms': arms}
+
+
+def probe_check(out, rules=probe_seek_rules):
     missing, fails, voids = session_problems(out)
     ev, sink = load(out, 'probe.json'), (load(out, 'session.verdict.json') or {}).get('sink')
     missing += [] if ev else ['missing evidence: probe.json']
@@ -495,8 +516,8 @@ def probe_check(out):
         voids, missing = voids + more_voids + renderer_voids(ev.get('renderers') or [], 'probe'), missing + more_missing
     if missing:
         return {'verdict': 'FAIL', 'reasons': missing + fails + voids}
-    rules = probe_seek_rules(ev)
-    return dict(rules, verdict='FAIL' if fails else 'VOID' if voids else rules['verdict'], reasons=fails + voids + rules['reasons'])
+    judged = rules(ev)
+    return dict(judged, verdict='FAIL' if fails else 'VOID' if voids else judged['verdict'], reasons=fails + voids + judged['reasons'])
 
 
 def readable_delta(rows, key):
@@ -810,9 +831,10 @@ def verdict(out):
         v['soak'] = soak_check(out, build.get('soakMinutes') or 0)
         v['gate'] = 'PASS' if safe and v['soak']['verdict'] == 'PASS' else 'VOID' if v['soak']['verdict'] == 'VOID' and safe else 'FAIL'
         return v
-    if build.get('mode') == 'probe':
-        v['probe'] = probe_check(out)
-        v['gate'] = v['probe']['verdict'] if safe and v['pacing'].get('actions', PROBE_ACTIONS + 1) <= PROBE_ACTIONS else 'FAIL'
+    if build.get('mode') in ('probe', 'probe2'):
+        rules, cap = (probe_seek_rules, PROBE_ACTIONS) if build['mode'] == 'probe' else (probe2_rules, PROBE2_ACTIONS)
+        v['probe'] = probe_check(out, rules)
+        v['gate'] = v['probe']['verdict'] if safe and v['pacing'].get('actions', cap + 1) <= cap else 'FAIL'
         return v
     if build.get('mode') == 'controls':
         v['controls'] = controls(out, build)
