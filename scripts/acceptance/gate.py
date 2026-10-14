@@ -15,6 +15,10 @@ F6_SENT_SLACK_S, F6_SKIPPED_S, F6_STALL_S, F6_LAND_S, F6_WINDOW_S = 3.0, 0.1, 1.
 BAD_TOKEN_SEARCH, BAD_TOKEN_PLAY, NO_OUTPUT = 'developer token was rejected', 'developer token was rejected', 'the audio output could not be opened'
 TOOLS = sorted('search play pause resume next previous seek queue_add now_playing library_playlists open scroll'.split())
 HOLE_BAR_S, DROP_GAP_S = 20, 15
+PROBE_LONG_S, PROBE_LONG_TOL_S, PROBE_ACTIONS, PROBE_ORIGIN_S = 500.79, 0.5, 6, (145.0, 160.0)
+PROBE_POLL_S, PROBE_PRE_S, PROBE_POST_S, PROBE_POLL_SHARE = 0.2, 2.0, 12.0, 0.8
+PROBE_STALL_S, PROBE_GAP_S, PROBE_SLOPE, PROBE_IDLE_S, PROBE_STALE_S, PROBE_SILENCE = 3.0, 1.0, (0.9, 1.1), 0.5, 3.0, 0.5
+PROBE_SETTLE_S, PROBE_NEAR_S, PROBE_FAR_S = 2.0, 1.0, 3.0
 CHECKS = ('F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6')
 EVIDENCE = {'F1': ('f1',), 'F2': ('f2',), 'F3': ('f3',), 'F4': ('f4',), 'F5': ('f5',), 'F6': ('f6',), 'F7': ('f7',), 'F8': ('f8',), 'F9': ('f9',),
             'F10': ('f10-badid', 'f10-net'), 'R3': ('r3',), 'R4': ('r4',), 'R5': ('r5',)}
@@ -445,6 +449,56 @@ def soak_check(out, minutes):
     return dict(extra, verdict='VOID' if voids else 'FAIL' if fails else 'PASS', reasons=voids + fails)
 
 
+def probe_seek_derive(rows, t_seek, seq):
+    rel = [dict(r, t=round(r['t'] - t_seek, 3)) for r in rows]
+    before, after = [r for r in rel if r['t'] < 0], [r for r in rel if r['t'] >= 0]
+    base = before[-1] if before else {}
+    first = lambda hit: next((r['t'] for r in after if hit(r)), None)
+    t_skip = first(lambda r: base and (r.get('skippedMs') or 0) > (base.get('skippedMs') or 0))
+    t_app = first(lambda r: seq is not None and (r.get('applied') or 0) >= seq)
+    run = [r for r in after if r.get('sentMs') is not None and (t_skip is None or r['t'] < t_skip)]
+    span = run[-1]['t'] - run[0]['t'] if run else 0
+    slope = (run[-1]['sentMs'] - run[0]['sentMs']) / 1000 / span if span > 0 else None
+    return {'itemId': base.get('itemId'), 'duration': base.get('duration'), 'origin': base.get('position'),
+            'seqDelta': seq - base['seq'] if seq is not None and base.get('seq') is not None else None,
+            'polls': sum(1 for r in rel if r.get('state') is not None), 'tSkip': t_skip, 'tApp': t_app, 'slope': slope and round(slope, 3)}
+
+
+def probe_seek_rules(ev):
+    arms = {k: probe_seek_derive(a['rows'], a['tSeek'], a.get('seq')) for k, a in (ev.get('arms') or {}).items()}
+    a, b, c = (arms.get(k) or probe_seek_derive([], 0, None) for k in 'ABC')
+    need, within = PROBE_POLL_SHARE * (PROBE_PRE_S + PROBE_POST_S) / PROBE_POLL_S, lambda x, lo, hi: x is not None and lo <= x <= hi
+    voids = [f'arm {k}: {x["polls"]} polls < {need:g}' for k, x in zip('ABC', (a, b, c)) if x['polls'] < need]
+    voids += [] if all(within(c[k], 0, PROBE_NEAR_S) for k in ('tSkip', 'tApp')) else [f'arm C control did not land fast: t_skip {c["tSkip"]}, t_app {c["tApp"]}']
+    uncounted = [why for ok, why in ((a['itemId'] == 'LONG', f'arm A item {a["itemId"]}'),
+                                     (within(a['duration'], PROBE_LONG_S - PROBE_LONG_TOL_S, PROBE_LONG_S + PROBE_LONG_TOL_S), f'arm A duration {a["duration"]}'),
+                                     (within(a['origin'], *PROBE_ORIGIN_S), f'arm A origin {a["origin"]}'), (a['seqDelta'] == 1, f'arm A seq delta {a["seqDelta"]}'),
+                                     (within(a['tApp'], PROBE_SETTLE_S, math.inf), f'arm A t_app {a["tApp"]} < {PROBE_SETTLE_S}: it landed fast or never')) if not ok]
+    skip, app, slope = a['tSkip'], a['tApp'], a['slope']
+    idle = within(skip, 0, PROBE_IDLE_S) and within(app, PROBE_STALE_S, math.inf)
+    silent = slope is not None and slope < PROBE_SILENCE
+    defect = within(skip, PROBE_STALL_S, math.inf) and app is not None and 0 <= app - skip <= PROBE_GAP_S and within(slope, *PROBE_SLOPE)
+    origin = 'supports' if within(b['tApp'], 0, PROBE_NEAR_S) else 'refutes' if b['tApp'] is None or b['tApp'] >= PROBE_FAR_S else 'unresolved'
+    refuted = [why for hit, why in ((idle, 'engine waiting on data or key: t_skip <= 0.5 s, t_app >= 3 s'), (silent, 'silence, not stale audio: slope < 0.5'),
+                                    (origin == 'refutes', f'origin effect refuted: arm B t_app {b["tApp"]}')) if hit]
+    verdict = 'VOID' if voids else 'INCONCLUSIVE' if uncounted else 'REFUTED' if refuted else 'PASS' if defect and origin == 'supports' else 'INCONCLUSIVE'
+    return {'verdict': verdict, 'reasons': voids or uncounted or refuted or ([] if verdict == 'PASS' else [f'defect {defect}, origin effect {origin}']),
+            'defect': defect, 'originEffect': origin, 'arms': arms}
+
+
+def probe_check(out):
+    missing, fails, voids = session_problems(out)
+    ev, sink = load(out, 'probe.json'), (load(out, 'session.verdict.json') or {}).get('sink')
+    missing += [] if ev else ['missing evidence: probe.json']
+    if ev:
+        more_voids, more_missing = guard_voids(out, ev, sink, ev.get('started'))
+        voids, missing = voids + more_voids + renderer_voids(ev.get('renderers') or [], 'probe'), missing + more_missing
+    if missing:
+        return {'verdict': 'FAIL', 'reasons': missing + fails + voids}
+    rules = probe_seek_rules(ev)
+    return dict(rules, verdict='FAIL' if fails else 'VOID' if voids else rules['verdict'], reasons=fails + voids + rules['reasons'])
+
+
 def readable_delta(rows, key):
     return rows[-1][key] - rows[0][key] if rows and rows[0].get(key) is not None and rows[-1].get(key) is not None else None
 
@@ -756,6 +810,10 @@ def verdict(out):
         v['soak'] = soak_check(out, build.get('soakMinutes') or 0)
         v['gate'] = 'PASS' if safe and v['soak']['verdict'] == 'PASS' else 'VOID' if v['soak']['verdict'] == 'VOID' and safe else 'FAIL'
         return v
+    if build.get('mode') == 'probe':
+        v['probe'] = probe_check(out)
+        v['gate'] = v['probe']['verdict'] if safe and v['pacing'].get('actions', PROBE_ACTIONS + 1) <= PROBE_ACTIONS else 'FAIL'
+        return v
     if build.get('mode') == 'controls':
         v['controls'] = controls(out, build)
         v['gate'] = 'PASS' if safe and v['controls']['holds'] else 'FAIL'
@@ -777,7 +835,7 @@ def verdict(out):
 
 def brief(v):
     keep = lambda c: {k: x for k, x in c.items() if k not in ('reasons',) or x}
-    return dict(gate=v['gate'], realStateUnchanged=v['realStateUnchanged'], leakGrep=v['leakGrep'], pacing=v.get('pacing'), soak=v.get('soak'), countsTowardV1=v.get('countsTowardV1'), checks={n: keep(c) for n, c in (v.get('checks') or {}).items()},
+    return dict(gate=v['gate'], realStateUnchanged=v['realStateUnchanged'], leakGrep=v['leakGrep'], pacing=v.get('pacing'), soak=v.get('soak'), probe=v.get('probe'), countsTowardV1=v.get('countsTowardV1'), checks={n: keep(c) for n, c in (v.get('checks') or {}).items()},
                 ballast=v.get('ballast') and keep(v['ballast']), reference=v['reference'], controls=v.get('controls'), llvmpipeControl=v.get('llvmpipeControl'), errors=v['errors'])
 
 

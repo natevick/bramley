@@ -1,4 +1,4 @@
-import importlib.util, os, shutil, sys, unittest
+import importlib.util, math, os, shutil, sys, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location('gate', os.environ.get('GATE_UNDER_TEST', os.path.join(HERE, 'gate.py')))
@@ -6,7 +6,7 @@ gate = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(gate)
 SCRATCH = os.path.join(gate.ROOT, 'target', 'tmp', f'test-gate-{os.getpid()}')
 RADEONSI, LLVMPIPE, SINK, SONG = 'AMD Radeon RX 5700 XT (radeonsi, navi10)', 'llvmpipe (LLVM 21.1.8, 256 bits)', 'null-1', '6781024437'
-SESSIONS = ('shipped', 'ballast', 'signedout', 'browse', 'offline', 'cpu')
+SESSIONS = ('shipped', 'ballast', 'signedout', 'browse', 'offline', 'cpu', 'probe')
 
 
 def weston_says(*lines):
@@ -984,6 +984,125 @@ class Controls(unittest.TestCase):
                 mutate(SCRATCH)
                 v = gate.verdict(SCRATCH)
                 self.assertEqual((v['controls'][control]['holds'], v['gate']), (False, 'FAIL'), v['controls'][control])
+
+
+def probe_arm(t_skip=None, t_app=None, slope=1.0, origin=151.0, item='LONG', duration=500.79, seq_delta=1, polls=71, base=0, after=1.0):
+    seq, rows, cut = 9, [], math.inf if t_skip is None else t_skip
+    for i in range(71):
+        t = round(-2.0 + 0.2 * i, 1)
+        rows.append({'t': 1000.0 + t, 'position': round(origin + t + 0.2, 1) if t < 0 else 490.8, 'applied': seq if t_app is not None and t >= t_app else seq - 1, 'seq': seq - seq_delta,
+                     'skippedMs': base + (800 if t_skip is not None and t >= t_skip else 0), 'sentMs': round(5000 + 1000 * (slope * (min(t, cut) + 2) + after * max(0.0, t - cut))), 'itemId': item, 'duration': duration, 'state': 'Playing'})
+    return {'tSeek': 1000.0, 'seq': seq, 'rows': rows[:polls]}
+
+
+FAST = dict(t_skip=0.2, t_app=0.4)
+ARMS = {'A': dict(t_skip=4.4, t_app=4.6), 'B': dict(FAST, origin=295.0), 'C': dict(FAST, item='SHORT', duration=200.0, origin=150.0)}
+
+
+def probe(**arms):
+    return gate.probe_seek_rules({'arms': {k: probe_arm(**dict(ARMS[k], **arms.get(k, {}))) for k in 'ABC'}})
+
+
+class ProbeSeek(unittest.TestCase):
+    def test_each_outcome_is_reached_with_its_own_reason(self):
+        for name, arms, verdict, reason in (
+            ('defect shown, origin supported', {}, 'PASS', None),
+            ('every threshold exactly on its bar', {'A': dict(t_skip=3.0, t_app=4.0), 'B': dict(t_app=1.0), 'C': dict(t_skip=1.0, t_app=1.0)}, 'PASS', None),
+            ('origin bounds are inclusive', {'A': dict(origin=145.0)}, 'PASS', None),
+            ('origin upper bound is inclusive', {'A': dict(origin=160.0)}, 'PASS', None),
+            ('slope inside the band', {'A': dict(slope=0.92)}, 'PASS', None),
+            ('slope inside the band, high side', {'A': dict(slope=1.08)}, 'PASS', None),
+            ('slope is read only before the discard', {'A': dict(after=0.0)}, 'PASS', None),
+            ('stall just under 3 s is not the defect', {'A': dict(t_skip=2.8, t_app=3.4)}, 'INCONCLUSIVE', 'defect False'),
+            ('settle gap over 1 s is not the defect', {'A': dict(t_skip=4.0, t_app=5.2)}, 'INCONCLUSIVE', 'defect False'),
+            ('settling before the discard is not the defect', {'A': dict(t_skip=4.0, t_app=3.8)}, 'INCONCLUSIVE', 'defect False'),
+            ('slope under 0.9 is not the defect', {'A': dict(slope=0.8)}, 'INCONCLUSIVE', 'defect False'),
+            ('slope over 1.1 is not the defect', {'A': dict(slope=1.2)}, 'INCONCLUSIVE', 'defect False'),
+            ('engine waiting on data or key', {'A': dict(t_skip=0.4, t_app=3.0)}, 'REFUTED', 'engine waiting'),
+            ('discard at 0.6 s is not engine waiting', {'A': dict(t_skip=0.6, t_app=3.2)}, 'INCONCLUSIVE', 'defect False'),
+            ('settle under 3 s is not engine waiting', {'A': dict(t_skip=0.4, t_app=2.8)}, 'INCONCLUSIVE', 'defect False'),
+            ('silence rather than stale audio', {'A': dict(slope=0.45)}, 'REFUTED', 'silence'),
+            ('half rate is not silence', {'A': dict(slope=0.55)}, 'INCONCLUSIVE', 'defect False'),
+            ('origin effect refuted at 3 s', {'B': dict(t_app=3.0)}, 'REFUTED', 'origin effect refuted'),
+            ('origin effect refuted when B never settles', {'B': dict(t_app=None)}, 'REFUTED', 'origin effect refuted'),
+            ('B at 2.8 s is unresolved', {'B': dict(t_app=2.8)}, 'INCONCLUSIVE', 'origin effect unresolved'),
+            ('B just over 1 s is unresolved', {'B': dict(t_app=1.2)}, 'INCONCLUSIVE', 'origin effect unresolved'),
+            ('A lands fast', {'A': FAST}, 'INCONCLUSIVE', 'landed fast'),
+            ('A settles at 1.8 s', {'A': dict(t_skip=1.6, t_app=1.8)}, 'INCONCLUSIVE', 'landed fast'),
+            ('A settles at 2.0 s but is not the defect', {'A': dict(t_skip=2.0, t_app=2.0)}, 'INCONCLUSIVE', 'defect False'),
+            ('A fast beats a refuted origin', {'A': FAST, 'B': dict(t_app=5.0)}, 'INCONCLUSIVE', 'landed fast'),
+            ('A on the wrong item', {'A': dict(item='SHORT')}, 'INCONCLUSIVE', 'item SHORT'),
+            ('A on an unlabelled item', {'A': dict(item='other')}, 'INCONCLUSIVE', 'item other'),
+            ('A duration off', {'A': dict(duration=499.0)}, 'INCONCLUSIVE', 'duration 499.0'),
+            ('A origin under 145', {'A': dict(origin=144.8)}, 'INCONCLUSIVE', 'origin 144.8'),
+            ('A origin over 160', {'A': dict(origin=160.2)}, 'INCONCLUSIVE', 'origin 160.2'),
+            ('A seq delta 2', {'A': dict(seq_delta=2)}, 'INCONCLUSIVE', 'seq delta 2'),
+            ('A seq delta 0', {'A': dict(seq_delta=0)}, 'INCONCLUSIVE', 'seq delta 0'),
+            ('A discard counter already high shows no new discard', {'A': dict(t_skip=None, base=800)}, 'INCONCLUSIVE', 'defect False'),
+            ('C discards after 1 s', {'C': dict(t_skip=1.2)}, 'VOID', 'control'),
+            ('C settles after 1 s', {'C': dict(t_app=1.2)}, 'VOID', 'control'),
+            ('C never discards', {'C': dict(t_skip=None)}, 'VOID', 'control'),
+            ('C never settles', {'C': dict(t_app=None)}, 'VOID', 'control'),
+            ('C slow beats a defect', {'C': dict(t_skip=3.0, t_app=3.2)}, 'VOID', 'control'),
+            ('C slow beats a refutation', {'A': dict(t_skip=0.4, t_app=3.0), 'C': dict(t_app=2.0)}, 'VOID', 'control'),
+            ('A with 55 of 70 polls', {'A': dict(polls=55)}, 'VOID', 'arm A: 55 polls'),
+            ('B with 55 of 70 polls', {'B': dict(polls=55)}, 'VOID', 'arm B: 55 polls'),
+            ('C with 55 of 70 polls', {'C': dict(polls=55)}, 'VOID', 'arm C: 55 polls'),
+            ('80% of the polls is enough', {'B': dict(polls=56)}, 'PASS', None),
+        ):
+            with self.subTest(name):
+                got = probe(**arms)
+                self.assertEqual(got['verdict'], verdict, got['reasons'])
+                self.assertTrue(reason is None or any(reason in r for r in got['reasons']), got['reasons'])
+
+    def test_polls_without_a_readable_state_do_not_count(self):
+        ev = {'arms': {k: probe_arm(**ARMS[k]) for k in 'ABC'}}
+        [r.__setitem__('state', None) for r in ev['arms']['A']['rows'][::2]]
+        self.assertEqual(gate.probe_seek_rules(ev)['verdict'], 'VOID')
+
+    def test_a_missing_arm_is_void(self):
+        for gone in 'ABC':
+            ev = {'arms': {k: probe_arm(**ARMS[k]) for k in 'ABC' if k != gone}}
+            self.assertEqual(gate.probe_seek_rules(ev)['verdict'], 'VOID', gone)
+
+    def test_the_derived_numbers_come_from_the_raw_polls(self):
+        a = gate.probe_seek_rules({'arms': {'A': probe_arm(t_skip=4.4, t_app=4.6, slope=0.95, origin=152.0)}})['arms']['A']
+        self.assertEqual((a['tSkip'], a['tApp'], a['slope'], a['origin'], a['seqDelta'], a['polls'], a['itemId']), (4.4, 4.6, 0.95, 152.0, 1, 71, 'LONG'))
+
+
+class ProbeVerdict(unittest.TestCase):
+    def setUp(self):
+        shutil.rmtree(SCRATCH, ignore_errors=True)
+        os.makedirs(SCRATCH)
+        self.addCleanup(shutil.rmtree, SCRATCH, True)
+        write_valid(SCRATCH, mode='probe')
+        put('pacing.json', prior=[], waits=[], actions=[[1000.0 + 30 * i, 'play'] for i in range(5)])(SCRATCH)
+        gate.save(SCRATCH, 'probe.json', {'session': 'probe', 't0': 1000.0, 't1': 1060.0, 'started': True, 'renderers': [RADEONSI], 'arms': {k: probe_arm(**ARMS[k]) for k in 'ABC'}})
+
+    def test_a_clean_run_passes_and_the_verdict_names_the_arms(self):
+        v = gate.verdict(SCRATCH)
+        self.assertEqual((v['gate'], v['probe']['verdict'], v['probe']['originEffect']), ('PASS', 'PASS', 'supports'))
+
+    def test_a_seventh_license_action_fails_the_gate_even_beside_a_pass(self):
+        put('pacing.json', actions=[[1000.0 + 30 * i, 'play'] for i in range(7)])(SCRATCH)
+        self.assertEqual(gate.verdict(SCRATCH)['gate'], 'FAIL')
+
+    def test_missing_probe_evidence_fails_the_gate(self):
+        os.remove(os.path.join(SCRATCH, 'probe.json'))
+        v = gate.verdict(SCRATCH)
+        self.assertEqual((v['gate'], v['probe']['reasons'][0]), ('FAIL', 'missing evidence: probe.json'))
+
+    def test_a_stream_off_the_null_sink_voids_a_passing_probe(self):
+        put('probe.guard.json', log=[])(SCRATCH)
+        self.assertEqual(gate.verdict(SCRATCH)['gate'], 'VOID')
+
+    def test_an_unsafe_run_fails_the_gate_beside_a_pass(self):
+        put('leakgrep.json', hits={'repo': 0, 'run': 1})(SCRATCH)
+        self.assertEqual(gate.verdict(SCRATCH)['gate'], 'FAIL')
+
+    def test_a_refuted_probe_is_not_a_pass(self):
+        gate.save(SCRATCH, 'probe.json', dict(gate.load(SCRATCH, 'probe.json'), arms={k: probe_arm(**dict(ARMS[k], **({'t_app': 5.0} if k == 'B' else {}))) for k in 'ABC'}))
+        self.assertEqual(gate.verdict(SCRATCH)['gate'], 'REFUTED')
 
 
 if __name__ == '__main__':
