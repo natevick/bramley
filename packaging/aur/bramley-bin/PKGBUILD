@@ -1,0 +1,28 @@
+pkgname=bramley-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Small native player for Apple Music"
+arch=('x86_64')
+url="https://github.com/natevick/bramley"
+license=('MIT')
+depends=('glibc' 'google-chrome' 'hicolor-icon-theme' 'libgcc' 'libglvnd' 'libstdc++' 'libx11'
+         'libxcursor' 'libxi' 'libxkbcommon' 'libxkbcommon-x11' 'libxrender'
+         'pulse-native-provider' 'wayland')
+optdepends=('gnome-keyring: keep the Apple Music sign-in in the Secret Service keyring; without one it is kept in a private file under ~/.config/bramley')
+provides=("bramley=$pkgver")
+conflicts=('bramley' 'bramley-git')
+options=('!debug' '!strip')
+source_x86_64=("${url}/releases/download/v${pkgver}/bramley-v${pkgver}-${CARCH}-unknown-linux-gnu.tar.gz")
+sha256sums_x86_64=('0000000000000000000000000000000000000000000000000000000000000000')
+
+package() {
+  local dir="${srcdir}/bramley-v${pkgver}-${CARCH}-unknown-linux-gnu"
+
+  install -Dm755 "${dir}/bramley" "${pkgdir}/usr/bin/bramley"
+  install -Dm644 "${dir}/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+  install -Dm644 "${dir}/README.md" "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+  install -Dm644 "${dir}/packaging/applications/bramley.desktop" \
+    "${pkgdir}/usr/share/applications/bramley.desktop"
+  install -Dm644 "${dir}/packaging/icons/bramley.svg" \
+    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/bramley.svg"
+}
