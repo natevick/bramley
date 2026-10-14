@@ -277,7 +277,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
  "x11rb",
 ]
 
@@ -1345,7 +1345,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1386,7 +1386,7 @@ dependencies = [
 [[package]]
 name = "fastframe-fonts"
 version = "0.4.1"
-source = "git+https://github.com/natevick/fastframe?rev=e32305a83234733677f81580a6d8e56e2b3a9624#e32305a83234733677f81580a6d8e56e2b3a9624"
+source = "git+https://github.com/crmne/fastframe?rev=4cf12984fca3ade655b214add154828684e3e993#4cf12984fca3ade655b214add154828684e3e993"
 dependencies = [
  "directories",
  "egui",
@@ -1399,7 +1399,7 @@ dependencies = [
 [[package]]
 name = "fastframe-instance"
 version = "0.4.1"
-source = "git+https://github.com/natevick/fastframe?rev=e32305a83234733677f81580a6d8e56e2b3a9624#e32305a83234733677f81580a6d8e56e2b3a9624"
+source = "git+https://github.com/crmne/fastframe?rev=4cf12984fca3ade655b214add154828684e3e993#4cf12984fca3ade655b214add154828684e3e993"
 dependencies = [
  "directories",
  "getrandom 0.4.3",
@@ -1409,7 +1409,7 @@ dependencies = [
 [[package]]
 name = "fastframe-log"
 version = "0.4.1"
-source = "git+https://github.com/natevick/fastframe?rev=e32305a83234733677f81580a6d8e56e2b3a9624#e32305a83234733677f81580a6d8e56e2b3a9624"
+source = "git+https://github.com/crmne/fastframe?rev=4cf12984fca3ade655b214add154828684e3e993#4cf12984fca3ade655b214add154828684e3e993"
 dependencies = [
  "env_logger",
  "jiff",
@@ -1419,7 +1419,7 @@ dependencies = [
 [[package]]
 name = "fastframe-text"
 version = "0.4.1"
-source = "git+https://github.com/natevick/fastframe?rev=e32305a83234733677f81580a6d8e56e2b3a9624#e32305a83234733677f81580a6d8e56e2b3a9624"
+source = "git+https://github.com/crmne/fastframe?rev=4cf12984fca3ade655b214add154828684e3e993#4cf12984fca3ade655b214add154828684e3e993"
 dependencies = [
  "egui",
  "zbus",
@@ -3268,7 +3268,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3739,7 +3739,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.5",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4418,7 +4418,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
