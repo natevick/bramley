@@ -2566,21 +2566,23 @@ fn an_agent_request_raises_the_app_notice_and_only_dismissal_records_it() {
     click(&ctx, &mut app, "Got it");
     let (cleared, recorded) = (!shown(&app), marker.exists());
     std::fs::remove_file(&marker).unwrap();
-    let library = || {
+    let library = |reply| {
         (
             Request::Library(bramley_api::Shelf::Playlists),
             deadline,
-            channel().0,
+            reply,
         )
     };
-    inbox_tx.send(library()).unwrap();
+    let (answered, settled) = channel();
+    inbox_tx.send(library(answered)).unwrap();
     app.pump(&ctx);
     let by_library = shown(&app);
+    settled.recv_timeout(Duration::from_secs(5)).unwrap();
     click(&ctx, &mut app, "Got it");
     inbox_tx
         .send((Request::Agent, deadline, channel().0))
         .unwrap();
-    inbox_tx.send(library()).unwrap();
+    inbox_tx.send(library(channel().0)).unwrap();
     app.pump(&ctx);
     let again = shown(&app);
     std::fs::remove_dir_all(&config).unwrap();
