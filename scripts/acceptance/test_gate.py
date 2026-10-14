@@ -325,6 +325,8 @@ FUNCTIONAL = [
     ('R3 position past duration + 1', edit('r3.json', lambda d: d['samples'][5].__setitem__('duration', 68.9)), 'R3', 'FAIL', 'worst +1.1 s on item i0'),
     ('R3 a Playing sample without a duration', edit('r3.json', lambda d: d['samples'][5].pop('duration')), 'R3', 'FAIL', '1 Playing samples without a position or duration'),
     ('R3 a Playing sample without a position', edit('r3.json', lambda d: d['samples'][5].__setitem__('position', None)), 'R3', 'FAIL', '1 Playing samples without a position or duration'),
+    ('R3 a seam sample is judged on the old duration and is not a stall', both(edit('r3.json', lambda d: d['samples'][14].__setitem__('duration', 171.0)), edit('r3.json', lambda d: d['samples'][15].update(position=170.4, duration=140.0))), 'R3', 'PASS', None),
+    ('R3 a first sample off the old clock is judged on its own duration', both(edit('r3.json', lambda d: d['samples'][14].__setitem__('duration', 171.0)), edit('r3.json', lambda d: d['samples'][15].update(position=160.4, duration=140.0))), 'R3', 'FAIL', 'worst +20.4 s on item i1'),
     ('R3 a seam reset is not a stall', edit('r3.json', lambda d: d['samples'][14].__setitem__('position', 0.2)), 'R3', 'PASS', None),
     ('R3 a seam reset up to the end of the item', both(edit('r3.json', lambda d: d['samples'][14].__setitem__('position', 0.2)), edit('r3.json', lambda d: d['samples'][13].__setitem__('duration', 161.0))), 'R3', 'PASS', None),
     ('R3 a drop short of the end of the item is a stall', both(edit('r3.json', lambda d: d['samples'][14].__setitem__('position', 0.2)), edit('r3.json', lambda d: d['samples'][13].__setitem__('duration', 161.1))), 'R3', 'FAIL', 'behind the wall clock'),
@@ -753,6 +755,61 @@ class Soak(unittest.TestCase):
         write_valid(SCRATCH)
         v = gate.verdict(SCRATCH)
         self.assertEqual(('soak' in v, v.get('countsTowardV1')), (False, None))
+
+
+def sample(t, item, position, duration, state='Playing'):
+    return {'t': t, 'itemId': item, 'state': state, 'position': position, 'duration': duration}
+
+
+class SeamSample(unittest.TestCase):
+    def overruns(self, rows):
+        fails = []
+        gate.position_overruns(rows, fails)
+        return fails
+
+    def test_a_seam_sample_with_a_shorter_new_item_is_judged_on_the_old_duration(self):
+        rows = [sample(1000.0, 'a', 172.6, 172.9), sample(1000.25, 'b', 172.85, 140.0)]
+        self.assertEqual(self.overruns(rows), [])
+
+    def test_a_seam_sample_with_a_longer_new_item_is_not_a_stall(self):
+        rows = [sample(1000.0, 'a', 172.6, 172.9), sample(1000.25, 'b', 172.85, 200.0), sample(1010.25, 'b', 9.5, 200.0)]
+        self.assertEqual(gate.lags(rows, []), [])
+
+    def test_a_first_sample_that_does_not_continue_the_old_clock_is_judged_on_its_own_duration(self):
+        rows = [sample(1000.0, 'a', 172.6, 172.9), sample(1000.25, 'b', 150.0, 140.0)]
+        self.assertEqual(len(self.overruns(rows)), 1)
+        self.assertIn('worst +10.0 s on item b', self.overruns(rows)[0])
+
+    def test_the_sample_after_a_seam_sample_is_judged_on_its_own_duration(self):
+        rows = [sample(1000.0, 'a', 172.6, 172.9), sample(1000.25, 'b', 172.85, 140.0), sample(1010.25, 'b', 182.85, 140.0)]
+        self.assertIn('in 1 of 3 Playing samples, worst +42.8 s', self.overruns(rows)[0])
+
+    def test_a_first_sample_after_a_sample_that_is_not_playing_is_not_a_seam_sample(self):
+        rows = [sample(1000.0, 'a', 172.6, 172.9, 'Paused'), sample(1000.25, 'b', 172.85, 140.0)]
+        self.assertEqual(len(self.overruns(rows)), 1)
+
+    def test_a_sample_at_the_same_item_is_not_a_seam_sample(self):
+        rows = [sample(1000.0, 'a', 172.6, 172.9), sample(1000.25, 'a', 172.85, 140.0)]
+        self.assertEqual(len(self.overruns(rows)), 1)
+
+    def test_the_clock_must_continue_to_within_the_pace_tolerance(self):
+        within = [sample(1000.0, 'a', 171.75, 173.0), sample(1000.25, 'b', 173.0, 140.0)]
+        beyond = [sample(1000.0, 'a', 171.75, 173.0), sample(1000.25, 'b', 173.1, 140.0)]
+        self.assertEqual((len(self.overruns(within)), len(self.overruns(beyond))), (0, 1))
+
+    def test_a_position_below_the_old_clock_by_more_than_the_pace_tolerance_is_not_a_seam_sample(self):
+        within = [sample(1000.0, 'a', 171.75, 173.0), sample(1000.25, 'b', 171.0, 140.0)]
+        beyond = [sample(1000.0, 'a', 171.75, 173.0), sample(1000.25, 'b', 170.9, 140.0)]
+        self.assertEqual((len(self.overruns(within)), len(self.overruns(beyond))), (0, 1))
+
+    def test_an_unreadable_sample_before_an_item_change_is_reported_not_a_crash(self):
+        for old in (sample(1000.0, 'a', None, 172.9), sample(1000.0, 'a', 172.6, None)):
+            self.assertEqual(len(self.overruns([old, sample(1000.25, 'b', 172.85, 140.0)])), 2)
+
+    def test_the_old_item_must_be_within_the_seam_tolerance_of_its_end(self):
+        at_edge = [sample(1000.0, 'a', 171.75, 173.0), sample(1000.25, 'b', 172.0, 100.0)]
+        short = [sample(1000.0, 'a', 171.5, 173.0), sample(1000.25, 'b', 171.75, 100.0)]
+        self.assertEqual((len(self.overruns(at_edge)), len(self.overruns(short))), (0, 1))
 
 
 class StallWatchTests(unittest.TestCase):

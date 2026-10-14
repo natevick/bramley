@@ -293,10 +293,19 @@ def seam_reset(a, b):
     return duration is not None and b['position'] < a['position'] and a['position'] + (b['t'] - a['t']) >= duration - SEAM_S
 
 
+def seam_samples(rows):
+    def continues(a, b):
+        clock = a['position'] + (b['t'] - a['t'])
+        return abs(clock - b['position']) <= PACE_S and clock >= a['duration'] - SEAM_S
+    return {id(b): a for a, b in zip(rows, rows[1:]) if a.get('state') == 'Playing' and a.get('itemId') != b.get('itemId')
+            and None not in (a.get('position'), a.get('duration'), b.get('position')) and continues(a, b)}
+
+
 def position_overruns(rows, fails):
     playing = [r for r in rows if r.get('state') == 'Playing']
     unreadable = [r for r in playing if r.get('position') is None or r.get('duration') is None]
-    excess = lambda r: r['position'] - r['duration']
+    seams = seam_samples(rows)
+    excess = lambda r: r['position'] - seams.get(id(r), r)['duration']
     over = [r for r in playing if r not in unreadable and excess(r) > POSITION_SLACK_S]
     if unreadable:
         fails.append(f'{len(unreadable)} Playing samples without a position or duration')
@@ -308,7 +317,8 @@ def position_overruns(rows, fails):
 
 def lags(rows, seeks):
     lag = lambda a, b: round((b['t'] - a['t']) - (b['position'] - a['position']), 2)
-    judged = [(a, b) for a, b in zip(rows, rows[1:]) if a.get('itemId') == b.get('itemId') and a.get('state') == b.get('state') == 'Playing'
+    seams = seam_samples(rows)
+    judged = [(a, b) for a, b in zip(rows, rows[1:]) if a.get('itemId') == b.get('itemId') and a.get('state') == b.get('state') == 'Playing' and id(a) not in seams
               and a.get('position') is not None and b.get('position') is not None and not any(a['t'] - 1 <= t <= b['t'] + 1 for t in seeks) and not seam_reset(a, b)]
     return [lag(a, b) for a, b in judged if lag(a, b) > PACE_S]
 
