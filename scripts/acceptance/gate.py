@@ -10,7 +10,7 @@ R1_SAMPLES, R2_SAMPLES, REF_SAMPLES, CPU_SAMPLES, CPU_BIN_S = 60, 20, 20, 30, 10
 STALL_S, SOAK_CHANGES, SOAK_SLACK_MIN, REFILL_AT = 30.0, 30, 10 / 60, 4
 F5_COMMANDS, EVERY_REP = ('pause', 'seek', 'resume', 'next', 'prev'), ('pause', 'resume')
 ADVANCE_EPS_S, F5_SEEK_S, F5_POSITION_S, F5_ADVANCING_MS = 0.05, 120.0, 0.1, 3000
-DECRYPTED_MS, SKIPPED_MS, PACE_S = 35000, 100, 1.0
+DECRYPTED_MS, SKIPPED_MS, PACE_S, POSITION_SLACK_S, SEAM_S = 35000, 100, 1.0, 1.0, 1.0
 F6_SENT_SLACK_S, F6_SKIPPED_S, F6_STALL_S, F6_LAND_S, F6_WINDOW_S = 3.0, 0.1, 1.0, 1.0, 5.0
 BAD_TOKEN_SEARCH, BAD_TOKEN_PLAY, NO_OUTPUT = 'developer token was rejected', 'developer token was rejected', 'the audio output could not be opened'
 TOOLS = sorted('search play pause resume next previous seek queue_add now_playing library_playlists open scroll'.split())
@@ -288,10 +288,28 @@ def growth(rows, lo, hi):
     return {k: round(end[k] - start[k], 1) for k in start} if start and end else {}
 
 
+def seam_reset(a, b):
+    duration = a.get('duration')
+    return duration is not None and b['position'] < a['position'] and a['position'] + (b['t'] - a['t']) >= duration - SEAM_S
+
+
+def position_overruns(rows, fails):
+    playing = [r for r in rows if r.get('state') == 'Playing']
+    unreadable = [r for r in playing if r.get('position') is None or r.get('duration') is None]
+    excess = lambda r: r['position'] - r['duration']
+    over = [r for r in playing if r not in unreadable and excess(r) > POSITION_SLACK_S]
+    if unreadable:
+        fails.append(f'{len(unreadable)} Playing samples without a position or duration')
+    if over:
+        worst = max(over, key=excess)
+        fails.append(f'position beyond duration + {POSITION_SLACK_S} s in {len(over)} of {len(playing)} Playing samples, worst +{excess(worst):.1f} s on item {worst.get("itemId")}')
+    return round(max((excess(r) for r in playing if r not in unreadable), default=0.0), 2)
+
+
 def lags(rows, seeks):
     lag = lambda a, b: round((b['t'] - a['t']) - (b['position'] - a['position']), 2)
     judged = [(a, b) for a, b in zip(rows, rows[1:]) if a.get('itemId') == b.get('itemId') and a.get('state') == b.get('state') == 'Playing'
-              and not any(a['t'] - 1 <= t <= b['t'] + 1 for t in seeks)]
+              and a.get('position') is not None and b.get('position') is not None and not any(a['t'] - 1 <= t <= b['t'] + 1 for t in seeks) and not seam_reset(a, b)]
     return [lag(a, b) for a, b in judged if lag(a, b) > PACE_S]
 
 
@@ -322,6 +340,7 @@ def r3_rules(ev, fails, sink):
     stalls = lags(rows, ev.get('seekTimes') or [])
     if stalls:
         fails.append(f'position fell behind the wall clock by more than {PACE_S} s: {stalls}')
+    overrun = position_overruns(rows, fails)
     if g.get('uss') is not None:
         if g['uss'] > R3_BAR:
             fails.append(f'USS growth {g["uss"]} > {R3_BAR}')
@@ -329,7 +348,7 @@ def r3_rules(ev, fails, sink):
             fails.append(f'PSS growth {g["pss"]} > {R3_BAR}')
     elif rows:
         fails.append('no samples at minute 5 or minute 30')
-    return dict(g, zone=None if g.get('uss') is None else 1 if g['uss'] > R3_BAR else 3, tracks=played,
+    return dict(g, zone=None if g.get('uss') is None else 1 if g['uss'] > R3_BAR else 3, tracks=played, maxPositionOverrunS=overrun,
                 outputUnderflows=underflows, readinessDips=dips,
                 changesAfter5=sum(1 for a, b in zip(rows, rows[1:]) if b['m'] >= 5 and a.get('itemId') != b.get('itemId')))
 
@@ -388,10 +407,11 @@ def soak_rules(ev, fails, minutes):
             fails.append(f'{key} unreadable')
         elif counters[key]:
             fails.append(f'{name} during the soak: {counters[key]}')
+    overrun = position_overruns(rows, fails)
     g = growth(rows, 5, rows[-1]['m']) if rows and rows[-1]['m'] > 6 else {}
     hours = (rows[-1]['m'] - 5) / 60 if rows else 0
     return dict(g, itemChanges=None if changes is None else len(changes), stalls=len(stalls or []), frozenRuns=len(frozen), refills=len(ev.get('refills') or []),
-                growthPerHour={k: round(v / hours, 2) for k, v in g.items()} if hours > 0 else {}, bannerSamples=sum(1 for r in rows if r.get('banner') is not None),
+                growthPerHour={k: round(v / hours, 2) for k, v in g.items()} if hours > 0 else {}, bannerSamples=sum(1 for r in rows if r.get('banner') is not None), maxPositionOverrunS=overrun,
                 minutes=rows[-1]['m'] if rows else 0, **counters)
 
 

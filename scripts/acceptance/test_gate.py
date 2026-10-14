@@ -23,7 +23,7 @@ def rows(n, pss, uss, rss, renderer=RADEONSI, playing=True, pid=7):
 
 def soak(n=181, uss=148.0):
     return [{'t': 1000.0 + 10 * i, 'm': round(i / 6, 3), 'pid': 7, 'procs': 1, 'pss': 170.0, 'uss': uss, 'rss': 205.0, 'texturesUploaded': 50, 'state': 'Playing',
-             'banner': None, 'itemId': f'i{i // 15}', 'position': 20.0 + 10 * i, 'seeks': 0, 'readinessDips': 2, 'outputUnderflows': 4} for i in range(n)]
+             'banner': None, 'itemId': f'i{i // 15}', 'position': 20.0 + 10 * (i % 15), 'duration': 160.0, 'seeks': 0, 'readinessDips': 2, 'outputUnderflows': 4} for i in range(n)]
 
 
 def counts(t, position, decrypted, skipped=0, fails=0, sent=None, acked=0, timeouts=0):
@@ -320,6 +320,16 @@ FUNCTIONAL = [
     ('R3 seven tracks', soak_edit(lambda r: r.__setitem__('itemId', f'i{min(6, r["m"] // 2.5)}')), 'R3', 'FAIL', '7 tracks played'),
     ('R3 crash', edit('r3.json', lambda d: d['samples'][100].__setitem__('pid', 8)), 'R3', 'FAIL', 'crashed'),
     ('R3 forked', edit('r3.json', lambda d: d['samples'][100].__setitem__('procs', 2)), 'R3', 'FAIL', 'crashed'),
+    ('R3 positions carried across items', soak_edit(lambda r: r.__setitem__('position', r['position'] + 160.0 * int(r['itemId'][1:]))), 'R3', 'FAIL', 'position beyond duration + 1.0 s in'),
+    ('R3 position at duration + 1', edit('r3.json', lambda d: d['samples'][5].__setitem__('duration', 69.0)), 'R3', 'PASS', None),
+    ('R3 position past duration + 1', edit('r3.json', lambda d: d['samples'][5].__setitem__('duration', 68.9)), 'R3', 'FAIL', 'worst +1.1 s on item i0'),
+    ('R3 a Playing sample without a duration', edit('r3.json', lambda d: d['samples'][5].pop('duration')), 'R3', 'FAIL', '1 Playing samples without a position or duration'),
+    ('R3 a Playing sample without a position', edit('r3.json', lambda d: d['samples'][5].__setitem__('position', None)), 'R3', 'FAIL', '1 Playing samples without a position or duration'),
+    ('R3 a seam reset is not a stall', edit('r3.json', lambda d: d['samples'][14].__setitem__('position', 0.2)), 'R3', 'PASS', None),
+    ('R3 a seam reset up to the end of the item', both(edit('r3.json', lambda d: d['samples'][14].__setitem__('position', 0.2)), edit('r3.json', lambda d: d['samples'][13].__setitem__('duration', 161.0))), 'R3', 'PASS', None),
+    ('R3 a drop short of the end of the item is a stall', both(edit('r3.json', lambda d: d['samples'][14].__setitem__('position', 0.2)), edit('r3.json', lambda d: d['samples'][13].__setitem__('duration', 161.1))), 'R3', 'FAIL', 'behind the wall clock'),
+    ('R3 lagging at the end of an item is still a stall', edit('r3.json', lambda d: d['samples'][14].__setitem__('position', 158.9)), 'R3', 'FAIL', 'behind the wall clock'),
+    ('R3 a drop in mid-item is a stall', edit('r3.json', lambda d: d['samples'][5].__setitem__('position', 0.2)), 'R3', 'FAIL', 'behind the wall clock'),
     ('R3 stall', soak_edit(lambda r: r.__setitem__('position', r['position'] - (1.1 if r['m'] >= 11 else 0))), 'R3', 'FAIL', 'behind the wall clock'),
     ('R3 lag at the tolerance', soak_edit(lambda r: r.__setitem__('position', r['position'] - (1.0 if r['m'] >= 11 else 0))), 'R3', 'PASS', None),
     ('R3 a seek is not a stall', both(soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 11 else 0))), put('r3.json', seekTimes=[1000.0 + 10 * 65 + 5])), 'R3', 'PASS', None),
@@ -631,7 +641,7 @@ class PacingVerdict(unittest.TestCase):
 
 def soak_rows(n=721):
     return [{'t': 1000.0 + 10 * i, 'm': round(i / 6, 3), 'pid': 7, 'procs': 1, 'pss': 170.0, 'uss': 148.0, 'rss': 205.0, 'texturesUploaded': 50, 'state': 'Playing', 'banner': None,
-             'itemId': f'i{i // 16}', 'position': 20.0 + 10 * (i % 16), 'outputUnderflows': 3, 'readinessDips': 5} for i in range(n)]
+             'itemId': f'i{i // 16}', 'position': 20.0 + 10 * (i % 16), 'duration': 180.0, 'outputUnderflows': 3, 'readinessDips': 5} for i in range(n)]
 
 
 def write_soak(out):
@@ -675,6 +685,12 @@ SOAK = [
     ('guard killed the app', put('soak.shipped.guard.json', killed='linked to spdif'), 'VOID', 'guard killed'),
     ('not radeonsi', soak_edit(lambda d: d.__setitem__('renderers', [LLVMPIPE])), 'VOID', 'renderer'),
     ('a reference on the wrong sha', put('reference.json', sha256='feed'), 'VOID', 'sha'),
+    ('positions carried across items', soak_edit(lambda d: [r.__setitem__('position', r['position'] + 180.0 * int(r['itemId'][1:])) for r in d['samples']]), 'FAIL', 'position beyond duration + 1.0 s in'),
+    ('position at duration + 1', soak_edit(lambda d: d['samples'][50].__setitem__('duration', d['samples'][50]['position'] - 1.0)), 'PASS', None),
+    ('position past duration + 1', soak_edit(lambda d: d['samples'][50].__setitem__('duration', d['samples'][50]['position'] - 1.1)), 'FAIL', 'worst +1.1 s on item i3'),
+    ('a Playing sample without a duration', soak_edit(lambda d: d['samples'][50].pop('duration')), 'FAIL', '1 Playing samples without a position or duration'),
+    ('a Playing sample without a position', soak_edit(lambda d: d['samples'][50].__setitem__('position', None)), 'FAIL', '1 Playing samples without a position or duration'),
+    ('a Paused sample past the end is not judged', soak_edit(lambda d: d['samples'][50].update(state='Paused', duration=1.0)), 'PASS', None),
     ('banners are information only', soak_edit(lambda d: d['samples'][50].__setitem__('banner', 'Error')), 'PASS', None),
 ]
 
@@ -720,7 +736,7 @@ class Soak(unittest.TestCase):
         self.assertEqual((v['gate'], v['countsTowardV1'], 'checks' in v), ('PASS', False, False))
         self.assertEqual((s['pss'], s['itemChanges'], s['stalls'], s['frozenRuns'], s['refills'], s['outputUnderflows'], s['readinessDips'], s['minutes']), (3.0, 45, 0, 0, 2, 0, 0, 120.0))
         self.assertEqual(s['growthPerHour']['pss'], round(3.0 / ((120.0 - 5) / 60), 2))
-        self.assertEqual(s['bannerSamples'], 0)
+        self.assertEqual((s['bannerSamples'], s['maxPositionOverrunS']), (0, -10.0))
 
     def test_the_soak_gate_needs_pacing_and_a_void_soak_is_a_void_gate(self):
         write_soak(SCRATCH)
