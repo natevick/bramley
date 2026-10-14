@@ -2,7 +2,7 @@
   "use strict";
   const C = globalThis.__bramley_player;
   delete globalThis.__bramley_player;
-  const S = { phase: "start", errors: [], events: [], steps: [], signInNeeded: null, playbackError: null, applied: 0, background: 0 };
+  const S = { phase: "start", errors: [], events: [], steps: [], signInNeeded: null, loadFailed: null, playbackError: null, applied: 0, background: 0 };
   const describe = e => e && (e.name || "") + " " + (e.message || e.description || e.errorCode || String(e));
   const err = (where, e) => {
     S.errors.push(where + ": " + describe(e) + (e && e.stack ? " @ " + e.stack : ""));
@@ -16,9 +16,25 @@
   }
   seedUserTokenIntoMusicKitStorage(C.developerToken, C.userToken);
 
-  async function requireSignIn() {
-    if (m.isAuthorized !== true) throw new Error("isAuthorized is false after seeding the user token");
-    await m.api.music("/v1/me/storefront");
+  const AUTH_REJECTED = ["UNAUTHORIZED_ERROR", "ACCESS_DENIED"];
+  const STOREFRONT_BACKOFF_MS = [250, 750];
+  const httpStatus = e => e && e.data && Number.isInteger(e.data.status) ? e.data.status : null;
+  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+  async function checkStorefront() {
+    if (m.isAuthorized !== true) return { signInNeeded: "engine-unauthorized" };
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await m.api.music("/v1/me/storefront");
+        return null;
+      } catch (e) {
+        err("storefront", e);
+        const status = httpStatus(e);
+        if (AUTH_REJECTED.includes(e && e.errorCode)) return { signInNeeded: "engine-auth-" + (status ?? e.errorCode) };
+        if (attempt === STOREFRONT_BACKOFF_MS.length) return { loadFailed: "the Apple Music storefront check failed (" + (status ?? "network error") + ")" };
+        await pause(STOREFRONT_BACKOFF_MS[attempt]);
+      }
+    }
   }
 
   let m = null;
@@ -32,11 +48,10 @@
     } catch (e) { err("configure", e); S.phase = "configure-failed"; return; }
     m = MusicKit.getInstance();
     m.bitrate = MusicKit.PlaybackBitrate.HIGH;
-    try {
-      await requireSignIn();
-    } catch (e) {
-      S.signInNeeded = String(e && (e.message || e.errorCode || e.name) || e);
-      S.phase = "sign-in-needed";
+    const refused = await checkStorefront();
+    if (refused) {
+      Object.assign(S, refused);
+      S.phase = refused.signInNeeded ? "sign-in-needed" : "storefront-failed";
       return;
     }
     for (const ev of ["playbackStateDidChange", "nowPlayingItemDidChange", "mediaPlaybackError", "authorizationStatusDidChange"]) {
@@ -89,7 +104,7 @@
   }
   const g = f => { try { return f(); } catch (e) { return "ERR " + e.message; } };
   const state = () => {
-    const r = { phase: S.phase, errors: S.errors.slice(), events: S.events.slice(-40), steps: S.steps.slice(), applied: S.applied, signInNeeded: S.signInNeeded, playbackError: S.playbackError, musickitDefined: typeof MusicKit !== "undefined" };
+    const r = { phase: S.phase, errors: S.errors.slice(), events: S.events.slice(-40), steps: S.steps.slice(), applied: S.applied, signInNeeded: S.signInNeeded, loadFailed: S.loadFailed, playbackError: S.playbackError, musickitDefined: typeof MusicKit !== "undefined" };
     if (!m) return r;
     r.isAuthorized = g(() => m.isAuthorized);
     r.storefrontId = g(() => m.storefrontId);

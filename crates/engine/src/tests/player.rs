@@ -274,6 +274,10 @@ fn snapshots_use_native_time_and_map_errors_redacted() {
             json!({"phase": "musickit-load-failed"}),
             PlayerError::LoadFailed("musickit-load-failed".into()),
         ),
+        (
+            json!({"loadFailed": "storefront check failed (503)"}),
+            PlayerError::LoadFailed("storefront check failed (503)".into()),
+        ),
     ];
     for (state, error) in cases {
         fake.set(state, None);

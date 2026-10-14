@@ -294,6 +294,54 @@ fn sign_in_needed_releases_the_hold_shows_the_banner_and_shuts_the_engine_down()
 }
 
 #[test]
+fn a_load_failure_drops_the_engine_without_signing_out_and_the_next_play_starts_a_fresh_one() {
+    let (mut p, ends) = fake(false);
+    p.apply(Action::PlaySong("42".into()));
+    let why = "the Apple Music storefront check failed (503)";
+    let failed = PlayerError::LoadFailed(why.into());
+    ends.borrow()[0]
+        .1
+        .send(snap(PlayState::Stopped, 0.0, 0, Some(failed)))
+        .unwrap();
+    p.receive();
+    assert_eq!(
+        (p.started(), p.sign_in_reason(), p.banner()),
+        (false, None, Some(Banner::Error(why.into())))
+    );
+    assert_eq!(
+        ends.borrow()[0].0.try_iter().last(),
+        Some(Command::Shutdown)
+    );
+    assert!(p.apply(Action::PlaySong("42".into())));
+    assert_eq!((ends.borrow().len(), p.started(), p.engine()), (2, true, 2));
+}
+
+#[test]
+fn every_way_of_becoming_signed_out_records_its_reason_and_signing_in_clears_it() {
+    let (mut p, ends) = fake(false);
+    p.apply(Action::PlaySong("42".into()));
+    let refused = PlayerError::SignInNeeded("engine-auth-403".into());
+    ends.borrow()[0]
+        .1
+        .send(snap(PlayState::Stopped, 0.0, 0, Some(refused)))
+        .unwrap();
+    p.receive();
+    p.mark_signed_out("covers-403");
+    assert_eq!(p.sign_in_reason(), Some("engine-auth-403"));
+    p.signed_in();
+    assert_eq!(p.sign_in_reason(), None);
+    p.mark_signed_out("covers-403");
+    assert_eq!(p.sign_in_reason(), Some("covers-403"));
+    p.sign_out();
+    assert_eq!(p.sign_in_reason(), Some("user-sign-out"));
+    assert_eq!(fake(true).0.sign_in_reason(), Some("boot-unchecked"));
+    let mut gone = Playback::new(spawning(|| Err(anyhow!(SignedOut))), false);
+    gone.apply(Action::PlaySong("42".into()));
+    gone.receive();
+    assert_eq!(gone.sign_in_reason(), Some("boot-noentry"));
+}
+
+#[test]
 fn a_click_on_a_dead_player_still_shows_its_last_error() {
     let (mut p, ends) = fake(false);
     p.apply(Action::PlaySong("42".into()));
@@ -1438,7 +1486,11 @@ fn a_sign_in_needed_snapshot_hides_the_covers_in_the_frame_it_arrives() {
 #[test]
 fn a_storefront_403_asks_for_sign_in_and_a_401_blames_the_developer_token() {
     let developer = format!("Error({:?})", covers::DEVELOPER_REJECTED);
-    for (me, banner) in [(403, "SignInNeeded".to_owned()), (401, developer)] {
+    let cases = [
+        (403, "SignInNeeded".to_owned(), Some("covers-403")),
+        (401, developer, None),
+    ];
+    for (me, banner, reason) in cases {
         let (mut app, _ends, _inbox, ctx, config, _) = app_on(Serve { me, ..SERVE });
         let until = Instant::now() + Duration::from_secs(10);
         while app.status_json()["banner"].is_null() && Instant::now() < until {
@@ -1452,6 +1504,7 @@ fn a_storefront_403_asks_for_sign_in_and_a_401_blames_the_developer_token() {
             status["texturesUploaded"].as_u64(),
         );
         assert_eq!(seen, (Some(banner.as_str()), Some(0)), "{me}");
+        assert_eq!(status["signInReason"].as_str(), reason, "{me}");
         assert_eq!(cover_meshes(&ctx, &mut app), 0, "{me}");
     }
 }
@@ -1482,6 +1535,27 @@ fn offers_sign_in(ctx: &egui::Context, app: &mut crate::app::App) -> bool {
     out.textures_delta.clear();
     let tree = out.platform_output.accesskit_update.unwrap();
     tree.nodes.iter().any(|(_, n)| n.label() == Some("Sign in"))
+}
+
+#[test]
+fn status_names_why_the_engine_asked_for_sign_in_or_failed_to_load() {
+    let why = "the Apple Music storefront check failed (503)";
+    let cases = [
+        (
+            PlayerError::SignInNeeded("engine-auth-403".into()),
+            json!(["engine-auth-403", null]),
+        ),
+        (PlayerError::LoadFailed(why.into()), json!([null, why])),
+    ];
+    for (error, expected) in cases {
+        let (app, _ctx, config) = rejected_then(error);
+        let status = app.status_json();
+        std::fs::remove_dir_all(&config).unwrap();
+        assert_eq!(
+            json!([status["signInReason"], status["loadFailReason"]]),
+            expected
+        );
+    }
 }
 
 #[test]
@@ -2356,7 +2430,9 @@ fn a_library_403_shows_sign_in_needed_like_the_covers_do() {
     cover_meshes(&ctx, &mut app);
     cover_meshes(&ctx, &mut app);
     std::fs::remove_dir_all(&dir).unwrap();
-    assert_eq!(app.status_json()["banner"], "SignInNeeded");
+    let status = app.status_json();
+    assert_eq!(status["banner"], "SignInNeeded");
+    assert_eq!(status["signInReason"], "library-denied");
     assert!(jobs.try_recv().is_err(), "a 403 is not retried");
 }
 

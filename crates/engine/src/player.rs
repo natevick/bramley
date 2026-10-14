@@ -447,6 +447,8 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
     } else if let Some(phase @ ("musickit-load-failed" | "configure-failed")) = js["phase"].as_str()
     {
         Some(PlayerError::LoadFailed(phase.into()))
+    } else if let Some(reason) = text(&js["loadFailed"]) {
+        Some(PlayerError::LoadFailed(reason))
     } else if b.output_failed() {
         Some(PlayerError::Playback(OUTPUT_FAILED.into()))
     } else {

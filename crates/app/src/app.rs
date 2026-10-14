@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 #[cfg(feature = "dev")]
 use anyhow::{Context, Result};
+use bramley_engine::PlayerError;
 use serde_json::{Value, json};
 
 use crate::Args;
@@ -284,6 +285,11 @@ impl App {
             "library": self.library.status(),
             "detail": self.detail.status(),
         });
+        status["signInReason"] = json!(self.playback.sign_in_reason());
+        status["loadFailReason"] = match &shown.error {
+            Some(PlayerError::LoadFailed(why)) => json!(why),
+            _ => Value::Null,
+        };
         #[cfg(feature = "dev")]
         {
             status["libraryHttp"] = shown.http_statuses("/v1/me/library/songs");
@@ -324,7 +330,7 @@ impl App {
     }
 
     pub fn check_sign_in(&mut self) {
-        self.playback.mark_signed_out();
+        self.playback.mark_signed_out("sign-in-check");
         let user = self.user.clone();
         self.checking = Some(worker(move || user.load().map(|token| token.is_some())));
     }
@@ -555,8 +561,11 @@ impl App {
         self.leak.follow(self.playback.shown().item_id.as_deref());
         #[cfg(feature = "gate-sabotage")]
         self.ballast.follow();
-        if self.covers.rejected() || self.library.denied {
-            self.playback.mark_signed_out();
+        if self.covers.rejected() {
+            self.playback.mark_signed_out("covers-403");
+        }
+        if self.library.denied {
+            self.playback.mark_signed_out("library-denied");
         }
         self.covers.follow(ctx, covers_allowed(&self.playback));
         if !covers_allowed(&self.playback) {
