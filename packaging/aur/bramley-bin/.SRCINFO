@@ -28,6 +28,6 @@ pkgbase = bramley-bin
 	options = !debug
 	options = !strip
 	source_x86_64 = https://github.com/natevick/bramley/releases/download/v0.1.0/bramley-v0.1.0-x86_64-unknown-linux-gnu.tar.gz
-	sha256sums_x86_64 = 0000000000000000000000000000000000000000000000000000000000000000
+	sha256sums_x86_64 = 55612e908ba177ca0b77cbe670ee92c889af66b623f111d29895de5b3e182a03
 
 pkgname = bramley-bin
