@@ -316,6 +316,10 @@ const CHANNEL_FILE: &str = "instance.key";
 
 fn main() -> Result<()> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
+    if matches!(argv.as_slice(), [flag] if flag == "--version" || flag == "-V") {
+        println!("bramley {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     let slot = cli::slot();
     if argv.first().is_some_and(|first| first == "mcp") {
         let served = match (slot, argv.len()) {
