@@ -27,6 +27,15 @@ pub fn engine() -> (Engine, FakeSink) {
 }
 
 pub fn run(e: &mut Engine, sink: &FakeSink, script: &str) -> Vec<String> {
+    run_sampling(e, sink, script, |_| {})
+}
+
+pub fn run_sampling(
+    e: &mut Engine,
+    sink: &FakeSink,
+    script: &str,
+    mut sample: impl FnMut(&Engine),
+) -> Vec<String> {
     e.eval_script(
         "test.js",
         &format!("(async () => {{ {script} }})().catch(e => L('threw:' + e)).finally(() => {{ done = true; }});"),
@@ -35,6 +44,7 @@ pub fn run(e: &mut Engine, sink: &FakeSink, script: &str) -> Vec<String> {
     for _ in 0..8000 {
         e.tick();
         sink.advance(480);
+        sample(e);
         if e.eval_json("done").unwrap() == json!(true) {
             return serde_json::from_value(e.eval_json("log").unwrap()).unwrap();
         }
@@ -629,4 +639,124 @@ fn underflows_a_sink_still_holds_are_kept_when_its_element_is_collected() {
     e.tick();
     let live = e.status()["live"]["medias"].as_u64();
     assert_eq!((live, e.output_counts()[7]), (Some(0), 2));
+}
+
+const ITEM_TIMELINE: &str = r#"
+    const keys = navigator.requestMediaKeySystemAccess("com.widevine.alpha", [{ audioCapabilities: [{ contentType: 'audio/mp4; codecs="mp4a.40.2"' }] }]);
+    const a = fresh();
+    audio.src = URL.createObjectURL(a.ms);
+    const sb = await fill(a.ms, a.opened, bytes);
+    await audio.setMediaKeys(await (await keys).createMediaKeys());
+    const settled = () => new Promise(r => sb.addEventListener("updateend", r, { once: true }));
+    const append = async (offset, data) => { sb.timestampOffset = offset; sb.appendBuffer(data); await settled(); };
+    const length = sb.buffered.end(0);
+    L("length:" + length);
+"#;
+
+fn item_samples(body: &str) -> (Vec<(f64, f64)>, f64) {
+    let (mut e, sink) = engine();
+    let mut samples = Vec::new();
+    let log = run_sampling(
+        &mut e,
+        &sink,
+        &script(&format!("{ITEM_TIMELINE}{body}")),
+        |e| {
+            if let (Some(raw), Some(item)) = (e.current_time(), e.item_time()) {
+                samples.push((raw, item));
+            }
+        },
+    );
+    let length = log
+        .iter()
+        .find_map(|l| l.strip_prefix("length:"))
+        .map(|v| v.parse().unwrap())
+        .unwrap();
+    (samples, length)
+}
+
+fn first_at_or_after(samples: &[(f64, f64)], raw: f64) -> (f64, f64) {
+    *samples
+        .iter()
+        .find(|(r, _)| *r >= raw)
+        .unwrap_or_else(|| panic!("the element clock never reached {raw}: {samples:?}"))
+}
+
+#[test]
+fn item_time_resets_at_a_seamless_transition_and_then_advances() {
+    let (samples, length) = item_samples(
+        r#"
+        await append(length, bytes);
+        a.ms.endOfStream();
+        await audio.play();
+        await new Promise(r => audio.addEventListener("ended", r, { once: true }));
+    "#,
+    );
+    let (raw, item) = first_at_or_after(&samples, length - 0.5);
+    assert!(
+        (item - raw).abs() < 0.05,
+        "before the seam: item time {item} at element time {raw}"
+    );
+    let (raw, item) = first_at_or_after(&samples, length + 0.5);
+    assert!(
+        (item - 0.5).abs() < 0.05,
+        "after the seam: item time {item} at element time {raw}, wanted 0.5"
+    );
+    let end = samples.last().unwrap();
+    assert!(
+        end.0 > length + 1.0 && end.1 < length + 0.05,
+        "item time {} at element time {} at the end",
+        end.1,
+        end.0
+    );
+}
+
+#[test]
+fn item_time_follows_a_seek_that_carries_the_offset_with_no_transition_pending() {
+    let (samples, length) = item_samples(
+        r#"
+        await append(length, bytes);
+        sb.remove(0, length);
+        await settled();
+        a.ms.endOfStream();
+        await audio.play();
+        audio.currentTime = length + 1.5;
+        await new Promise(r => audio.addEventListener("seeked", r, { once: true }));
+        await later(50);
+    "#,
+    );
+    let (raw, item) = first_at_or_after(&samples, length + 1.5);
+    assert!(
+        (item - 1.5).abs() < 0.2,
+        "item time {item} at element time {raw} after seeking to 1.5 into an item at offset {length}"
+    );
+}
+
+#[test]
+fn item_time_follows_a_revert_that_reappends_the_current_item_at_offset_zero() {
+    let (samples, length) = item_samples(
+        r#"
+        await append(length, bytes);
+        await audio.play();
+        audio.currentTime = length + 1;
+        await new Promise(r => audio.addEventListener("seeked", r, { once: true }));
+        await later(50);
+        sb.remove(0, Infinity);
+        await settled();
+        await append(0, bytes);
+        a.ms.endOfStream();
+        audio.currentTime = 1.5;
+        await new Promise(r => audio.addEventListener("seeked", r, { once: true }));
+        await later(50);
+    "#,
+    );
+    let (raw, item) = samples
+        .iter()
+        .rev()
+        .find(|(raw, _)| *raw >= 1.5 && *raw < length)
+        .copied()
+        .expect("no sample after the revert seek");
+    assert!(
+        (item - raw).abs() < 0.05 && (item - 1.5).abs() < 0.5,
+        "item time {item} at element time {raw} after a revert to 1.5"
+    );
 }

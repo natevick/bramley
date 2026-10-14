@@ -55,6 +55,13 @@ impl Native {
     fn count(&mut self, op: &'static str) {
         *self.op_counts.entry(op).or_default() += 1;
     }
+    fn primary_media(&self) -> Option<&MediaEngine> {
+        self.medias
+            .iter()
+            .filter(|(_, m)| m.keys_id.is_some())
+            .min_by_key(|(id, _)| **id)
+            .map(|(_, m)| m)
+    }
     fn position_for_buffer(&self, sb_id: u32) -> i64 {
         self.medias
             .values()
@@ -818,12 +825,21 @@ impl Engine {
     }
 
     pub fn current_time(&self) -> Option<f64> {
+        self.n.borrow().primary_media().map(|m| m.current_time())
+    }
+
+    pub fn item_time(&self) -> Option<f64> {
         let st = self.n.borrow();
-        st.medias
-            .iter()
-            .filter(|(_, m)| m.keys_id.is_some())
-            .min_by_key(|(id, _)| **id)
-            .map(|(_, m)| m.current_time())
+        let m = st.primary_media()?;
+        let t = m.current_time_us();
+        let offset = m
+            .ms_id
+            .and_then(|id| st.mses.get(&id))
+            .and_then(|ms| ms.sbs.first())
+            .and_then(|id| st.sbs.get(id))
+            .and_then(|sb| sb.offset_us_at(t))
+            .unwrap_or(0);
+        Some((t - offset).max(0) as f64 / 1e6)
     }
 
     pub fn output_failed(&self) -> bool {
