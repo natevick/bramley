@@ -20,7 +20,11 @@ EVIDENCE = {'F1': ('f1',), 'F2': ('f2',), 'F3': ('f3',), 'F4': ('f4',), 'F5': ('
             'F10': ('f10-badid', 'f10-net'), 'R3': ('r3',), 'R4': ('r4',), 'R5': ('r5',)}
 
 
-STANDING_GPU_CLIENTS, GPU_LIBS = ('gnome-shell', 'Xvfb', 'grok-bot'), ('libgallium', 'radeonsi', 'libLLVM')
+STANDING_GPU_CLIENTS, GPU_LIBS = ('gnome-shell', 'Xvfb', 'grok-bot'), ('libgallium', 'radeonsi', 'libvulkan_radeon')
+
+
+def matched_libs(maps):
+    return sorted({line.split()[-1].rsplit('/', 1)[-1] for line in maps if any(lib in line for lib in GPU_LIBS)})
 
 
 def gpu_processes():
@@ -31,7 +35,7 @@ def gpu_processes():
         except OSError:
             continue
         try:
-            libs = sorted({line.split()[-1].rsplit('/', 1)[-1] for line in open(f'{d}/maps') if any(lib in line for lib in GPU_LIBS)})
+            libs = matched_libs(open(f'{d}/maps'))
         except OSError:
             libs = []
         found[int(d[6:])] = (comm, libs)

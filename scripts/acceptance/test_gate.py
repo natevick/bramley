@@ -857,7 +857,7 @@ class Refill(unittest.TestCase):
 
 class Preflight(unittest.TestCase):
     def test_standing_gpu_clients_are_recognised_by_pid_not_by_name(self):
-        procs = {101: ('gnome-shell', ['libgallium.so']), 102: ('gnome-shell', ['libgallium.so']), 103: ('Xvfb', ['libLLVM.so.21']),
+        procs = {101: ('gnome-shell', ['libgallium.so']), 102: ('gnome-shell', ['libgallium.so']), 103: ('Xvfb', ['libvulkan_radeon.so']),
                  104: ('editor', []), 105: ('weston', []), 106: ('bramley', []), 107: ('sh', ['radeonsi_dri.so']), 108: ('weston', [])}
         real = gate.gpu_processes
         try:
@@ -868,6 +868,38 @@ class Preflight(unittest.TestCase):
             gate.gpu_processes = real
         self.assertEqual(sorted(int(f.split()[0]) for f in by_pid), [102, 103, 105, 106, 107])
         self.assertEqual(sorted(int(f.split()[0]) for f in by_name), [105, 106, 107, 108])
+
+
+def maps(*libs):
+    return [f'7f00 r-xp 00000000 08:01 {i} /usr/lib/x86_64-linux-gnu/{lib}' for i, lib in enumerate(libs)]
+
+
+class GpuClients(unittest.TestCase):
+    def reported(self, comm, *libs):
+        real = gate.gpu_processes
+        try:
+            gate.gpu_processes = lambda: {101: (comm, gate.matched_libs(maps(*libs)))}
+            return [f.split(' ', 1)[1] for f in gate.preflight()]
+        finally:
+            gate.gpu_processes = real
+
+    def test_a_process_mapping_only_libllvm_is_not_a_gpu_client(self):
+        self.assertEqual(self.reported('postgres', 'libLLVM.so.21.1'), [])
+
+    def test_libllvm_does_not_hide_a_mesa_client_and_only_the_driver_is_reported(self):
+        self.assertEqual(self.reported('app', 'libLLVM.so.21.1', 'libgallium-25.so'), ["app ['libgallium-25.so']"])
+
+    def test_a_process_mapping_only_radv_is_a_gpu_client(self):
+        self.assertEqual(self.reported('app', 'libvulkan_radeon.so'), ["app ['libvulkan_radeon.so']"])
+
+    def test_a_process_mapping_radeonsi_is_a_gpu_client(self):
+        self.assertEqual(self.reported('app', 'radeonsi_dri.so'), ["app ['radeonsi_dri.so']"])
+
+    def test_weston_and_bramley_are_gpu_clients_without_any_library(self):
+        self.assertEqual((self.reported('weston'), self.reported('bramley')), (['weston []'], ['bramley []']))
+
+    def test_a_process_with_no_gpu_library_and_another_name_is_not_a_gpu_client(self):
+        self.assertEqual(self.reported('editor', 'libc.so.6'), [])
 
 
 class Controls(unittest.TestCase):
