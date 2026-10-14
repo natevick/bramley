@@ -339,9 +339,9 @@ impl App {
         let checked = self.checking.as_ref().and_then(poll);
         match checked {
             Some(Ok(true)) => self.playback.signed_in(),
-            Some(Ok(false)) => self.playback.signed_out_because("boot-no-token"),
+            Some(Ok(false)) => self.playback.relabel_signed_out("boot-no-token"),
             Some(Err(why)) => {
-                self.playback.signed_out_because("keyring-unavailable");
+                self.playback.relabel_signed_out("keyring-unavailable");
                 self.notice = Some(why);
             }
             None => {}

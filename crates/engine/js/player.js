@@ -21,18 +21,22 @@
   const httpStatus = e => e && e.data && Number.isInteger(e.data.status) ? e.data.status : null;
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+  const storefrontFailed = why => ({ loadFailed: "the Apple Music storefront check failed (" + why + ")" });
+
   async function checkStorefront() {
     if (m.isAuthorized !== true) return { signInNeeded: "engine-unauthorized" };
+    const until = Date.now() + C.storefrontDeadlineMs;
     for (let attempt = 0; ; attempt++) {
       try {
-        await m.api.music("/v1/me/storefront");
-        return null;
+        const answered = await Promise.race([m.api.music("/v1/me/storefront").then(() => true), pause(until - Date.now()).then(() => false)]);
+        return answered ? null : storefrontFailed("timed out");
       } catch (e) {
         err("storefront", e);
         const status = httpStatus(e);
         if (AUTH_REJECTED.includes(e && e.errorCode)) return { signInNeeded: "engine-auth-" + (status ?? e.errorCode) };
-        if (attempt === STOREFRONT_BACKOFF_MS.length) return { loadFailed: "the Apple Music storefront check failed (" + (status ?? "network error") + ")" };
-        await pause(STOREFRONT_BACKOFF_MS[attempt]);
+        const backoff = STOREFRONT_BACKOFF_MS[attempt];
+        if (backoff === undefined || Date.now() + backoff >= until) return storefrontFailed(status ?? "network error");
+        await pause(backoff);
       }
     }
   }

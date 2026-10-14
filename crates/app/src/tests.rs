@@ -317,6 +317,54 @@ fn a_load_failure_drops_the_engine_without_signing_out_and_the_next_play_starts_
 }
 
 #[test]
+fn a_playback_error_mid_song_keeps_the_engine() {
+    let (mut p, ends) = fake(false);
+    p.apply(Action::PlaySong("42".into()));
+    feed(&mut p, &ends, PlayState::Playing, 30.0, 3);
+    let hiccup = PlayerError::Playback("eval failed: out of memory".into());
+    ends.borrow()[0]
+        .1
+        .send(snap(PlayState::Stopped, 0.0, 0, Some(hiccup)))
+        .unwrap();
+    ends.borrow()[0]
+        .1
+        .send(snap(PlayState::Playing, 30.5, 3, None))
+        .unwrap();
+    p.receive();
+    let shut = ends.borrow()[0]
+        .0
+        .try_iter()
+        .any(|c| c == Command::Shutdown);
+    assert_eq!((shut, p.started(), p.banner()), (false, true, None));
+}
+
+#[test]
+fn a_late_startup_check_answer_neither_signs_a_signed_in_user_out_nor_touches_the_engine() {
+    let (mut p, ends) = fake(true);
+    p.signed_in();
+    p.apply(Action::PlaySong("42".into()));
+    p.receive();
+    p.relabel_signed_out("boot-no-token");
+    let shut = ends.borrow()[0]
+        .0
+        .try_iter()
+        .any(|c| c == Command::Shutdown);
+    assert_eq!((p.sign_in_reason(), p.started(), shut), (None, true, false));
+    let (mut out, _) = fake(true);
+    out.relabel_signed_out("boot-no-token");
+    assert_eq!(out.sign_in_reason(), Some("boot-no-token"));
+}
+
+#[test]
+fn boot_noentry_does_not_replace_an_earlier_reason() {
+    let mut p = Playback::new(spawning(|| Err(anyhow!(SignedOut))), false);
+    p.apply(Action::PlaySong("42".into()));
+    p.mark_signed_out("covers-403");
+    p.receive();
+    assert_eq!(p.sign_in_reason(), Some("covers-403"));
+}
+
+#[test]
 fn every_way_of_becoming_signed_out_records_its_reason_and_signing_in_clears_it() {
     let (mut p, ends) = fake(false);
     p.apply(Action::PlaySong("42".into()));

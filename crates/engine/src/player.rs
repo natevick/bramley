@@ -10,6 +10,7 @@ pub(crate) const PLAYER: &str = include_str!("../js/player.js");
 const MUSICKIT_URL: &str = "https://js-cdn.music.apple.com/musickit/v3/musickit.js";
 const PLAYER_STACK: usize = 8 * 1024 * 1024;
 const COMMAND_WAIT_MS: u64 = 5000;
+const STOREFRONT_DEADLINE_MS: u64 = 10_000;
 pub const QUEUE_SHOWN: usize = 50;
 pub const COMMAND_WAIT: Duration = Duration::from_millis(COMMAND_WAIT_MS);
 const HEARTBEAT: Duration = Duration::from_secs(1);
@@ -204,7 +205,7 @@ impl Player {
             .extend([tokens.developer.clone(), tokens.user.clone()]);
         let secrets = cfg.engine.redact.clone();
         let every = cfg.snapshot_interval;
-        let setup = json!({"developerToken": tokens.developer, "userToken": tokens.user, "musickitUrl": MUSICKIT_URL, "build": env!("CARGO_PKG_VERSION"), "commandWaitMs": COMMAND_WAIT_MS, "queueShown": QUEUE_SHOWN});
+        let setup = json!({"developerToken": tokens.developer, "userToken": tokens.user, "musickitUrl": MUSICKIT_URL, "build": env!("CARGO_PKG_VERSION"), "commandWaitMs": COMMAND_WAIT_MS, "storefrontDeadlineMs": STOREFRONT_DEADLINE_MS, "queueShown": QUEUE_SHOWN});
         spawn_with(
             move || {
                 let engine = Engine::new(cfg.engine)?;
@@ -428,7 +429,7 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
         Ok(js) => serde_json::from_str(&redact(&js.to_string(), secrets)).unwrap_or(J::Null),
         Err(e) => {
             return Snapshot {
-                error: Some(PlayerError::LoadFailed(redact(&e.to_string(), secrets))),
+                error: Some(PlayerError::Playback(redact(&e.to_string(), secrets))),
                 ..Snapshot::default()
             };
         }

@@ -25,6 +25,7 @@ struct Fake {
     state: J,
     time: Option<f64>,
     output_failed: bool,
+    read_fails: bool,
     output: crate::runtime::OutputCounts,
     wait: Option<Duration>,
 }
@@ -62,6 +63,9 @@ impl Backend for FakeEngine {
     fn eval_json(&self, expression: &str) -> Result<J> {
         assert_eq!(expression, "__player.state()");
         let mut f = self.0.lock().unwrap();
+        if f.read_fails {
+            return Err(anyhow!("eval failed: {SECRET}"));
+        }
         f.snapshots_before_tick += usize::from(f.unticked_command);
         Ok(f.state.clone())
     }
@@ -290,6 +294,23 @@ fn snapshots_use_native_time_and_map_errors_redacted() {
     fake.set(json!({"playbackState": 2}), Some(1.0));
     let output = PlayerError::Playback(crate::player::OUTPUT_FAILED.into());
     wait_for(&rx, |s| s.error.as_ref() == Some(&output));
+    tx.send(Command::Shutdown).unwrap();
+}
+
+#[test]
+fn a_state_read_error_mid_song_is_a_playback_error_that_clears_on_the_next_good_read() {
+    let fake = FakeEngine::default();
+    let f = fake.clone();
+    let (tx, rx, _) = spawn_fake(move || Ok(f), SNAPSHOT_EVERY);
+    fake.set(json!({"playbackState": 2, "item": {"id": "1"}}), Some(30.0));
+    wait_for(&rx, |s| s.state == PlayState::Playing);
+    fake.0.lock().unwrap().read_fails = true;
+    let s = wait_for(&rx, |s| s.error.is_some());
+    let hiccup = PlayerError::Playback("eval failed: <redacted>".into());
+    assert_eq!(s.error, Some(hiccup));
+    fake.0.lock().unwrap().read_fails = false;
+    let s = wait_for(&rx, |s| s.state == PlayState::Playing);
+    assert_eq!(s.error, None);
     tx.send(Command::Shutdown).unwrap();
 }
 

@@ -257,7 +257,7 @@ impl Playback {
             Err(e) => {
                 (self.pending, self.queued) = (None, Vec::new());
                 if e.is::<SignedOut>() {
-                    self.signed_out = Some("boot-noentry".into());
+                    self.signed_out.get_or_insert_with(|| "boot-noentry".into());
                 } else {
                     self.snap.error = Some(PlayerError::LoadFailed(format!("{e:#}")));
                 }
@@ -281,8 +281,10 @@ impl Playback {
         self.restart(Some("user-sign-out"));
     }
 
-    pub fn signed_out_because(&mut self, reason: &str) {
-        self.restart(Some(reason));
+    pub fn relabel_signed_out(&mut self, reason: &str) {
+        if let Some(current) = self.signed_out.as_mut() {
+            *current = reason.into();
+        }
     }
 
     pub fn mark_signed_out(&mut self, reason: &str) {
