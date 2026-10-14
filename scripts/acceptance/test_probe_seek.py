@@ -18,9 +18,9 @@ ALBUM = ['i.zero', 'i.pred1', 'i.long1', 'i.next1', 'i.next2']
 
 
 class World:
-    def __init__(self, slow_if, long_duration=500.79, snap_cost=0.0, slow_by=None, pred_duration=139.88, short_duration=120.0):
+    def __init__(self, slow_if, long_duration=500.79, snap_cost=0.0, slow_by=None, pred_duration=139.88, short_duration=120.0, installed=True):
         self.t, self.last, self.slow_if, self.snap_cost, self.slow_by = 1000.0, 1000.0, slow_if, snap_cost, slow_by
-        self.queue, self.natural, self.lines, self.adds = [], False, [], 0
+        self.queue, self.natural, self.lines, self.adds, self.installed = [], False, [], 0, installed
         self.item, self.state, self.pos, self.pending = None, 'Stopped', 0.0, None
         self.seq = self.applied = self.sent = self.skipped = 0
         self.last_t, self.durations = None, dict(DURATIONS, **{'i.long1': long_duration, 'i.pred1': pred_duration, 'i.short1': short_duration})
@@ -52,7 +52,7 @@ class World:
                     self.state, self.pos = 'Playing', 0.0
                 else:
                     self.pos, self.skipped = p['target'], self.skipped + 1000
-                    self.log(end, 'set HTMLMediaElement#1 currentTime %s' % p['target'])
+                    self.log(end, 'set HTMLAudioElement#2 currentTime %s' % p['target'])
                     self.log(end, 'mark step seek done')
 
     def log(self, at, text):
@@ -82,6 +82,8 @@ class World:
         target = float(args[1]) if args[0] == 'seek' else None
         if args[0] == 'play':
             self.item, self.state, self.queue, self.natural = args[1], 'Loading', [], False
+            if self.installed and not self.lines:
+                self.log(self.t, 'trace installed')
         else:
             self.log(self.t + 0.01, 'mark step seek start')
         delay = 0.3 if args[0] == 'play' else self.slow_by(self, target) if self.slow_by else self.slow_if(self.pos, target)
@@ -202,6 +204,9 @@ class Sequence2(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'not the expected item'):
             run(None, IDS2, slow_by=entry_slow, pred_duration=100.0)
         self.assertEqual(len(run.world.pacer.actions), 1)
+        with self.assertRaisesRegex(RuntimeError, 'did not install the trace'):
+            run(None, IDS2, slow_by=entry_slow, installed=False)
+        self.assertEqual(len(run.world.pacer.actions), 1)
         with self.assertRaisesRegex(RuntimeError, 'consecutive'):
             run(None, dict(IDS2, PRED='i.zero'), slow_by=entry_slow)
         self.assertEqual(len(run.world.pacer.actions), 0)
@@ -221,24 +226,27 @@ class Sequence2(unittest.TestCase):
         lines = ['JS[log] TRACE 100.000 mark step seek start', 'JS[log] TRACE 100.500 call fetch#1 fetch GET cdn.example~ab12',
                  'JS[log] TRACE 101.000 resolve fetch#1 200 Response#3 cache-control=str9 content-length=5000 vary=str3', 'JS[log] TRACE 101.250 call SourceBuffer#1 appendBuffer ab4096',
                  'JS[log] TRACE 101.300 throw SourceBuffer#1 appendBuffer QuotaExceededError', 'JS[log] TRACE 102.000 call SourceBuffer#1 remove 0,12',
-                 'JS[log] TRACE 103.000 set HTMLMediaElement#1 currentTime 490.8', 'JS[log] TRACE 103.500 get HTMLMediaElement#1 currentTime 3',
+                 'JS[log] TRACE 103.000 set HTMLAudioElement#2 currentTime 490.8', 'JS[log] TRACE 103.500 get HTMLMediaElement#1 currentTime 3',
                  'TRACE 103.100 cdm-event keys=1 {"type":"keys","keys":2}', 'not a trace line', 'JS[log] TRACE 104.000 mark step seek done']
         self.assertEqual(probe_seek.parse_trace(lines), [[0.0, 'seekToTime', 'start'], [0.5, 'fetch', 'GET cdn.example~ab12'], [1.0, 'fetch', '200 content-length=5000'],
                                                          [1.2, 'append', 'ab4096'], [1.3, 'appendThrow', 'QuotaExceededError'], [2.0, 'remove', '0,12'], [3.0, 'currentTime', '490.8'],
                                                          [3.1, 'cdm', 'keys'], [4.0, 'seekToTime', 'done']])
 
-    def test_a_binary_without_the_trace_installed_is_refused_and_one_with_it_gets_the_log(self):
-        os.makedirs(os.path.join(gate.ROOT, 'target', 'tmp'), exist_ok=True)
-        with tempfile.NamedTemporaryFile('w+', dir=os.path.join(gate.ROOT, 'target', 'tmp')) as log:
+    def test_a_binary_without_the_trace_feature_is_refused_before_launch_and_one_with_it_gets_the_log(self):
+        tmp = os.path.join(gate.ROOT, 'target', 'tmp')
+        os.makedirs(tmp, exist_ok=True)
+        with tempfile.NamedTemporaryFile('w+', dir=tmp) as log, tempfile.NamedTemporaryFile('wb', dir=tmp) as binary:
             fake = types.SimpleNamespace(log=log, until=lambda *a: None)
             d = types.SimpleNamespace(gate=gate, PACER=gate.Pacer(), evidence=lambda *a: None, app=lambda *a: contextlib.nullcontext(fake))
             env = {'BRAMLEY_PROBE_PRED': 'a', 'BRAMLEY_PROBE_LONG': 'b', 'BRAMLEY_PROBE_SHORT': 'c'}
+            binary.write(b'\x7fELF plain build')
+            binary.flush()
             with mock.patch.dict(os.environ, env), mock.patch.object(probe_seek.time, 'sleep'), mock.patch.object(probe_seek, 'sequence2') as sequence2:
                 with self.assertRaisesRegex(RuntimeError, 'not a trace build'):
-                    probe_seek.session2(d, '.', 'bin', {}, 'sink')
-                log.write('JS[log] TRACE 1.000 trace installed\n')
-                log.flush()
-                probe_seek.session2(d, '.', 'bin', {}, 'sink')
+                    probe_seek.session2(d, '.', binary.name, {}, 'sink')
+                binary.write(b'\x00bramley-unshipped-feature:engine/trace\x00')
+                binary.flush()
+                probe_seek.session2(d, '.', binary.name, {}, 'sink')
             self.assertEqual(sequence2.call_args.kwargs['trace'].path, log.name)
 
     def test_three_different_plain_ids_are_required(self):
