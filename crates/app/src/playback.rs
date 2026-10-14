@@ -281,6 +281,10 @@ impl Playback {
         self.restart(Some("user-sign-out"));
     }
 
+    pub fn signed_out_because(&mut self, reason: &str) {
+        self.restart(Some(reason));
+    }
+
     pub fn mark_signed_out(&mut self, reason: &str) {
         self.signed_out.get_or_insert_with(|| reason.into());
     }

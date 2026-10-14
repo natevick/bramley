@@ -2309,6 +2309,32 @@ fn until_the_startup_keyring_check_answers_play_is_refused_and_no_banner_flashes
 }
 
 #[test]
+fn the_startup_keyring_check_records_why_it_left_the_user_signed_out() {
+    for (fail, reason) in [(false, "boot-no-token"), (true, "keyring-unavailable")] {
+        let dir = token_dir(&format!("startup-check-{reason}"));
+        let store = keyring_core::mock::Store::new().unwrap();
+        let user = Credentials::new(Some(store.clone()), "bramley-test", &dir);
+        if fail {
+            fail_next(&store);
+        }
+        let ctx = egui::Context::default();
+        let spawn = spawning(|| Err(anyhow!("no player in this test")));
+        let args = crate::Args::default();
+        let mut app =
+            crate::app::App::new(&ctx, args, spawn, (user, true), (channel().1, true), None);
+        app.check_sign_in();
+        let until = Instant::now() + Duration::from_secs(5);
+        while app.status_json()["signInReason"] == "boot-unchecked" && Instant::now() < until {
+            app.tick(&ctx);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let seen = app.status_json()["signInReason"].clone();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(seen, reason);
+    }
+}
+
+#[test]
 fn the_status_file_is_owner_only() {
     let dir = token_dir("status-test");
     let path = dir.join("status.json");
