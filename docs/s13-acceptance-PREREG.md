@@ -426,3 +426,19 @@ Signed-out and no-stream plays are counted too, even though they never reach the
 - **Clarification (written with the code; no rule change):** a wait ends 1 ms past the boundary. A wait that ended exactly on the boundary could round to zero, and the pacer would then make no progress.
 
 **Run length.** The estimate is reported with the S13c hand-back. Nothing is cut here: any cut to plays is proposed for the coordinator to decide.
+
+## Amendment 11 (2026-10-14, S17: item-relative position; fixed before any code for it and before any run)
+A new check on the `position` the app reports. No threshold of any other check changes.
+
+**Why.** The status `position` was the media element clock. MusicKit's seamless transitions append the next item to the same SourceBuffer at `timestampOffset = endOfBufferTime`, so that clock runs on across items, and a seek with no transition pending carries the offset (MusicKit sets `currentTime = t + offset`). Two recorded runs show it: in the 2 h soak `s15c-soak-120b`, 547 of 716 Playing samples have position > duration + 1, up to +815.9 s; in v1's counted R3 (`v1-2`), 122 of 180, up to +815.7 s. The UI clamps it, so the status file, CLI `now` and MCP `now_playing` carried a raw value that no check looked at.
+
+**The check.** In counted R3 and in `--soak` mode, on every sample whose state is Playing: `position <= duration + 1` (seconds). Any violation is a FAIL, with the count, the worst excess and the item in the reason. A Playing sample with no position or no duration is a FAIL too (missing evidence). In `--soak` mode it joins the pass condition of `docs/s15c-long-soak-PREREG.md`; a soak run still never counts toward v1.
+
+**Scope: v1 stays done.**
+- v1's recorded verdict stands. It is not voided and not reopened by this amendment.
+- The check applies to runs made at or after this commit.
+- `gate.py` does not look at commit ancestry. Gating an older run directory with it is a probe of the check, not a re-judgement of that run.
+
+**One consequence, stated now.** The app resets the reported position when the audio crosses the seam, which can be up to one timeupdate (about 250 ms) before MusicKit's `itemId` flips. A 10 s snapshot can land in that window with the old `itemId` and a position near 0. The pacing check (`lags`) compares positions of consecutive samples of one item, so it would read that reset as a stall. It therefore skips a pair only when the position fell and the wall clock between the two samples carried the earlier position to within 1 s of the item's duration. Every other pair is judged as before.
+
+**Not changed.** Seek input was already item-relative. `HTMLMediaElement.currentTime`, as MusicKit sees it, is unchanged; only the reported snapshot position is item-relative.
