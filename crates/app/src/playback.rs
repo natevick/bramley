@@ -67,7 +67,7 @@ pub struct Playback {
     engine: u64,
     snap: Snapshot,
     pending: Option<Pending>,
-    signed_out: bool,
+    signed_out: Option<String>,
     shuffled: bool,
     generation: u64,
     background: u64,
@@ -84,7 +84,7 @@ impl Playback {
             engine: 0,
             snap: Snapshot::default(),
             pending: None,
-            signed_out,
+            signed_out: signed_out.then(|| "boot-unchecked".into()),
             shuffled: false,
             generation: 0,
             background: 0,
@@ -147,7 +147,7 @@ impl Playback {
     }
 
     fn play(&mut self, queue: Queue, start: usize, shuffle: bool) -> bool {
-        if self.signed_out {
+        if self.signed_out.is_some() {
             return false;
         }
         self.generation += 1;
@@ -224,10 +224,11 @@ impl Playback {
             if fatal || self.pending.as_ref().is_some_and(|p| snap.applied >= p.seq) {
                 self.pending = None;
             }
-            let signed_out = matches!(snap.error, Some(PlayerError::SignInNeeded(_)));
+            if let Some(PlayerError::SignInNeeded(reason)) = &snap.error {
+                self.signed_out.get_or_insert_with(|| reason.clone());
+            }
             (self.snap, changed) = (snap, true);
-            if signed_out {
-                self.signed_out = true;
+            if fatal {
                 self.shutdown();
             }
         }
@@ -256,7 +257,7 @@ impl Playback {
             Err(e) => {
                 (self.pending, self.queued) = (None, Vec::new());
                 if e.is::<SignedOut>() {
-                    self.signed_out = true;
+                    self.signed_out.get_or_insert_with(|| "boot-noentry".into());
                 } else {
                     self.snap.error = Some(PlayerError::LoadFailed(format!("{e:#}")));
                 }
@@ -265,23 +266,33 @@ impl Playback {
         true
     }
 
-    fn restart(&mut self, signed_out: bool) {
+    fn restart(&mut self, signed_out: Option<&str>) {
         self.shutdown();
         self.starting = None;
-        (self.signed_out, self.snap) = (signed_out, Snapshot::default());
+        (self.signed_out, self.snap) = (signed_out.map(Into::into), Snapshot::default());
         (self.pending, self.queued, self.background) = (None, Vec::new(), 0);
     }
 
     pub fn signed_in(&mut self) {
-        self.restart(false);
+        self.restart(None);
     }
 
     pub fn sign_out(&mut self) {
-        self.restart(true);
+        self.restart(Some("user-sign-out"));
     }
 
-    pub fn mark_signed_out(&mut self) {
-        self.signed_out = true;
+    pub fn relabel_signed_out(&mut self, reason: &str) {
+        if let Some(current) = self.signed_out.as_mut() {
+            *current = reason.into();
+        }
+    }
+
+    pub fn mark_signed_out(&mut self, reason: &str) {
+        self.signed_out.get_or_insert_with(|| reason.into());
+    }
+
+    pub fn sign_in_reason(&self) -> Option<&str> {
+        self.signed_out.as_deref()
     }
 
     pub fn shutdown(&mut self) {
@@ -300,7 +311,7 @@ impl Playback {
     }
 
     pub fn banner(&self) -> Option<Banner> {
-        if self.signed_out || self.snap.preview_only {
+        if self.signed_out.is_some() || self.snap.preview_only {
             return Some(Banner::SignInNeeded);
         }
         match &self.snap.error {

@@ -9,8 +9,11 @@ use crate::player::{Command, PLAYER, Queue, command_js};
 
 const FAKE_MK: &str = r#"
 globalThis.mklog = [];
+globalThis.storefrontCalls = 0;
+globalThis.storefrontReply = async () => ({});
+globalThis.mkError = (code, status) => Object.assign(new Error(code), { name: code, reason: code, errorCode: code, data: { status } });
 const later = (ms, f) => new Promise(r => setTimeout(() => r(f && f()), ms));
-globalThis.fakeM = { isAuthorized: true, previewOnly: false, api: { music: async () => ({}) }, bitrate: 0, q: null, handlers: {},
+globalThis.fakeM = { isAuthorized: true, previewOnly: false, api: { music: () => { storefrontCalls++; return storefrontReply(); } }, bitrate: 0, q: null, handlers: {},
   addEventListener(ev, f) { (this.handlers[ev] = this.handlers[ev] || []).push(f); },
   fire(ev) { (this.handlers[ev] || []).forEach(f => f({})); },
   setQueue(o) {
@@ -31,10 +34,14 @@ globalThis.MusicKit = { configure: async () => {}, getInstance: () => fakeM, Pla
 "#;
 
 fn player(wait_ms: u32) -> (Engine, FakeSink) {
+    player_with_deadline(wait_ms, 10_000)
+}
+
+fn player_with_deadline(wait_ms: u32, storefront_deadline_ms: u32) -> (Engine, FakeSink) {
     let (e, sink) = engine();
     e.eval_script("fake.js", FAKE_MK).unwrap();
     let config = format!(
-        "globalThis.__bramley_player = {{ developerToken: 'x.' + btoa('{{\"iss\":\"T\"}}') + '.y', userToken: 'u', musickitUrl: 'http://127.0.0.1:9/none.js', build: '0', commandWaitMs: {wait_ms}, queueShown: 4 }};"
+        "globalThis.__bramley_player = {{ developerToken: 'x.' + btoa('{{\"iss\":\"T\"}}') + '.y', userToken: 'u', musickitUrl: 'http://127.0.0.1:9/none.js', build: '0', commandWaitMs: {wait_ms}, storefrontDeadlineMs: {storefront_deadline_ms}, queueShown: 4 }};"
     );
     e.eval_script("config.js", &config).unwrap();
     e.eval_script("player.js", PLAYER).unwrap();
@@ -48,6 +55,21 @@ fn ready(e: &mut Engine) {
     )
     .unwrap();
     e.run_for(Duration::from_millis(30));
+}
+
+fn boot_for(e: &mut Engine, reply: &str, ms: u64) {
+    e.eval_script("reply", &format!("storefrontReply = {reply};"))
+        .unwrap();
+    e.eval_script(
+        "loaded",
+        "document.dispatchEvent(new Event('musickitloaded'));",
+    )
+    .unwrap();
+    e.run_for(Duration::from_millis(ms));
+}
+
+fn field(e: &Engine, name: &str) -> J {
+    e.eval_json(&format!("__player.state().{name}")).unwrap()
 }
 
 fn send(e: &mut Engine, commands: &[Command], settle_ms: u64) {
@@ -287,4 +309,85 @@ fn a_new_queue_waits_for_a_top_up_in_flight_but_a_pause_does_not() {
         order,
         "the top-up landed before the queue it would have joined"
     );
+}
+
+#[test]
+fn a_transient_storefront_failure_is_retried_twice_then_reports_a_load_failure_not_sign_in() {
+    let cases = [
+        (
+            "async () => { throw mkError('SERVICE_UNAVAILABLE', 503); }",
+            "503",
+        ),
+        (
+            "async () => { throw new TypeError('fetch failed'); }",
+            "network error",
+        ),
+    ];
+    for (reply, seen) in cases {
+        let (mut e, _sink) = player(1000);
+        boot_for(&mut e, reply, 1600);
+        assert_eq!(e.eval_json("storefrontCalls").unwrap(), 3, "{seen}");
+        assert_eq!(field(&e, "signInNeeded"), J::Null, "{seen}");
+        let why = format!("the Apple Music storefront check failed ({seen})");
+        assert_eq!(field(&e, "loadFailed"), why.as_str());
+    }
+}
+
+#[test]
+fn a_storefront_failure_that_clears_on_retry_still_signs_in_and_plays() {
+    let (mut e, _sink) = player(1000);
+    let reply =
+        "async () => { if (storefrontCalls < 2) throw mkError('SERVER_ERROR', 500); return {}; }";
+    boot_for(&mut e, reply, 600);
+    assert_eq!(e.eval_json("storefrontCalls").unwrap(), 2);
+    send(&mut e, &[songs("A"), Command::Play], 300);
+    assert_eq!(
+        log(&e),
+        json!(["setQueue-start A", "setQueue-done A", "play q=A"])
+    );
+}
+
+#[test]
+fn a_storefront_auth_rejection_asks_for_sign_in_without_retrying() {
+    let cases = [
+        ("UNAUTHORIZED_ERROR", 401, "engine-auth-401"),
+        ("ACCESS_DENIED", 403, "engine-auth-403"),
+    ];
+    for (code, status, reason) in cases {
+        let (mut e, _sink) = player(1000);
+        let reply = format!("async () => {{ throw mkError('{code}', {status}); }}");
+        boot_for(&mut e, &reply, 1600);
+        assert_eq!(e.eval_json("storefrontCalls").unwrap(), 1, "{code}");
+        assert_eq!(field(&e, "signInNeeded"), reason);
+        assert_eq!(field(&e, "loadFailed"), J::Null, "{code}");
+    }
+}
+
+#[test]
+fn an_unauthorized_user_asks_for_sign_in_without_calling_the_storefront() {
+    let (mut e, _sink) = player(1000);
+    e.eval_script("off", "fakeM.isAuthorized = false;").unwrap();
+    boot_for(&mut e, "async () => ({})", 100);
+    assert_eq!(e.eval_json("storefrontCalls").unwrap(), 0);
+    assert_eq!(field(&e, "signInNeeded"), "engine-unauthorized");
+}
+
+#[test]
+fn the_storefront_check_gives_up_at_one_overall_deadline_whether_it_hangs_or_keeps_failing() {
+    let cases = [
+        ("() => new Promise(() => {})", 1, "timed out"),
+        (
+            "async () => { throw mkError('SERVICE_UNAVAILABLE', 503); }",
+            2,
+            "503",
+        ),
+    ];
+    for (reply, calls, seen) in cases {
+        let (mut e, _sink) = player_with_deadline(1000, 600);
+        boot_for(&mut e, reply, 1000);
+        assert_eq!(e.eval_json("storefrontCalls").unwrap(), calls, "{seen}");
+        assert_eq!(field(&e, "signInNeeded"), J::Null, "{seen}");
+        let why = format!("the Apple Music storefront check failed ({seen})");
+        assert_eq!(field(&e, "loadFailed"), why.as_str());
+    }
 }
