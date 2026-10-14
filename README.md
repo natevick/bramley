@@ -14,6 +14,7 @@ Bramley needs:
 - Google Chrome. Bramley loads the Widevine CDM that Chrome installs in `/opt/google/chrome/WidevineCdm`. It does not ship one.
 - An Apple Music subscription.
 - A PulseAudio-compatible sound server: PulseAudio itself, or PipeWire with `pipewire-pulse`.
+- `xdg-open` (the `xdg-utils` package), which sign-in uses to open your browser.
 
 ### Arch and Omarchy
 
@@ -49,7 +50,7 @@ Early. The playback engine (`crates/engine`) plays Widevine-protected audio end 
 
 Requires an Apple Music subscription.
 
-Bramley is not affiliated with or endorsed by Apple. Apple Music is a trademark of Apple Inc.
+Bramley is not affiliated with or endorsed by Apple. Apple and Apple Music are trademarks of Apple Inc., registered in the U.S. and other countries.
 
 ## License
 

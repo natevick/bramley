@@ -7,8 +7,9 @@ url="https://github.com/natevick/bramley"
 license=('MIT')
 depends=('glibc' 'google-chrome' 'hicolor-icon-theme' 'libgcc' 'libglvnd' 'libstdc++' 'libx11'
          'libxcursor' 'libxi' 'libxkbcommon' 'libxkbcommon-x11' 'libxrender'
-         'pulse-native-provider' 'wayland')
-optdepends=('gnome-keyring: keep the Apple Music sign-in in the Secret Service keyring; without one it is kept in a private file under ~/.config/bramley')
+         'pulse-native-provider' 'wayland' 'xdg-utils')
+optdepends=('fontconfig: follow the desktop text hinting and antialiasing settings'
+            'gnome-keyring: keep the Apple Music sign-in in the Secret Service keyring; without one it is kept in a private file under ~/.config/bramley')
 provides=("bramley=$pkgver")
 conflicts=('bramley' 'bramley-git')
 options=('!debug' '!strip')

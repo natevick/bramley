@@ -19,6 +19,8 @@ pkgbase = bramley-bin
 	depends = libxrender
 	depends = pulse-native-provider
 	depends = wayland
+	depends = xdg-utils
+	optdepends = fontconfig: follow the desktop text hinting and antialiasing settings
 	optdepends = gnome-keyring: keep the Apple Music sign-in in the Secret Service keyring; without one it is kept in a private file under ~/.config/bramley
 	provides = bramley=0.1.0
 	conflicts = bramley
