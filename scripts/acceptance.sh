@@ -7,6 +7,8 @@ case "${2:-}" in "") MODE=counted ;; --llvmpipe) MODE=llvmpipe ;; --controls) MO
 OUT="$ROOT/target/acceptance/$RUN"
 BIN="$OUT/bin"
 [ -e "$OUT" ] && { echo "refusing: $OUT already exists" >&2; exit 2; }
+REFERENCE_BIN="$ROOT/target/reference/bramley-main-4961e27"
+[ -f "$REFERENCE_BIN" ] || { echo "refusing: $REFERENCE_BIN is missing; copy it from another worktree (sha256 starts 1a72eb4b2880ac5a)" >&2; exit 2; }
 LOCK="/run/user/$(id -u)/bramley-gpu-session.lock"
 exec 9>"$LOCK"
 flock -n 9 || { echo "refusing: another acceptance or weston session holds $LOCK" >&2; exit 2; }
