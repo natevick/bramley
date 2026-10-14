@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Bramley
+GenericName=Music Player
+Comment=A small native player for Apple Music
+Exec=bramley
+Terminal=false
+Categories=AudioVideo;Audio;Player;Music;
+Keywords=music;player;streaming;bramley;
+Icon=bramley
+StartupNotify=true
+StartupWMClass=bramley
