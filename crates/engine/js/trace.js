@@ -9,7 +9,7 @@
     if (!v) { v = (o.constructor && o.constructor.name || "Obj") + "#" + ++next; ids.set(o, v); }
     return v;
   };
-  const SAFE = new Set(("GET HEAD POST PUT cenc keyids sinf webm segments sequence temporary network decode com.widevine.alpha start done fail skip superseded " +
+  const SAFE = new Set(("step GET HEAD POST PUT cenc keyids sinf webm segments sequence temporary network decode com.widevine.alpha start done fail skip superseded " +
     "setQueue play pause seek next previous volume playLater shuffle playNext jumpTo addSourceBuffer removeSourceBuffer endOfStream setLiveSeekableRange clearLiveSeekableRange " +
     "appendBuffer remove abort changeType load setMediaKeys removeAttribute createMediaKeys createSession setServerCertificate generateRequest update close " +
     "sourceopen sourceended sourceclose updatestart updateend error playing waiting seeking seeked ended canplay canplaythrough loadedmetadata loadeddata durationchange emptied " +

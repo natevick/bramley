@@ -16,7 +16,8 @@ function traced() {
     class SourceBuffer extends EventTarget { appendBuffer() {} }
     class SourceBufferList extends EventTarget {}
     class HTMLMediaElement extends EventTarget {}
-    Object.defineProperty(HTMLMediaElement.prototype, "src", { configurable: true, get() { return this._src; }, set(v) { this._src = v; } });
+    class HTMLAudioElement extends HTMLMediaElement {}
+    for (const k of ["src", "currentTime"]) Object.defineProperty(HTMLMediaElement.prototype, k, { configurable: true, get() { return this["_" + k]; }, set(v) { this["_" + k] = v; } });
     class XMLHttpRequest extends EventTarget { open() {} send() {} abort() {} }
     class MediaKeySystemAccess {}
     class MediaKeys {}
@@ -26,7 +27,7 @@ function traced() {
       remove() { return ${rejected("Lazarus")}; }
       load() {}
     }
-    Object.assign(globalThis, { EventTarget, TimeRanges, MediaSource, SourceBuffer, SourceBufferList, HTMLMediaElement, XMLHttpRequest, MediaKeySystemAccess, MediaKeys, MediaKeySession,
+    Object.assign(globalThis, { EventTarget, TimeRanges, MediaSource, SourceBuffer, SourceBufferList, HTMLMediaElement, HTMLAudioElement, XMLHttpRequest, MediaKeySystemAccess, MediaKeys, MediaKeySession,
       performance: { now: () => 1 }, navigator: { requestMediaKeySystemAccess: () => Promise.resolve({}) },
       fetch: () => Promise.resolve({ status: 200, headers: { get: h => h === "etag" ? "abc-song-name" : "321" } }),
       Response: class { arrayBuffer() {} json() {} text() {} } });
@@ -46,7 +47,7 @@ test("a URL logs its host and a hash, never its query, fragment or userinfo", ()
 
 test("a name-like string, header value or error message is logged as a length", async () => {
   const t = traced();
-  t.run(`new HTMLMediaElement().src = "My Favourite Song Title"; new MediaKeySession().load("Lazarus");
+  t.run(`new HTMLAudioElement().src = "My Favourite Song Title"; new MediaKeySession().load("Lazarus");
     new MediaKeySession().update(1).catch(() => {}); new MediaKeySession().remove().catch(() => {}); fetch("https://cdn.example/a");`);
   await new Promise(r => setTimeout(r, 5));
   for (const want of ["str23", "rejected NotAllowedError msg18", "rejected err msg18", "etag=str13", "content-length=321"]) assert.ok(t.out.some(l => l.includes(want)), want);
@@ -55,8 +56,8 @@ test("a name-like string, header value or error message is logged as a length", 
 
 test("an allowlisted token, a buffer length and a step mark are logged", () => {
   const t = traced();
-  t.run(`new MediaKeySession().generateRequest("cenc", new ArrayBuffer(8)); __traceMark("seek", "start"); __traceMark("Favourite");`);
+  t.run(`new MediaKeySession().generateRequest("cenc", new ArrayBuffer(8)); __traceMark("step", "seek", "start"); __traceMark("Favourite"); const a = new HTMLAudioElement(); a.currentTime = 490.8;`);
   assert.ok(t.out.some(l => l.includes("generateRequest cenc,ab8")));
-  assert.ok(t.out.some(l => l.endsWith("mark seek start")) && t.out.some(l => l.endsWith("mark str9")));
+  assert.deepEqual(t.out.filter(l => /mark|currentTime/.test(l)), ["TRACE 1.000 mark step seek start", "TRACE 1.000 mark str9", "TRACE 1.000 set HTMLAudioElement#2 currentTime 490.8"]);
   assert.deepEqual(t.leaked(), []);
 });
