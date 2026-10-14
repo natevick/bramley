@@ -6,6 +6,35 @@ Bramley is built in Rust with [egui](https://github.com/emilk/egui) and [fastfra
 
 The target is 200 MiB or less for the whole app while playing. The playback engine measures about 97 MiB today, most of which is Widevine itself.
 
+## Install
+
+Bramley needs:
+
+- Linux on x86_64.
+- Google Chrome. Bramley loads the Widevine CDM that Chrome installs in `/opt/google/chrome/WidevineCdm`. It does not ship one.
+- An Apple Music subscription.
+- A PulseAudio-compatible sound server: PulseAudio itself, or PipeWire with `pipewire-pulse`.
+
+### Arch and Omarchy
+
+The AUR package `bramley-bin` is coming soon. Until then, build the package from this repository once a release exists. Install `google-chrome` from the AUR first, then:
+
+```
+cd packaging/aur/bramley-bin
+makepkg -si
+```
+
+`packaging/aur/README.md` explains the checksum step.
+
+### From source
+
+You need stable Rust, a C and C++ compiler and `pkg-config`. At run time Bramley opens Wayland or X11, EGL and xkbcommon libraries, so install those too.
+
+```
+cargo build --release -p bramley
+target/release/bramley
+```
+
 ## Status
 
 Early. The playback engine (`crates/engine`) plays Widevine-protected audio end to end against public test streams. Apple Music playback and the interface come next.
