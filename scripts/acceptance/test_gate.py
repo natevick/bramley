@@ -126,7 +126,7 @@ def soak_edit(fn):
 
 
 def landing_at(position):
-    return both(put('r3.json', seekTimes=[1050.0, 1050.0]), edit('r3.json', lambda d: d['samples'][6].__setitem__('position', position)))
+    return both(put('r3.json', seekTimes=[1120.0, 1120.0]), edit('r3.json', lambda d: d['samples'][14].__setitem__('position', position)))
 
 
 def grow(key, by):
@@ -339,9 +339,9 @@ FUNCTIONAL = [
     ('R3 stall', soak_edit(lambda r: r.__setitem__('position', r['position'] - (1.1 if r['m'] >= 11 else 0))), 'R3', 'FAIL', 'behind the wall clock'),
     ('R3 lag at the tolerance', soak_edit(lambda r: r.__setitem__('position', r['position'] - (1.0 if r['m'] >= 11 else 0))), 'R3', 'PASS', None),
     ('R3 a seek is not a stall', both(soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 12.25 else 0))), put('r3.json', seekTimes=[1735.0])), 'R3', 'PASS', None),
-    ('R3 a seek landing at the bar passes', landing_at(154.0), 'R3', 'PASS', None),
-    ('R3 a seek landing over the bar fails', landing_at(153.99), 'R3', 'FAIL', 'seek landing: 1 of 1 seeks took over 6.0 s or never landed: [6.01]'),
-    ('R3 a seek that never lands before its item changes fails', put('r3.json', seekTimes=[1745.0]), 'R3', 'FAIL', 'seek landing: 1 of 1 seeks took over 6.0 s or never landed: [None]'),
+    ('R3 a seek landing at the bar passes', landing_at(155.0), 'R3', 'PASS', None),
+    ('R3 a seek landing over the bar fails', landing_at(154.99), 'R3', 'FAIL', 'seek landing: 1 of 1 seeks took over 15.0 s or never landed: [15.01]'),
+    ('R3 a seek that never lands before its item changes fails', put('r3.json', seekTimes=[1745.0]), 'R3', 'FAIL', 'seek landing: 1 of 1 seeks took over 15.0 s or never landed: [None]'),
     ('R3 a seek near a pair only excuses that pair', both(soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 11 else 0))), put('r3.json', seekTimes=[1000.0 + 10 * 30])), 'R3', 'FAIL', 'behind the wall clock'),
     ('R3 an output underflow', edit('r3.json', lambda d: d['samples'][-1].__setitem__('outputUnderflows', 5)), 'R3', 'FAIL', 'output underflows during the soak: 1'),
     ('R3 output underflows unreadable', soak_edit(lambda r: r.pop('outputUnderflows')), 'R3', 'FAIL', 'outputUnderflows unreadable'),
@@ -798,6 +798,10 @@ class SeekLanding(unittest.TestCase):
 
     def test_a_sample_on_another_item_is_not_a_landing(self):
         self.assertIsNone(self.landing(194.0, item='b'))
+
+    def test_the_search_ends_at_the_first_item_change(self):
+        rows = [sample(1000.0, 'a', 70.0, 200.0), sample(1005.0, 'b', 1.0, 200.0), sample(1010.0, 'a', 194.0, 200.0)]
+        self.assertIsNone(gate.seek_landing(rows, 1000.0))
 
     def test_a_seek_with_no_sample_before_it_has_no_landing(self):
         self.assertIsNone(gate.seek_landing([sample(1010.0, 'a', 194.0, 200.0)], 1000.0))
