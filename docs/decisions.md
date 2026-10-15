@@ -22,3 +22,8 @@
   - The evidence is an A/B on Nate's laptop, one sign-in each: the same page without the header authorized, and with it, it failed. The in-app sign-in then succeeded on the fixed build.
   - Only the origin goes to Apple. The secret path never appears in a Referer header, and MusicKit's own `referrer` query parameter already carried the full URL under `no-referrer`.
   - Don't "harden" this back to `no-referrer`: the header test pins it.
+- **2026-10-14: v0.1.2 ships over a failed acceptance check (Nate).**
+  - `v012-counted-1` FAILed one check, R3: position lagged the wall clock by 1.06 s. The cause is a slow seek (S22): one 500.79 s library item takes about 5 s to land a seek. It is pre-existing, with the same signature in v1-3, the S15c soaks and the S17 soaks.
+  - Three isolated probes could not reproduce it. It shows only inside a full R3 session.
+  - Holding v0.1.2 kept S17's position fix from users. On v0.1.1 the song time pins to the end from the second song of a seamless queue on.
+  - v0.1.2 ships with the slow seek recorded as a known issue. S22 continues on `natevick/s22-seek-probe`, and the pre-registered next step is a 30-minute trace run.
