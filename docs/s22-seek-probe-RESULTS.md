@@ -106,3 +106,35 @@ Still open:
 - in R3, LONG seeked about 145 s in was slow 4 of 4 times, while about 287 s in was fast 5 of 5;
 - MID is a steady ~1.75 s in R3;
 - whatever state builds up over a session: earlier items, refills, retired media, CDM sessions, and the UI and cover load.
+
+## s22-soak-trace-1 (2026-10-14, commit 2c4df59): CAPTURED
+
+The run was valid: commit 2c4df59, clean tree, a 30-minute soak on the trace build, real state unchanged, leak grep clean, pacing OK (12 actions), and 9 windows for 9 R3 seeks.
+
+The soak's own verdict was FAIL, and it does not bear on S22:
+- 12 item changes, under the bar of 30. A 30-minute soak can't reach 30, as known.
+- 1 output underflow and 1 readiness dip. This is the trace build, so these are not shipped-build measurements.
+
+Three seeks were captured (t_app ≥ 1.5 s): the 223 s item at 1.79 s, the 172.9 s item at 2.79 s, and MID at 2.19 s. The race gave LONG an origin of 290.8, and it landed in 0.59 s, so LONG at about 150 s was not exercised. The other five seeks landed in 0.59 s; the 243.9 s item took 1.39 s.
+
+### The judge's step attribution is wrong
+
+The judge names "append" as the waiting step in all three captures, because its "append" step came back None and a missing step is charged the rest of the window. Yet each raw timeline has the segment append right after the response. Its "identifiable" is therefore an artifact. The step was identified by reading the raw timelines below.
+
+### The raw timelines
+
+Times are in ms after `seekToTime`. The fast path from the probes takes about 70 to 110 ms per range fetch.
+
+| Item | Range fetch 1 (970 B) | Range fetch 2 (segment) | Other |
+|---|---|---|---|
+| 223 s | 751 (253 to 1004) | 521 (1004 to 1525) | none |
+| 172.9 s | 1174 (253 to 1427) | 1220 (1427 to 2647) | the next item's license POST at 561 overlaps both fetches |
+| MID 355 s | 147 | 729 | the append threw `QuotaExceededError`; after about 700 ms MusicKit removed (0, 340), re-fetched in 58 ms and appended successfully, then set `currentTime` |
+
+**Waiting step: the two sequential range fetches to the audio CDN.** In the soak they take 0.5 to 1.2 s each, against about 0.1 s in the probes. On one seek there was also a quota-error retry of about 0.7 s.
+
+The quota error happens because the remove range is item-relative while MSE applies it in element time (MID's offset is 203.5). It frees nothing, and the forward buffer fills the 4 MiB quota. This mechanism is real, but it was only the smaller share of one seek here.
+
+Open question, which sets the fix: why are the range fetches 5 to 10 times slower inside the soak than in the probes? Candidates:
+- queueing in our network layer behind cover or forward-fill downloads, or connection handling;
+- real CDN variance.
