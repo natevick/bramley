@@ -515,7 +515,7 @@ A process whose only match is `libLLVM` is not a GPU client.
 - the landing is `(t − seek) − (position − target)`, taken at the first post-seek sample whose position exceeds the target by more than 0.05 s;
 - the check FAILs if any landing is over 6.0 s, or if a seek never lands before its item changes or the samples end.
 
-This is a hang guard, not a performance target. The observed range is 0.2–5.1 s over about 77 R3 seeks in 9 runs. Every landing is recorded in the R3 output as `seekLandingsS`. R3 stays one of the 16 checks.
+This is a hang guard, not a performance target. The observed range is 0.2–5.1 s over 77 R3 seeks in six post-S17 runs (`s17-counted-1` to `-3`, `s17-soak-30`, `s17-soak-120`, `v012-counted-1`). Every landing is recorded in the R3 output as `seekLandingsS`. R3 stays one of the 16 checks.
 
 **Scope.** It applies to runs made at or after this commit.
 - `v012-counted-1` stays FAIL on record. Replaying its `r3.json` through the new rules gives R3 PASS with a max landing of 5.06 s over 8 seeks. That replay is a probe of the rule, not a re-judgement of that run.
