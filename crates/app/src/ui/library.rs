@@ -83,7 +83,10 @@ impl Paged {
             List::Albums => Some(Call::Library(Shelf::Albums)),
             List::Songs => Some(Call::Library(Shelf::Songs)),
             List::Artists => Some(Call::Library(Shelf::Artists)),
-            List::Tracks => owner.map(Call::PlaylistTracks),
+            List::Tracks => owner.map(|id| match id.starts_with("l.") {
+                true => Call::AlbumTracks(id),
+                false => Call::PlaylistTracks(id),
+            }),
             List::ArtistAlbums => owner.map(Call::ArtistAlbums),
             List::ArtistName => owner.map(Call::LibraryArtist),
         }
@@ -589,7 +592,7 @@ pub fn show(
         Route::Playlists => (List::Playlists, "Open playlist"),
         Route::Albums => (List::Albums, "Play album"),
         Route::Songs => (List::Songs, "Play"),
-        Route::Playlist(id) if lib.playlist != *id => {
+        Route::Playlist(id) | Route::Album(id) if lib.playlist != *id => {
             lib.playlist.clone_from(id);
             lib.lists[List::Tracks as usize] = Paged::default();
             (List::Tracks, "Play")

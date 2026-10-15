@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::rc::Rc;
@@ -8,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
 use bramley_engine::{Command, PlayState, PlayerError, Queue, Snapshot};
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::covers::{self, Grid, Source};
 use crate::credentials::Credentials;
@@ -985,6 +986,8 @@ struct Serve {
     bad_albums: bool,
     slow_chart: bool,
     chart_fails: usize,
+    albums: usize,
+    listening: bool,
 }
 
 const SERVE: Serve = Serve {
@@ -996,6 +999,8 @@ const SERVE: Serve = Serve {
     bad_albums: false,
     slow_chart: false,
     chart_fails: usize::MAX,
+    albums: 50,
+    listening: false,
 };
 
 struct Fixture {
@@ -1052,8 +1057,55 @@ fn fixture(serve: Serve) -> Fixture {
                 }
                 let renewed = serve.renewed && auth.as_deref() == Some("Bearer renewed-token");
                 let status = if renewed { 200 } else { serve.me };
-                (status, String::new(), b"{}".to_vec())
-            } else if path.starts_with("/v1/") {
+                let found = json!({"data": [{"id": "zz"}]});
+                (status, String::new(), found.to_string().into_bytes())
+            } else if serve.listening
+                && path.starts_with("/v1/")
+                && !path.starts_with("/v1/me/library/albums")
+            {
+                let owned = |id: &str| {
+                    let art = format!("{art_base}/art/{}/{{w}}x{{h}}bb.jpg", &id[2..]);
+                    json!({"id": id, "type": "library-albums", "attributes": {"artwork": {"url": art}}})
+                };
+                let item = |id: &str, kind: &str| match kind {
+                    "library-albums" => owned(id),
+                    _ => json!({"id": id, "type": kind}),
+                };
+                let related =
+                    |name: &str, found: Value| json!({"relationships": {name: {"data": [found]}}});
+                let many = |name: &str, kind: &str, ids: &[&str]| -> Vec<Value> {
+                    ids.iter().map(|id| related(name, item(id, kind))).collect()
+                };
+                let body = match path.split(['?', '/']).nth(3) {
+                    Some("music-summaries") => json!({"data": [{"views": {
+                        "top-albums": {"data": [related("album", item("c1005", "albums"))]},
+                        "top-songs": {"data": many("song", "songs", &["7", "8"])},
+                    }}]}),
+                    Some("zz") if path.contains("/songs?") => {
+                        json!({"data": many("albums", "albums", &["c1003", "c1005"])})
+                    }
+                    Some("zz") => {
+                        let ids = path.split("ids=").nth(1).unwrap().split(',');
+                        let shelved = |id: &str| match id {
+                            "c1009" => {
+                                json!({"id": id, "relationships": {"library": {"data": []}}})
+                            }
+                            _ => {
+                                json!({"id": id, "relationships": {"library": {"data": [owned(&format!("l.{}", &id[1..]))]}}})
+                            }
+                        };
+                        json!({"data": ids.map(shelved).collect::<Vec<_>>()})
+                    }
+                    Some("history") => {
+                        json!({"data": [item("l.1001", "library-albums"), item("c1009", "albums")]})
+                    }
+                    Some("recent") => {
+                        json!({"data": [item("c1002", "albums"), item("p.1", "library-playlists")]})
+                    }
+                    _ => json!({"data": [item("l.1049", "library-albums")]}),
+                };
+                (200, String::new(), body.to_string().into_bytes())
+            } else if path.starts_with("/v1/me/library/albums?") {
                 if serve.slow_chart {
                     std::thread::sleep(Duration::from_millis(300));
                 }
@@ -1062,13 +1114,14 @@ fn fixture(serve: Serve) -> Fixture {
                     3 if serve.bad_albums => format!("{art_base}/art/3/{{w}}x{{h}}{{c}}.jpg"),
                     _ => format!("{art_base}/art/{i}/{{w}}x{{h}}bb.jpg"),
                 };
-                let albums: Vec<_> = (0..50)
+                let albums: Vec<_> = (0..serve.albums)
                     .map(|i| match i {
-                        4 if serve.bad_albums => json!({"attributes": {}}),
-                        _ => json!({"id": format!("{}", 1000 + i), "attributes": {"artwork": {"url": url(i)}}}),
+                        4 if serve.bad_albums => json!({"id": "l.1004", "attributes": {}}),
+                        _ => json!({"id": format!("l.{}", 1000 + i), "attributes": {"artwork": {"url": url(i)}},
+                            "relationships": {"catalog": {"data": [{"id": format!("c{}", 1000 + i)}]}}}),
                     })
                     .collect();
-                let chart = json!({"results": {"albums": [{"data": albums}]}});
+                let chart = json!({"data": albums});
                 let charts = seen.lock().unwrap().iter().filter(|r| r.0 == path).count();
                 let status = if charts > serve.chart_fails {
                     200
@@ -1150,6 +1203,7 @@ fn settle(grid: &mut Grid, ctx: &egui::Context) {
     let until = Instant::now() + Duration::from_secs(20);
     while grid.uploaded() + grid.failures() < 50
         && !grid.rejected()
+        && !grid.empty()
         && !grid.rejected_developer_token().is_some()
         && Instant::now() < until
     {
@@ -1191,16 +1245,14 @@ fn fifty_covers_become_textures_and_nothing_decoded_stays_once_a_frame_ends() {
         requests[0],
         ("/v1/me/storefront".into(), bearer.clone(), user)
     );
-    assert_eq!(
-        requests[1],
-        (
-            "/v1/catalog/us/charts?types=albums&limit=50".into(),
-            bearer,
-            None
-        )
+    let library = (
+        "/v1/me/library/albums?limit=100&offset=0".into(),
+        bearer,
+        Some(FIXTURE_USER.to_owned()),
     );
-    assert_eq!(requests.len(), 52);
-    for (path, auth, user) in &requests[2..] {
+    assert!(requests[1..6].contains(&library));
+    assert_eq!(requests.len(), 56);
+    for (path, auth, user) in &requests[6..] {
         assert!(path.ends_with("/96x96bb.jpg"), "{path}");
         assert_eq!((auth, user), (&None, &None), "a token went to the art host");
     }
@@ -1217,6 +1269,111 @@ fn fifty_covers_become_textures_and_nothing_decoded_stays_once_a_frame_ends() {
         (grid.uploaded(), grid.in_flight(), grid.kept()),
         (0, 0, 0),
         "sign-in lost kept covers"
+    );
+}
+
+fn album(id: u32) -> covers::Album {
+    covers::Album {
+        id: format!("l.{id}"),
+        art: Some(format!("art-{id}")),
+        edition: format!("edition-{id}"),
+    }
+}
+
+#[test]
+fn editions_of_one_title_share_a_key_and_other_brackets_stay_part_of_the_title() {
+    let key = covers::edition;
+    assert_eq!(
+        key("A  B", "Title (Super Deluxe Edition) [2019 Remaster]"),
+        key("a b", "title")
+    );
+    assert_eq!(key("A", "Title (2019 Mix)"), key("A", "Title"));
+    assert_ne!(key("A", "Live (Vol. 1)"), key("A", "Live (Vol. 2)"));
+    assert_ne!(key("A", "Title"), key("A", "Title (Live)"));
+    assert_ne!(key("A", "Title"), key("B", "Title"));
+    assert_eq!(key("A", "(Deluxe Edition)"), None);
+}
+
+#[test]
+fn home_ranks_library_albums_by_listening_then_fills_with_the_rest_without_repeats() {
+    let same_art = covers::Album {
+        id: "l.10".into(),
+        edition: "other".into(),
+        ..album(6)
+    };
+    let same_edition = covers::Album {
+        id: "l.11".into(),
+        art: Some("other".into()),
+        ..album(9)
+    };
+    let library = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        .map(album)
+        .into_iter()
+        .chain([same_art, same_edition]);
+    let found: HashMap<_, _> = [1, 3, 5, 7].map(|n| (format!("c{n}"), album(n))).into();
+    let (library_pick, catalog_pick) = (
+        |n: u32| covers::Pick::Library(album(n)),
+        |n: u32| covers::Pick::Catalog(format!("c{n}")),
+    );
+    let sources = [
+        vec![catalog_pick(5), catalog_pick(3), catalog_pick(404)],
+        vec![catalog_pick(3), catalog_pick(7)],
+        vec![
+            library_pick(2),
+            catalog_pick(5),
+            catalog_pick(4),
+            library_pick(404),
+        ],
+        vec![catalog_pick(1)],
+        vec![library_pick(8)],
+    ];
+    let ranked = covers::rank(&sources, &found, library.collect());
+    let ranked: Vec<_> = ranked.into_iter().map(|a| a.id).collect();
+    let expected = [5, 3, 7, 2, 404, 1, 8, 4, 6, 9].map(|n| format!("l.{n}"));
+    assert_eq!(ranked, expected);
+}
+
+#[test]
+fn home_asks_replay_heavy_rotation_recent_and_added_with_the_users_storefront() {
+    let (grid, fx, _) = load_covers(
+        Serve {
+            listening: true,
+            ..SERVE
+        },
+        true,
+    );
+    let order: Vec<_> = (0..8).filter_map(|n| grid.album(n)).collect();
+    let expected = [
+        "l.1005", "l.1003", "l.1001", "l.1002", "l.1049", "l.1000", "l.1004", "l.1006",
+    ];
+    assert_eq!(order, expected);
+    assert_eq!(grid.uploaded(), 50);
+    let paths = fx.paths();
+    let replay = "/v1/me/music-summaries?filter%5Byear%5D=latest&views=top-albums,top-songs";
+    let songs = "/v1/catalog/zz/songs?include=albums&ids=7,8";
+    let shelves = "/v1/catalog/zz/albums?include=library&ids=c1005,c1003,c1009,c1002";
+    let replay_first = "/v1/catalog/zz/albums?include=library&ids=c1005";
+    assert!(
+        [replay, songs, shelves, replay_first]
+            .iter()
+            .all(|p| paths.contains(&p.to_string()))
+    );
+    assert!(paths.iter().all(|p| !p.contains("/us/")), "{paths:?}");
+}
+
+#[test]
+fn an_empty_library_says_so_and_neither_retries_nor_shows_the_chart() {
+    let (mut grid, fx, ctx) = load_covers(Serve { albums: 0, ..SERVE }, true);
+    assert!(grid.empty());
+    assert!(!charts_after(&fx, &mut grid, &ctx, (3600, true)).0);
+    assert_eq!(
+        (grid.uploaded(), grid.failed(), grid.failures()),
+        (0, None, 0)
+    );
+    assert!(
+        !fx.paths()
+            .iter()
+            .any(|p| p.contains("charts") || p.starts_with("/art/"))
     );
 }
 
@@ -1253,8 +1410,8 @@ fn clicking_a_home_cover_opens_that_albums_detail() {
     };
     frame(vec![egui::Event::PointerMoved(at), button(true)]);
     frame(vec![button(false)]);
-    let opened = crate::ui::nav::Nav::Go(crate::ui::nav::Route::Album("1002".into()));
-    assert_eq!((navs, grid.album(2)), (vec![opened], Some("1002")));
+    let opened = crate::ui::nav::Nav::Go(crate::ui::nav::Route::Album("l.1002".into()));
+    assert_eq!((navs, grid.album(2)), (vec![opened], Some("l.1002")));
 }
 
 #[test]
@@ -1308,7 +1465,21 @@ fn bad_or_off_host_albums_are_skipped_without_their_urls() {
     assert_eq!((grid.uploaded(), grid.failures()), (48, 2));
     let (off_host, fx, _) = load_covers(SERVE, false);
     assert_eq!((off_host.uploaded(), off_host.failures()), (0, 50));
-    assert_eq!(fx.paths().len(), 2);
+    assert_eq!(fx.paths().len(), 6);
+    let (mut refilled, _, ctx) = load_covers(
+        Serve {
+            bad_albums: true,
+            albums: 52,
+            ..SERVE
+        },
+        true,
+    );
+    let until = Instant::now() + Duration::from_secs(20);
+    while refilled.uploaded() < 50 && Instant::now() < until {
+        refilled.receive(&ctx);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!((refilled.uploaded(), refilled.failures()), (50, 2));
     for why in [grid.failed().unwrap(), off_host.failed().unwrap()] {
         assert!(!why.contains("http") && !why.contains('{'), "{why}");
     }
@@ -1362,7 +1533,7 @@ fn losing_sign_in_mid_load_cancels_every_later_request() {
 fn charts(fx: &Fixture) -> usize {
     fx.paths()
         .iter()
-        .filter(|p| p.starts_with("/v1/catalog"))
+        .filter(|p| p.starts_with("/v1/me/library/albums"))
         .count()
 }
 
@@ -1436,7 +1607,7 @@ fn a_chart_retry_waits_out_retry_after_and_stops_on_a_403_or_sign_out() {
         std::fs::remove_dir_all(&config).unwrap();
         asked.push((started, fx.paths().len()));
     }
-    assert_eq!(asked, [(false, 2), (false, 1), (false, 2), (false, 2)]);
+    assert_eq!(asked, [(false, 6), (false, 1), (false, 6), (false, 6)]);
 }
 
 #[test]

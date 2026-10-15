@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Cursor;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -17,7 +17,16 @@ use crate::ui::nav::{Nav, Route};
 pub const COVER_PT: f32 = 96.0;
 pub const API_BASE: &str = "https://api.music.apple.com";
 const STOREFRONT: &str = "/v1/me/storefront";
-const CHART: &str = "/v1/catalog/us/charts?types=albums&limit=50";
+const LIBRARY_ALBUMS: &str = "/v1/me/library/albums?limit=100";
+const LOOKUP: usize = 100;
+const LIBRARY_PAGE: usize = 100;
+const LIBRARY_PAGES: usize = 10;
+const REPLAY: &str = "/v1/me/music-summaries?filter%5Byear%5D=latest&views=top-albums,top-songs";
+const LISTENING: [&str; 3] = [
+    "/v1/me/history/heavy-rotation",
+    "/v1/me/recent/played",
+    "/v1/me/library/recently-added",
+];
 const ART_HOST: &str = ".mzstatic.com";
 const DECODERS: usize = 2;
 const COUNT: usize = 50;
@@ -63,6 +72,7 @@ pub enum Loaded {
     Retry(Duration),
     SignInNeeded,
     DeveloperRejected(String),
+    Empty,
 }
 
 #[derive(Default)]
@@ -170,7 +180,7 @@ fn signed_in(
     bearer: &str,
     user: &str,
     tally: &Tally,
-) -> Result<bool> {
+) -> Result<Option<Vec<u8>>> {
     let headers = [("Authorization", bearer), ("Music-User-Token", user)];
     match get(
         agent,
@@ -180,47 +190,332 @@ fn signed_in(
     )
     .context("sign-in check")?
     {
-        (200, ..) => Ok(true),
+        (200, body, _) => Ok(Some(body)),
         (401, ..) => Err(anyhow!(DeveloperTokenRejected)),
-        (403, ..) => Ok(false),
+        (403, ..) => Ok(None),
         refused => Err(apple_error(refused).context("sign-in check")),
     }
 }
 
-fn chart(
-    agent: &mut ureq::Agent,
-    source: &Source,
-    bearer: &str,
-    px: u32,
-    tally: &Tally,
-) -> Result<Chart> {
-    let (status, body, wait) = get(
-        agent,
-        &format!("{}{CHART}", source.api),
-        &[("Authorization", bearer)],
-        tally,
-    )
-    .context("chart")?;
-    match status {
-        200 => {}
-        401 => return Err(anyhow!(DeveloperTokenRejected)),
-        _ => return Err(apple_error((status, body, wait)).context("chart")),
-    }
-    let body: Value = serde_json::from_slice(&body).context("chart")?;
-    let albums = body["results"]["albums"][0]["data"]
-        .as_array()
-        .context("the chart has no albums")?;
-    let usable = |album: &Value| {
-        let id = crate::cli::catalog_id(album["id"].as_str()?).ok()?;
-        let url = art_url(album["attributes"]["artwork"]["url"].as_str()?, px)?;
-        allowed_art(&url, source.art_prefix.as_deref()).then_some((id, url))
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Album {
+    pub(crate) id: String,
+    pub(crate) art: Option<String>,
+    pub(crate) edition: String,
+}
+
+#[derive(Clone)]
+pub(crate) enum Pick {
+    Library(Album),
+    Catalog(String),
+}
+
+pub(crate) fn rank(
+    sources: &[Vec<Pick>],
+    found: &HashMap<String, Album>,
+    library: Vec<Album>,
+) -> Vec<Album> {
+    let picked = sources.iter().flatten().filter_map(|pick| match pick {
+        Pick::Library(album) => Some(album.clone()),
+        Pick::Catalog(id) => found.get(id).cloned(),
+    });
+    let (mut ids, mut arts, mut editions) = (HashSet::new(), HashSet::new(), HashSet::new());
+    let unseen = |a: &Album| {
+        ids.insert(a.id.clone())
+            && a.art.iter().all(|url| arts.insert(url.clone()))
+            && editions.insert(a.edition.clone())
     };
-    let urls: Vec<_> = albums
+    picked.chain(library).filter(unseen).collect()
+}
+
+fn pick(resource: &Value) -> Option<Pick> {
+    let id = resource["id"].as_str()?;
+    match resource["type"].as_str()? {
+        "library-albums" => album(resource).map(Pick::Library),
+        "albums" if crate::cli::catalog_id(id).is_ok() => Some(Pick::Catalog(id.to_owned())),
+        _ => None,
+    }
+}
+
+fn picks(items: &Value) -> Vec<Pick> {
+    let items = items.as_array().map(Vec::as_slice).unwrap_or_default();
+    items.iter().filter_map(pick).collect()
+}
+
+fn related<'a>(items: &'a Value, relationship: &str) -> Vec<&'a Value> {
+    let items = items.as_array().map(Vec::as_slice).unwrap_or_default();
+    let first = |i: &'a Value| i["relationships"][relationship]["data"].get(0);
+    items.iter().filter_map(first).collect()
+}
+
+fn album(resource: &Value) -> Option<Album> {
+    let id = resource["id"]
+        .as_str()
+        .filter(|id| bramley_api::segment(id))?;
+    let attributes = &resource["attributes"];
+    let (artist, name) = (
+        attributes["artistName"].as_str(),
+        attributes["name"].as_str(),
+    );
+    Some(Album {
+        id: id.to_owned(),
+        art: attributes["artwork"]["url"].as_str().map(str::to_owned),
+        edition: artist
+            .zip(name)
+            .and_then(|(artist, name)| edition(artist, name))
+            .unwrap_or_else(|| id.to_owned()),
+    })
+}
+
+const EDITION_WORDS: [&str; 11] = [
+    "remaster",
+    "remastered",
+    "deluxe",
+    "expanded",
+    "anniversary",
+    "edition",
+    "mono",
+    "stereo",
+    "bonus",
+    "special",
+    "mix",
+];
+
+fn qualifier(span: &str) -> bool {
+    let span = span.to_lowercase();
+    let mut words = span.split(|c: char| !c.is_alphanumeric());
+    words.any(|word| EDITION_WORDS.contains(&word))
+}
+
+pub(crate) fn edition(artist: &str, name: &str) -> Option<String> {
+    let (mut title, mut rest) = (String::new(), name);
+    while let Some(open) = rest.find(['(', '[']) {
+        let Some(close) = rest[open..].find([')', ']']).map(|at| open + at) else {
+            break;
+        };
+        title.push_str(&rest[..open]);
+        if !qualifier(&rest[open + 1..close]) {
+            title.push_str(&rest[open..=close]);
+        }
+        rest = &rest[close + 1..];
+    }
+    title.push_str(rest);
+    let title: Vec<&str> = title.split_whitespace().collect();
+    let artist = artist.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!title.is_empty()).then(|| format!("{artist}\0{}", title.join(" ")).to_lowercase())
+}
+
+fn storefront(body: &[u8]) -> Option<String> {
+    let body: Value = serde_json::from_slice(body).ok()?;
+    let id = body["data"][0]["id"].as_str()?;
+    bramley_api::segment(id).then(|| id.to_owned())
+}
+
+fn ok_body(
+    agent: &mut ureq::Agent,
+    (path, headers): (&str, &[(&str, &str)]),
+    source: &Source,
+    tally: &Tally,
+) -> Result<Option<Value>> {
+    match get(agent, &format!("{}{path}", source.api), headers, tally) {
+        Ok((200, body, _)) => Ok(serde_json::from_slice(&body).ok()),
+        Ok((401, ..)) => Err(anyhow!(DeveloperTokenRejected)),
+        _ => Ok(None),
+    }
+}
+
+fn replay(
+    agent: &mut ureq::Agent,
+    (source, bearer, user): (&Source, &str, &str),
+    (storefront, early): (Option<String>, Sender<Vec<Pick>>),
+    tally: &Tally,
+) -> Result<Vec<Vec<Pick>>> {
+    let me = [("Authorization", bearer), ("Music-User-Token", user)];
+    let found = ok_body(agent, (REPLAY, &me), source, tally)?;
+    let view = |name: &str| {
+        found
+            .as_ref()
+            .map_or(Value::Null, |r| r["data"][0]["views"][name]["data"].clone())
+    };
+    let (top_albums, top_songs) = (view("top-albums"), view("top-songs"));
+    let albums = |found: &Value, relationship| -> Vec<Pick> {
+        related(found, relationship)
+            .into_iter()
+            .filter_map(pick)
+            .collect()
+    };
+    let top = albums(&top_albums, "album");
+    drop(early.send(top.clone()));
+    let ids: Vec<&str> = related(&top_songs, "song")
         .iter()
-        .enumerate()
-        .filter_map(|(i, a)| usable(a).map(|(id, url)| (i, id, url)))
+        .filter_map(|song| song["id"].as_str())
+        .filter(|id| crate::cli::catalog_id(id).is_ok())
         .collect();
-    Ok((urls.clone(), albums.len() - urls.len()))
+    let songs = match storefront.filter(|_| !ids.is_empty()) {
+        Some(sf) => {
+            let path = format!(
+                "/v1/catalog/{sf}/songs?include=albums&ids={}",
+                ids.join(",")
+            );
+            ok_body(agent, (&path, &[("Authorization", bearer)]), source, tally)?
+        }
+        None => None,
+    };
+    Ok(vec![
+        top,
+        songs.map_or(Vec::new(), |s| albums(&s["data"], "albums")),
+    ])
+}
+
+fn listed(
+    agent: &mut ureq::Agent,
+    (source, bearer, user): (&Source, &str, &str),
+    (path, tally): (&str, &Tally),
+) -> Result<Vec<Pick>> {
+    let me = [("Authorization", bearer), ("Music-User-Token", user)];
+    let found = ok_body(agent, (path, &me), source, tally)?;
+    Ok(found.map_or(Vec::new(), |f| picks(&f["data"])))
+}
+
+fn lookup(
+    agent: &mut ureq::Agent,
+    (source, bearer, user): (&Source, &str, &str),
+    (storefront, sources): (Option<&str>, &[Vec<Pick>]),
+    tally: &Tally,
+) -> Result<HashMap<String, Album>> {
+    let catalog = sources.iter().flatten().filter_map(|pick| match pick {
+        Pick::Catalog(id) => Some(id.as_str()),
+        Pick::Library(_) => None,
+    });
+    let mut seen = HashSet::new();
+    let ids: Vec<&str> = catalog.filter(|id| seen.insert(*id)).take(LOOKUP).collect();
+    let Some(storefront) = storefront.filter(|_| !ids.is_empty()) else {
+        return Ok(HashMap::new());
+    };
+    let path = format!(
+        "/v1/catalog/{storefront}/albums?include=library&ids={}",
+        ids.join(",")
+    );
+    let me = [("Authorization", bearer), ("Music-User-Token", user)];
+    let found = ok_body(agent, (&path, &me), source, tally)?.unwrap_or_default();
+    let items = found["data"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let owned = |item: &Value| {
+        let library = item["relationships"]["library"]["data"].get(0)?;
+        Some((item["id"].as_str()?.to_owned(), album(library)?))
+    };
+    Ok(items.iter().filter_map(owned).collect())
+}
+
+fn library_albums(
+    agent: &mut ureq::Agent,
+    (source, bearer, user): (&Source, &str, &str),
+    tally: &Tally,
+) -> Result<Vec<Album>> {
+    let headers = [("Authorization", bearer), ("Music-User-Token", user)];
+    let mut albums = Vec::new();
+    for page in 0..LIBRARY_PAGES {
+        let path = format!("{LIBRARY_ALBUMS}&offset={}", page * LIBRARY_PAGE);
+        let (status, body, wait) = get(agent, &format!("{}{path}", source.api), &headers, tally)
+            .context("library albums")?;
+        match status {
+            200 => {}
+            401 => return Err(anyhow!(DeveloperTokenRejected)),
+            _ => return Err(apple_error((status, body, wait)).context("library albums")),
+        }
+        let body: Value = serde_json::from_slice(&body).context("library albums")?;
+        let data = body["data"]
+            .as_array()
+            .context("the library has no album list")?;
+        albums.extend(data.iter().filter_map(album));
+        if body["next"].is_null() || albums.len() >= 2 * COUNT {
+            break;
+        }
+    }
+    Ok(albums)
+}
+
+fn joined<T>(handle: std::thread::ScopedJoinHandle<'_, Result<T>>) -> Result<T> {
+    handle
+        .join()
+        .unwrap_or_else(|_| Err(anyhow!("a home request panicked")))
+}
+
+#[derive(Default)]
+struct Sent {
+    emitted: usize,
+    processed: usize,
+    skipped: usize,
+}
+
+fn send(
+    ranked: Vec<Album>,
+    sent: &mut Sent,
+    (jobs, px, art_prefix): (&Sender<Job>, u32, Option<&str>),
+) {
+    for album in ranked.into_iter().skip(sent.processed) {
+        if sent.emitted == COUNT {
+            break;
+        }
+        sent.processed += 1;
+        let url = album.art.as_deref().and_then(|art| art_url(art, px));
+        match url.filter(|url| allowed_art(url, art_prefix)) {
+            Some(url) => {
+                drop(jobs.send((sent.emitted, album.id, url)));
+                sent.emitted += 1;
+            }
+            None => sent.skipped += 1,
+        }
+    }
+}
+
+fn home(
+    agent: &mut ureq::Agent,
+    auth: (&Source, &str, &str),
+    (signed_in, px): (&[u8], u32),
+    (jobs, tally): (&Sender<Job>, &Tally),
+) -> Result<(usize, usize)> {
+    let storefront = storefront(signed_in);
+    let out = (jobs, px, auth.0.art_prefix.as_deref());
+    let (mut sent, mut found) = (Sent::default(), HashMap::new());
+    let sources = std::thread::scope(|scope| {
+        let agent = &*agent;
+        let (early, first) = channel();
+        let sf = (storefront.clone(), early);
+        let replay = scope.spawn(|| replay(&mut agent.clone(), auth, sf, tally));
+        let listened = LISTENING
+            .map(|path| scope.spawn(move || listed(&mut agent.clone(), auth, (path, tally))));
+        if let Ok(top) = first.recv() {
+            let top = [top];
+            let early = lookup(
+                &mut agent.clone(),
+                auth,
+                (storefront.as_deref(), &top),
+                tally,
+            )?;
+            send(rank(&top, &early, Vec::new()), &mut sent, out);
+            found = early;
+        }
+        listened.into_iter().fold(joined(replay), |all, found| {
+            let (mut all, found) = (all?, joined(found)?);
+            all.push(found);
+            Ok::<_, anyhow::Error>(all)
+        })
+    })?;
+    found.extend(lookup(
+        agent,
+        auth,
+        (storefront.as_deref(), &sources),
+        tally,
+    )?);
+    send(rank(&sources, &found, Vec::new()), &mut sent, out);
+    if sent.emitted < COUNT {
+        let library = library_albums(agent, auth, tally)?;
+        send(rank(&sources, &found, library), &mut sent, out);
+    }
+    Ok((sent.emitted, sent.skipped))
 }
 
 pub(crate) fn cover(
@@ -247,14 +542,14 @@ pub(crate) fn cover(
     Ok(ColorImage::from_rgb(size, rgb.as_raw()))
 }
 
-type Chart = (Vec<(usize, String, String)>, usize);
+type Job = (usize, String, String);
 
-fn load_chart(
+fn load_home(
     agent: &mut ureq::Agent,
     source: &Source,
     px: u32,
-    tally: &Tally,
-) -> Result<Option<Chart>> {
+    (jobs, tally): (&Sender<Job>, &Tally),
+) -> Result<Option<(usize, usize)>> {
     let tokens = source.user.developer();
     let cancelled = || tally.cancel.load(Ordering::SeqCst);
     let developer = tokens.wait(cancelled).map_err(|why| anyhow!(why))?;
@@ -263,8 +558,9 @@ fn load_chart(
     };
     let mut attempt = |developer: &str| {
         let bearer = format!("Bearer {developer}");
-        let checked = signed_in(agent, source, &bearer, &user, tally).and_then(|ok| {
-            ok.then(|| chart(agent, source, &bearer, px, tally))
+        let checked = signed_in(agent, source, &bearer, &user, tally).and_then(|body| {
+            let auth = (source, bearer.as_str(), user.as_str());
+            body.map(|body| home(agent, auth, (&body, px), (jobs, tally)))
                 .transpose()
         });
         checked.map_err(|e| {
@@ -297,7 +593,9 @@ pub fn fetch(
         .name("covers".into())
         .spawn(move || {
             let mut agent = agent();
-            match load_chart(&mut agent, &source, px, &tally) {
+            let (jobs, queue) = channel();
+            decode_on_workers(agent.clone(), (queue, px), &tx, tally.clone(), wake.clone());
+            match load_home(&mut agent, &source, px, (&jobs, &tally)) {
                 Ok(None) => drop(tx.send(Loaded::SignInNeeded)),
                 Err(e) if e.is::<DeveloperTokenRejected>() => {
                     let rejected = source.user.developer().peek().unwrap_or_default();
@@ -311,12 +609,11 @@ pub fn fetch(
                     }
                     let _ = tx.send(Loaded::Failed(format!("{e:#}"), COUNT));
                 }
-                Ok(Some((urls, skipped))) => {
-                    if skipped > 0 {
-                        let why = format!("chart: {skipped} albums had no usable artwork");
-                        let _ = tx.send(Loaded::Failed(why, skipped));
-                    }
-                    decode_on_workers(agent, (urls, px), &tx, tally, wake.clone());
+                Ok(Some((0, 0))) => drop(tx.send(Loaded::Empty)),
+                Ok(Some((_, 0))) => {}
+                Ok(Some((_, skipped))) => {
+                    let why = format!("{skipped} library albums had no usable artwork");
+                    let _ = tx.send(Loaded::Failed(why, skipped));
                 }
             }
             wake();
@@ -327,12 +624,12 @@ pub fn fetch(
 
 fn decode_on_workers(
     agent: ureq::Agent,
-    (urls, px): (Vec<(usize, String, String)>, u32),
+    (queue, px): (Receiver<Job>, u32),
     tx: &Sender<Loaded>,
     tally: Arc<Tally>,
     wake: impl Fn() + Clone + Send + 'static,
 ) {
-    let jobs = Arc::new(Mutex::new(urls.into_iter()));
+    let jobs = Arc::new(Mutex::new(queue));
     for n in 0..DECODERS {
         let (mut agent, jobs, tx, tally, wake) = (
             agent.clone(),
@@ -344,7 +641,7 @@ fn decode_on_workers(
         std::thread::Builder::new()
             .name(format!("cover-{n}"))
             .spawn(move || {
-                while let Some((index, id, url)) = jobs.lock().unwrap().next() {
+                while let Ok((index, id, url)) = jobs.lock().unwrap().recv() {
                     let decoded =
                         catch_unwind(AssertUnwindSafe(|| cover(&mut agent, &url, px, &tally)));
                     let loaded =
@@ -377,6 +674,7 @@ pub struct Grid {
     failed: Option<String>,
     failures: usize,
     rejected: bool,
+    empty: bool,
     developer_rejected: Option<String>,
     tries: usize,
     retry_at: Option<Instant>,
@@ -456,6 +754,7 @@ impl Grid {
                     ctx.request_repaint_after(wait);
                 }
                 Loaded::SignInNeeded => self.rejected = true,
+                Loaded::Empty => self.empty = true,
                 Loaded::DeveloperRejected(token) => self.developer_rejected = Some(token),
             }
         }
@@ -473,6 +772,11 @@ impl Grid {
     #[cfg(any(test, feature = "dev"))]
     pub fn album(&self, n: usize) -> Option<&str> {
         self.textures.values().nth(n).map(|(id, _)| id.as_str())
+    }
+
+    #[cfg(test)]
+    pub fn empty(&self) -> bool {
+        self.empty
     }
 
     pub fn uploaded(&self) -> usize {
@@ -505,6 +809,9 @@ impl Grid {
     pub fn show(&self, ui: &mut egui::Ui, navs: &mut Vec<Nav>) {
         if let Some(why) = &self.failed {
             ui.label(egui::RichText::new(format!("Some covers did not load: {why}")).weak());
+        }
+        if self.empty {
+            ui.label(egui::RichText::new("Your library has no albums yet.").weak());
         }
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {

@@ -58,7 +58,7 @@ Nate's order holds; **no hard dependency problem**. S2 is split a/b/c to fit one
 - **Deviation (2026-10-10, coordinator's call):** no hard-coded Play button and `--play` is dev-only; the release build's first user-initiated play path is S11's CLI.
 
 ## S2b. Cover grid and cache policy
-- **What:** 50 covers from `/v1/catalog/us/charts?types=albums&limit=50`.
+- **What:** 50 covers. Originally the US chart; since the home-library change, the user's own library albums ranked by listening (Replay, heavy rotation, recently played, recently added, then the rest).
 - **Policy:**
   - fill the `{w}x{h}` template at the cell's pixel size;
   - decode on 2 workers;
