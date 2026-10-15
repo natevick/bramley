@@ -1,5 +1,5 @@
 use super::{FIXTURE, fixture_segments};
-use crate::buffer::SourceBufferNative;
+use crate::buffer::{Frame, SOURCE_BUFFER_QUOTA_BYTES, SourceBufferNative};
 
 fn long_timeline(
     quota: usize,
@@ -116,4 +116,53 @@ fn a_new_init_segment_applies_only_to_frames_appended_after_it() {
         };
         assert!(std::rc::Rc::ptr_eq(&f.init, expected), "{}", f.pts_us);
     }
+}
+
+fn filled(
+    quota: usize,
+    start_us: i64,
+    frames: usize,
+    dur_us: i64,
+    frame_bytes: usize,
+) -> SourceBufferNative {
+    let (init, _) = fixture_segments();
+    let mut sb = SourceBufferNative::new("audio/mp4".into(), quota);
+    sb.append(&init, 0.0).unwrap();
+    let track = sb.init.clone().unwrap();
+    for i in 0..frames as i64 {
+        let pts_us = start_us + i * dur_us;
+        sb.frames.insert(
+            pts_us,
+            Frame {
+                pts_us,
+                dur_us,
+                offset_us: start_us,
+                data: vec![0; frame_bytes],
+                enc: None,
+                init: track.clone(),
+            },
+        );
+        sb.bytes += frame_bytes;
+    }
+    sb
+}
+
+#[test]
+fn a_seek_target_far_ahead_fits_beside_a_captured_size_forward_buffer() {
+    let playhead_us = 353_500_000;
+    let mut sb = filled(SOURCE_BUFFER_QUOTA_BYTES, playhead_us, 4_194, 31_250, 1_000);
+    assert!(sb.bytes > 4_000_000, "forward buffer {}", sb.bytes);
+    let frames = sb.frames.len();
+    assert!(sb.make_room(338_000, playhead_us));
+    assert_eq!((sb.frames.len(), sb.evicted_frames), (frames, 0));
+    assert!(sb.frames.contains_key(&playhead_us));
+}
+
+#[test]
+fn eviction_keeps_the_margin_and_every_frame_from_the_playhead_on() {
+    let mut sb = filled(20_000, 0, 20, 1_000_000, 1_000);
+    assert!(!sb.make_room(15_000, 10_000_000));
+    assert_eq!(sb.frames.keys().next(), Some(&9_000_000));
+    assert_eq!(sb.frames.len(), 11);
+    assert!(sb.frames.contains_key(&10_000_000));
 }

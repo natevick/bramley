@@ -27,3 +27,7 @@
   - Three isolated probes could not reproduce it. It shows only inside a full R3 session.
   - Holding v0.1.2 kept S17's position fix from users. On v0.1.1 the song time pins to the end from the second song of a seamless queue on.
   - v0.1.2 ships with the slow seek recorded as a known issue. S22 continues on `natevick/s22-seek-probe`, and the pre-registered next step is a 30-minute trace run.
+- **2026-10-14: SourceBuffer audio quota 4 MiB to 12 MiB (S22, coordinator's call; Nate may override).**
+  - Chromium's GC (`source_buffer_stream.cc` at fee3a7f3, lines 736-891) frees nothing ahead of the playhead here: the back pass stops at the last-appended GOP (1009-1040), and that GOP is the forward-fill tail. Browsers don't hit the quota throw because their audio default is 12 MiB (`demuxer_memory_limit.h:35-39`, picked in `demuxer_memory_limit_default.cc:11-16`).
+  - Bramley matches that limit and keeps `make_room` as is, since a back pass would not touch the captured case.
+  - Unmeasured: up to +8 MiB PSS per live audio SourceBuffer once forward fill reaches the quota. R1 was 174 of 200 (v1-3), and `docs/budget.md` has no measurement for this yet.

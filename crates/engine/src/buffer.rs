@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow};
 
 use crate::mp4::{self, SampleEnc, TrackInit};
 
-pub const SOURCE_BUFFER_QUOTA_BYTES: usize = 4 << 20;
+pub const SOURCE_BUFFER_QUOTA_BYTES: usize = 12 << 20;
 const EVICTION_MARGIN_US: i64 = 1_000_000;
 const RANGE_GAP_US: i64 = 50_000;
 
