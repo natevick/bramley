@@ -546,10 +546,13 @@ def probe_check(out, rules=probe_seek_rules):
 
 def soak_seek_steps(events):
     pairs = lambda *kinds: [(t, d) for t, kind, d in events if kind in kinds]
-    sized = [(int(d[2:]), t) for t, d in pairs('append') if re.fullmatch(r'ab\d+', d)]
-    at = {'debounce': min((t for t, _ in pairs('fetch', 'remove')), default=None), 'response': min((t for t, d in pairs('fetch') if d[:1].isdigit()), default=None),
-          'append': max(sized)[1] if sized else None, 'currentTime': min((t for t, _ in pairs('currentTime')), default=None),
-          'settle': min((t for t, d in pairs('seekToTime') if d == 'done'), default=None)}
+    after = lambda floor, found: min((t for t, _ in found if floor is None or t >= floor), default=None)
+    at = {'debounce': min((t for t, kind, d in events if kind == 'remove' or (kind == 'fetch' and not d[:1].isdigit())), default=None)}
+    at['response'] = after(at['debounce'], [(t, d) for t, d in pairs('fetch') if d[:1].isdigit()])
+    sized = [(int(d[2:]), t) for t, d in pairs('append') if re.fullmatch(r'ab\d+', d) and (at['response'] is None or t >= at['response'])]
+    at['append'] = max(sized)[1] if sized else None
+    at['currentTime'] = after(at['append'], pairs('currentTime'))
+    at['settle'] = after(None, [(t, d) for t, d in pairs('seekToTime') if d == 'done'])
     prev, grown, gone = 0.0, {}, False
     for name, fast in FAST_STEP_MS.items():
         here = at[name] if at[name] is not None else None if gone else SOAK_WINDOW_MS
@@ -560,13 +563,18 @@ def soak_seek_steps(events):
 
 
 def soak_trace_rules(ev):
-    if not ev.get('traceInstalled') or ev.get('seekWindows') is None:
-        return {'verdict': 'VOID', 'reasons': ['no trace installed or no seek windows recorded'], 'seeks': [], 'captured': [], 'identifiable': False}
+    wins, made = ev.get('seekWindows'), len(ev.get('seekTimes') or []) // 2
+    voids = [why for ok, why in ((ev.get('traceInstalled'), 'no trace installed'), (wins, 'no seek windows recorded'), (wins is None or len(wins) == made, f'{len(wins or [])} windows for {made} seeks'),
+                                 (all(w.get('seq') is not None for w in wins or []), 'a window has no seq'),
+                                 (all(len(w['rows']) >= PROBE_POLL_SHARE * SOAK_WINDOW_MS / 1000 / PROBE_POLL_S for w in wins or []), 'a window has too few polls'),
+                                 (all(any(k == 'seekToTime' for _, k, _ in w.get('trace') or []) for w in wins or []), 'a window has no seekToTime mark')) if not ok]
+    if voids:
+        return {'verdict': 'VOID', 'reasons': voids, 'seeks': [], 'captured': [], 'identifiable': False}
     seeks, caught = [], []
-    for w in ev['seekWindows']:
+    for w in wins:
         got = probe_seek_derive(w['rows'], w['tSeek'], w.get('seq'))
-        seeks.append({k: got[k] for k in ('duration', 'origin', 'tApp', 'tSkip')} | {'events': len(w.get('trace') or [])})
-        if w['rows'] and w.get('seq') is not None and w.get('trace') and (got['tApp'] is None or got['tApp'] >= SOAK_CAPTURE_S):
+        seeks.append({k: got[k] for k in ('duration', 'origin', 'tApp', 'tSkip')} | {'events': len(w['trace'])})
+        if got['tApp'] is None or got['tApp'] >= SOAK_CAPTURE_S:
             caught.append(seeks[-1] | soak_seek_steps(w['trace']) | {'throws': [d for _, k, d in w['trace'] if k == 'appendThrow']})
     return {'verdict': 'CAPTURED' if caught else 'NOT CAPTURED', 'reasons': [], 'seeks': seeks, 'captured': caught,
             'identifiable': any(c['growth'][c['waiting']] >= SOAK_WAIT_MS for c in caught)}
@@ -894,7 +902,8 @@ def verdict(out):
     if build.get('mode') == 'soak':
         v['countsTowardV1'] = False
         v['soak'] = soak_check(out, build.get('soakMinutes') or 0)
-        v['soakTrace'] = soak_trace_check(out) if build.get('trace') else None
+        traced = soak_trace_check(out) if build.get('trace') else None
+        v['soakTrace'] = traced and dict(traced, verdict=traced['verdict'] if safe else 'FAIL')
         v['gate'] = 'PASS' if safe and v['soak']['verdict'] == 'PASS' else 'VOID' if v['soak']['verdict'] == 'VOID' and safe else 'FAIL'
         return v
     if build.get('mode') in PROBE_MODES:

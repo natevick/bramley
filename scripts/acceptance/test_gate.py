@@ -1295,27 +1295,34 @@ def window(t_app=0.6, trace=None, **arm):
     return dict(got, trace=fast_steps() if trace is None else trace)
 
 
-def soak_ev(*windows, installed=True):
-    return {'traceInstalled': installed, 'seekWindows': list(windows)}
+def soak_ev(*windows, installed=True, seeks=None):
+    return {'traceInstalled': installed, 'seekWindows': list(windows), 'seekTimes': [1.0, 1.0] * (len(windows) if seeks is None else seeks)}
 
 
 class SoakTrace(unittest.TestCase):
     def test_each_outcome_is_reached_with_its_own_reason(self):
-        for name, ev, verdict in (
-            ('every seek fast', soak_ev(window(), window(0.8)), 'NOT CAPTURED'),
-            ('no seeks at all', soak_ev(), 'NOT CAPTURED'),
-            ('a seek at 1.4 s is not slow enough', soak_ev(window(1.4)), 'NOT CAPTURED'),
-            ('a seek at 1.6 s is captured', soak_ev(window(1.6)), 'CAPTURED'),
-            ('a seek that never settles is captured', soak_ev(window(None, t_skip=None)), 'CAPTURED'),
-            ('one slow seek among fast ones', soak_ev(window(), window(1.9), window()), 'CAPTURED'),
-            ('a slow seek with an empty timeline is not captured', soak_ev(window(1.9, trace=[])), 'NOT CAPTURED'),
-            ('a window with no rows is not captured', soak_ev(dict(window(1.9), rows=[])), 'NOT CAPTURED'),
-            ('a window with no seq is not captured', soak_ev(dict(window(1.9), seq=None)), 'NOT CAPTURED'),
-            ('no trace installed', soak_ev(window(1.9), installed=False), 'VOID'),
-            ('no seek windows recorded', {'traceInstalled': True}, 'VOID'),
+        for name, ev, verdict, reason in (
+            ('every seek fast', soak_ev(window(), window(0.8)), 'NOT CAPTURED', None),
+            ('a seek at 1.4 s is not slow enough', soak_ev(window(1.4)), 'NOT CAPTURED', None),
+            ('a seek at 1.6 s is captured', soak_ev(window(1.6)), 'CAPTURED', None),
+            ('a seek that never settles is captured', soak_ev(window(None, t_skip=None)), 'CAPTURED', None),
+            ('one slow seek among fast ones', soak_ev(window(), window(1.9), window()), 'CAPTURED', None),
+            ('48 polls is enough', soak_ev(dict(window(), rows=window()['rows'][:48])), 'NOT CAPTURED', None),
+            ('no trace installed', soak_ev(window(1.9), installed=False), 'VOID', 'no trace installed'),
+            ('no seek windows key', {'traceInstalled': True, 'seekTimes': []}, 'VOID', 'no seek windows recorded'),
+            ('no seeks at all', soak_ev(), 'VOID', 'no seek windows recorded'),
+            ('fewer windows than seeks', soak_ev(window(1.9), seeks=2), 'VOID', '1 windows for 2 seeks'),
+            ('more windows than seeks', soak_ev(window(1.9), window(), seeks=1), 'VOID', '2 windows for 1 seeks'),
+            ('a window with no seq', soak_ev(dict(window(1.9), seq=None)), 'VOID', 'no seq'),
+            ('a window with no rows', soak_ev(dict(window(1.9), rows=[])), 'VOID', 'too few polls'),
+            ('a window with 47 polls', soak_ev(dict(window(1.9), rows=window()['rows'][:47])), 'VOID', 'too few polls'),
+            ('a slow seek with an empty timeline', soak_ev(window(1.9, trace=[])), 'VOID', 'no seekToTime mark'),
+            ('a timeline without the seek mark', soak_ev(window(1.9, trace=[x for x in fast_steps() if x[1] != 'seekToTime'])), 'VOID', 'no seekToTime mark'),
         ):
             with self.subTest(name):
-                self.assertEqual(gate.soak_trace_rules(ev)['verdict'], verdict)
+                got = gate.soak_trace_rules(ev)
+                self.assertEqual(got['verdict'], verdict, got['reasons'])
+                self.assertTrue(reason is None or any(reason in r for r in got['reasons']), got['reasons'])
 
     def test_the_step_whose_delay_grew_the_most_is_named(self):
         for name, steps, waiting, growth, identifiable in (
@@ -1331,6 +1338,16 @@ class SoakTrace(unittest.TestCase):
                 self.assertEqual((got['captured'][0]['waiting'], got['identifiable']), (waiting, identifiable), got['captured'][0]['growth'])
                 self.assertEqual(got['captured'][0]['growth'][waiting], growth)
 
+    def test_stale_events_before_their_step_are_not_mistaken_for_it(self):
+        stale = [[10.0, 'fetch', '200 content-length=5'], [100.0, 'append', 'ab900000'], [50.0, 'currentTime', '1.0']]
+        got = gate.soak_trace_rules(soak_ev(window(1.9, trace=sorted(fast_steps() + stale))))['captured'][0]
+        self.assertEqual((got['steps']['response'], got['steps']['append'], got['steps']['currentTime']), (320.0, 387.0, 388.0))
+        self.assertEqual(got['growth'], {'debounce': 0.0, 'response': -26.0, 'append': -41.0, 'currentTime': 0.0, 'settle': 0.0})
+
+    def test_the_debounce_is_the_earliest_request_or_remove(self):
+        got = gate.soak_trace_rules(soak_ev(window(1.9, trace=sorted(fast_steps() + [[240.0, 'fetch', 'GET cdn.example~ab12']]))))['captured'][0]
+        self.assertEqual(got['steps']['debounce'], 240.0)
+
     def test_a_missing_step_is_named_as_the_one_the_window_ended_on(self):
         steps = [x for x in fast_steps() if x[1] != 'currentTime' and x[2] != 'done']
         got = gate.soak_trace_rules(soak_ev(window(1.9, trace=steps)))['captured'][0]
@@ -1339,7 +1356,7 @@ class SoakTrace(unittest.TestCase):
         self.assertNotIn('settle', got['growth'])
 
     def test_the_largest_append_is_the_segment_and_a_throw_is_listed(self):
-        steps = fast_steps() + [[200.0, 'append', 'ab970'], [900.0, 'appendThrow', 'QuotaExceededError']]
+        steps = fast_steps() + [[350.0, 'append', 'ab970'], [900.0, 'appendThrow', 'QuotaExceededError']]
         got = gate.soak_trace_rules(soak_ev(window(1.9, trace=steps)))['captured'][0]
         self.assertEqual((got['steps']['append'], got['throws']), (387.0, ['QuotaExceededError']))
 
@@ -1360,6 +1377,10 @@ class SoakTraceVerdict(unittest.TestCase):
     def test_the_trace_verdict_is_reported_beside_the_unchanged_soak_verdict(self):
         v = gate.verdict(SCRATCH)
         self.assertEqual((v['soak']['verdict'], v['soakTrace']['verdict'], v['gate']), ('PASS', 'CAPTURED', 'PASS'))
+
+    def test_an_unsafe_run_fails_the_trace_verdict_beside_a_capture(self):
+        put('leakgrep.json', hits={'repo': 0, 'run': 1})(SCRATCH)
+        self.assertEqual(gate.verdict(SCRATCH)['soakTrace']['verdict'], 'FAIL')
 
     def test_a_soak_without_trace_has_no_trace_verdict(self):
         put('build.json', trace=False)(SCRATCH)
