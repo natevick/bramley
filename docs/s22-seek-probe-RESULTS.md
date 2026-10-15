@@ -37,3 +37,47 @@ The PREREG said to re-run an INCONCLUSIVE once. I did not repeat the identical r
 The trace build's leaks, found while building probe-1:
 - `host()` keeps the query string or userinfo of a URL that has no path;
 - the CDM trace prints key ids.
+
+## s22-probe-2 (2026-10-14, commit 1115d66): INCONCLUSIVE
+
+The run was valid: commit 1115d66, clean tree, mode probe2, real state unchanged, leak grep clean, 8 license actions, 71 polls in every arm. LONG was entered by a natural change from PRED (seq at entry equals seq of the last queue add, 13).
+
+| Arm | Entry | Origin | t_skip | t_app |
+|---|---|---|---|---|
+| A | seamless from PRED, which played through | 144.9 | 0.6 | 0.6 |
+| F | fresh | 151.8 | 0.6 | 0.6 |
+| C | SHORT control | 151.8 | 0.8 | 0.8 |
+
+Arm A counted, but the seek was fast in that context too. By the pre-registered stop rule, blind probing ends here.
+
+### What the trace shows on the fast path
+
+Times are in milliseconds after `seekToTime` starts. This is the first trace of a seek.
+
+| Step | Arm A | Arm F |
+|---|---|---|
+| range fetch issued, then `remove(0, 490.8)` | 251 | 251 |
+| 970 B response appended | 320 | 346 |
+| 387 KB segment appended | 387 | 454 |
+| `currentTime` set | 388 (630.73) | 455 (490.8) |
+| `seekToTime` settles | 414 | 459 |
+
+The fast path is a 250 ms debounce, then two sequential range fetches, then the `currentTime` set.
+
+In arm A, `currentTime` is element time: 630.73 is LONG's timestamp offset of 139.93 plus 490.8. The `remove` end, 490.8, is the item-relative target.
+
+### Hypothesis that came out of the trace (not yet tested)
+
+The `remove` call uses the item-relative target, but MSE applies it in element time.
+
+**In probe-2, the remove clears the playhead.** LONG's offset was only 139.9, so the remove covered element 0 to 490.8. That is everything through item time 350.9: the playhead and the whole forward buffer. The target segment then had room to append.
+
+**In R3, the remove clears nothing relevant.** By the time R3 reaches LONG, about 19 minutes into the soak, the offset is far larger, so the remove misses the current item entirely. The forward buffer stays. `make_room` evicts only frames that end before playhead − margin (buffer.rs:85), and the quota is 4 MiB (buffer.rs:8). So appending the target segment can fail with a quota error, and MusicKit has to wait or retry.
+
+Browsers give audio a larger quota, and they can collect garbage ahead of the playhead.
+
+Two cases this does not yet explain:
+- the fast R3 seeks of LONG from about 287 s;
+- MID's steady ~1.75 s.
+
+The next step is a trace from an R3-shaped run, looking for an `appendBuffer` throw named `QuotaExceededError` inside a slow seek window.
