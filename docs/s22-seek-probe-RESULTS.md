@@ -74,7 +74,7 @@ The `remove` call uses the item-relative target, but MSE applies it in element t
 
 **In R3, the remove clears nothing relevant.** By the time R3 reaches LONG, about 19 minutes into the soak, the offset is far larger, so the remove misses the current item entirely. The forward buffer stays. `make_room` evicts only frames that end before playhead − margin (buffer.rs:85), and the quota is 4 MiB (buffer.rs:8). So appending the target segment can fail with a quota error, and MusicKit has to wait or retry.
 
-Browsers give audio a larger quota, and they can collect garbage ahead of the playhead.
+Browsers give audio a larger quota. (Correction, later the same day: Chromium does not collect garbage ahead of the playhead in this state; see the last section.)
 
 Two cases this does not yet explain:
 - the fast R3 seeks of LONG from about 287 s;
@@ -157,3 +157,32 @@ The quota retry (MID: about 0.7 s) is ours. MusicKit's `remove` frees nothing wh
 The fix makes eviction match Chromium's MSE garbage collection. Its pass condition is pre-registered before a re-run.
 
 LONG at about 150 s, the steady ~5 s case, was not captured: the R3 race gave it origin 290. Whether the quota retry is the whole of that case is unproven.
+
+### The quota fix tried, and why it is parked (2026-10-14)
+
+The fix was tried on `natevick/s22-eviction` at 790d646. It raises the quota to Chromium's 12 MiB desktop audio limit (`media/base/demuxer_memory_limit.h:35-39`, at chromium fee3a7f3) and is not merged.
+
+**Chromium would throw in this state too.** Its `GarbageCollectIfNeeded` (`media/filters/source_buffer_stream.cc:736-891`) frees nothing ahead of the playhead here:
+- it keeps the last-appended GOP;
+- its back pass stops rather than create gaps;
+- its pending-seek branch never fires, because MusicKit sets `currentTime` only after the append succeeds.
+
+The earlier claim that browsers collect garbage ahead of the playhead was wrong.
+
+**MusicKit fills to whatever quota exists.** The soak logged 239 `QuotaExceededError` throws in 30 minutes, at a median gap of 9.8 s; the probes logged 70 and 59, starting about 2 s in. A larger quota moves the cliff instead of removing it, adds an unmeasured +8–16 MiB per session, and its test only covers the 4 MiB-era state.
+
+**Throws do not track slow seeks.** In the seek windows across the soak and the probes:
+- throws occurred in fast seeks too: LONG from 290 at 372 ms, probe-3 A at 462 ms, and four other soak seeks;
+- the missing forward-range `remove` does not separate slow from fast: MID was slow, while LONG from 290 and probe-3 A were fast.
+
+Only MID's seek visibly waited on its own retry (about 0.7 s), so no eviction heuristic would target the slow seeks cleanly.
+
+## Where S22 stands
+
+**Explained:**
+- the 1.4–2.8 s seeks are network-path bursts, not Bramley;
+- one 0.7 s quota retry is MusicKit behaviour that Chromium likely shares.
+
+**Not explained:** the steady ~5 s seek of LONG from about 150 s. It was never captured with a trace, because R3's PRED-to-LONG seam race decides whether LONG is seeked at 150 or at 290.
+
+**Next step, if wanted:** make that race deterministic, then run one more traced soak.
