@@ -11,6 +11,7 @@ STALL_S, SOAK_CHANGES, SOAK_SLACK_MIN, REFILL_AT = 30.0, 30, 10 / 60, 4
 F5_COMMANDS, EVERY_REP = ('pause', 'seek', 'resume', 'next', 'prev'), ('pause', 'resume')
 ADVANCE_EPS_S, F5_SEEK_S, F5_POSITION_S, F5_ADVANCING_MS = 0.05, 120.0, 0.1, 3000
 DECRYPTED_MS, SKIPPED_MS, PACE_S, POSITION_SLACK_S, SEAM_S = 35000, 100, 1.0, 1.0, 1.0
+SEEK_SETTLE_S, LANDING_MAX_S, LANDING_EPS_S, SEEK_FROM_END_S = 15.0, 6.0, 0.05, 10
 F6_SENT_SLACK_S, F6_SKIPPED_S, F6_STALL_S, F6_LAND_S, F6_WINDOW_S = 3.0, 0.1, 1.0, 1.0, 5.0
 BAD_TOKEN_SEARCH, BAD_TOKEN_PLAY, NO_OUTPUT = 'developer token was rejected', 'developer token was rejected', 'the audio output could not be opened'
 TOOLS = sorted('search play pause resume next previous seek queue_add now_playing library_playlists open scroll'.split())
@@ -323,8 +324,25 @@ def lags(rows, seeks):
     lag = lambda a, b: round((b['t'] - a['t']) - (b['position'] - a['position']), 2)
     seams = seam_samples(rows)
     judged = [(a, b) for a, b in zip(rows, rows[1:]) if a.get('itemId') == b.get('itemId') and a.get('state') == b.get('state') == 'Playing' and id(a) not in seams
-              and a.get('position') is not None and b.get('position') is not None and not any(a['t'] - 1 <= t <= b['t'] + 1 for t in seeks) and not seam_reset(a, b)]
+              and a.get('position') is not None and b.get('position') is not None and not any(a['t'] - t < SEEK_SETTLE_S and t <= b['t'] + 1 for t in seeks) and not seam_reset(a, b)]
     return [lag(a, b) for a, b in judged if lag(a, b) > PACE_S]
+
+
+def seek_target(duration):
+    return round(duration - SEEK_FROM_END_S, 1)
+
+
+def seek_landing(rows, seek):
+    prior = [r for r in rows if r['t'] <= seek and r.get('itemId') and r.get('duration') is not None]
+    if not prior:
+        return None
+    item, target = prior[-1]['itemId'], seek_target(prior[-1]['duration'])
+    for r in (r for r in rows if r['t'] > seek):
+        if r.get('itemId') != item:
+            return None
+        if (r.get('position') or 0) > target + LANDING_EPS_S:
+            return round((r['t'] - seek) - (r['position'] - target), 2)
+    return None
 
 
 def r3_rules(ev, fails, sink):
@@ -354,6 +372,10 @@ def r3_rules(ev, fails, sink):
     stalls = lags(rows, ev.get('seekTimes') or [])
     if stalls:
         fails.append(f'position fell behind the wall clock by more than {PACE_S} s: {stalls}')
+    landings = [seek_landing(rows, seek) for seek in (ev.get('seekTimes') or [])[::2]]
+    unlanded = [x for x in landings if x is None or x > LANDING_MAX_S]
+    if unlanded:
+        fails.append(f'seek landing: {len(unlanded)} of {len(landings)} seeks took over {LANDING_MAX_S} s or never landed: {landings}')
     overrun = position_overruns(rows, fails)
     if g.get('uss') is not None:
         if g['uss'] > R3_BAR:
@@ -362,7 +384,7 @@ def r3_rules(ev, fails, sink):
             fails.append(f'PSS growth {g["pss"]} > {R3_BAR}')
     elif rows:
         fails.append('no samples at minute 5 or minute 30')
-    return dict(g, zone=None if g.get('uss') is None else 1 if g['uss'] > R3_BAR else 3, tracks=played, maxPositionOverrunS=overrun,
+    return dict(g, zone=None if g.get('uss') is None else 1 if g['uss'] > R3_BAR else 3, tracks=played, maxPositionOverrunS=overrun, seekLandingsS=landings,
                 outputUnderflows=underflows, readinessDips=dips,
                 changesAfter5=sum(1 for a, b in zip(rows, rows[1:]) if b['m'] >= 5 and a.get('itemId') != b.get('itemId')))
 

@@ -430,7 +430,7 @@ def r3(a, pre, loop=False):
         if at in starts and at not in sought and item == cur[0] and dur > SOAK_TRACK_S + 15 and pos - starts[at] >= SOAK_TRACK_S:
             sought.add(at)
             ev['seekTimes'].append(round(time.time(), 2))
-            a.cli('seek', str(round(dur - 10, 1)))
+            a.cli('seek', str(gate.seek_target(dur)))
             ev['seekTimes'].append(round(time.time(), 2))
             seeks[0] += 1
         return {'m': round((time.time() - start) / 60, 3), 'seeks': seeks[0]}

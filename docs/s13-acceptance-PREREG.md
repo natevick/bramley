@@ -504,3 +504,19 @@ A process whose only match is `libLLVM` is not a GPU client.
 **Nothing escapes.** Every Mesa GL client also maps `libgallium` or `radeonsi`, so dropping `libLLVM` alone hides none of them.
 
 **What counts.** `s17-counted-2` stays VOID on record. Its other readings are not judged. The decision run of `docs/s17-verification-PREREG.md` is `s17-counted-3`, run at the commit that carries Amendments 13 and 14 in code.
+
+## Amendment 15 (2026-10-15, S22: the seek is a hang guard, not a pacing probe; written before v013-counted-1)
+**Evidence.** `docs/s22-seek-probe-RESULTS.md` on `natevick/s22-seek-probe`. Post-seek landing time in R3 is dominated by the network path to Apple: range fetches of 0.5–1.2 s in bursty minutes, with every Apple endpoint slowing together. `v012-counted-1` failed R3 on `[1.06]`, the pacing lag of the first sampled pair after a slow seek, while playback itself was fine.
+
+**(a) The pacing rule.** `lags()` excludes every pair whose first sample is less than 15.0 s after an R3 seek. Before, it excluded only seeks within ±1 s. A seek that falls inside the pair still excludes it, as before.
+
+**(b) A new R3 check, seek landing.** For each R3 seek, on the item that was playing at the seek:
+- the target is `round(duration − 10, 1)`, which is what `drive.py` seeks to, so the gate rebuilds it from the item's duration in the last sample at or before the seek;
+- the landing is `(t − seek) − (position − target)`, taken at the first post-seek sample whose position exceeds the target by more than 0.05 s;
+- the check FAILs if any landing is over 6.0 s, or if a seek never lands before its item changes or the samples end.
+
+This is a hang guard, not a performance target. The observed range is 0.2–5.1 s over about 77 R3 seeks in 9 runs. Every landing is recorded in the R3 output as `seekLandingsS`. R3 stays one of the 16 checks.
+
+**Scope.** It applies to runs made at or after this commit.
+- `v012-counted-1` stays FAIL on record. Replaying its `r3.json` through the new rules gives R3 PASS with a max landing of 5.06 s over 8 seeks. That replay is a probe of the rule, not a re-judgement of that run.
+- No threshold of any other check changes.

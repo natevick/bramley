@@ -1,4 +1,4 @@
-import importlib.util, os, shutil, sys, unittest
+import importlib.util, json, os, shutil, sys, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location('gate', os.environ.get('GATE_UNDER_TEST', os.path.join(HERE, 'gate.py')))
@@ -123,6 +123,10 @@ def drift(by, ref='reference-after'):
 
 def soak_edit(fn):
     return edit('r3.json', lambda d: [fn(r) for r in d['samples']])
+
+
+def landing_at(position):
+    return both(put('r3.json', seekTimes=[1050.0, 1050.0]), edit('r3.json', lambda d: d['samples'][6].__setitem__('position', position)))
 
 
 def grow(key, by):
@@ -334,7 +338,10 @@ FUNCTIONAL = [
     ('R3 a drop in mid-item is a stall', edit('r3.json', lambda d: d['samples'][5].__setitem__('position', 0.2)), 'R3', 'FAIL', 'behind the wall clock'),
     ('R3 stall', soak_edit(lambda r: r.__setitem__('position', r['position'] - (1.1 if r['m'] >= 11 else 0))), 'R3', 'FAIL', 'behind the wall clock'),
     ('R3 lag at the tolerance', soak_edit(lambda r: r.__setitem__('position', r['position'] - (1.0 if r['m'] >= 11 else 0))), 'R3', 'PASS', None),
-    ('R3 a seek is not a stall', both(soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 11 else 0))), put('r3.json', seekTimes=[1000.0 + 10 * 65 + 5])), 'R3', 'PASS', None),
+    ('R3 a seek is not a stall', both(soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 12.25 else 0))), put('r3.json', seekTimes=[1735.0])), 'R3', 'PASS', None),
+    ('R3 a seek landing at the bar passes', landing_at(154.0), 'R3', 'PASS', None),
+    ('R3 a seek landing over the bar fails', landing_at(153.99), 'R3', 'FAIL', 'seek landing: 1 of 1 seeks took over 6.0 s or never landed: [6.01]'),
+    ('R3 a seek that never lands before its item changes fails', put('r3.json', seekTimes=[1745.0]), 'R3', 'FAIL', 'seek landing: 1 of 1 seeks took over 6.0 s or never landed: [None]'),
     ('R3 a seek near a pair only excuses that pair', both(soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 11 else 0))), put('r3.json', seekTimes=[1000.0 + 10 * 30])), 'R3', 'FAIL', 'behind the wall clock'),
     ('R3 an output underflow', edit('r3.json', lambda d: d['samples'][-1].__setitem__('outputUnderflows', 5)), 'R3', 'FAIL', 'output underflows during the soak: 1'),
     ('R3 output underflows unreadable', soak_edit(lambda r: r.pop('outputUnderflows')), 'R3', 'FAIL', 'outputUnderflows unreadable'),
@@ -759,6 +766,56 @@ class Soak(unittest.TestCase):
 
 def sample(t, item, position, duration, state='Playing'):
     return {'t': t, 'itemId': item, 'state': state, 'position': position, 'duration': duration}
+
+
+class SeekSettle(unittest.TestCase):
+    def pair(self):
+        return [sample(100.0, 'a', 10.0, 200.0), sample(110.0, 'a', 10.0, 200.0)]
+
+    def test_a_pair_14_9_s_after_a_seek_is_excluded(self):
+        self.assertEqual(gate.lags(self.pair(), [85.1]), [])
+
+    def test_a_pair_15_s_after_a_seek_is_judged(self):
+        self.assertEqual(gate.lags(self.pair(), [85.0]), [10.0])
+
+    def test_a_pair_the_seek_falls_inside_is_excluded_as_before(self):
+        self.assertEqual(gate.lags(self.pair(), [105.0]), [])
+
+    def test_a_pair_before_the_seek_is_judged(self):
+        self.assertEqual(gate.lags(self.pair(), [111.1]), [10.0])
+
+
+class SeekLanding(unittest.TestCase):
+    def landing(self, position, t=1010.0, item='a'):
+        return gate.seek_landing([sample(1000.0, 'a', 70.0, 200.0), sample(t, item, position, 200.0)], 1000.0)
+
+    def test_the_landing_is_the_wall_time_less_the_playback_past_the_target(self):
+        self.assertEqual(self.landing(194.0), 6.0)
+
+    def test_the_first_sample_not_past_the_target_by_more_than_the_epsilon_does_not_land(self):
+        self.assertIsNone(self.landing(190.05))
+        self.assertEqual(self.landing(190.06), 9.94)
+
+    def test_a_sample_on_another_item_is_not_a_landing(self):
+        self.assertIsNone(self.landing(194.0, item='b'))
+
+    def test_a_seek_with_no_sample_before_it_has_no_landing(self):
+        self.assertIsNone(gate.seek_landing([sample(1010.0, 'a', 194.0, 200.0)], 1000.0))
+
+    def test_the_target_is_the_one_the_driver_seeks_to(self):
+        self.assertEqual(gate.seek_target(243.863), 233.9)
+
+
+class Replay(unittest.TestCase):
+    RECORDED = '/home/norm/projects/Personal/bramley-wt-v012/target/acceptance/v012-counted-1/r3.json'
+
+    @unittest.skipUnless(os.path.exists(RECORDED), 'the recorded run is not on this machine')
+    def test_v012_counted_1_r3_passes_with_a_max_landing_of_5_06(self):
+        with open(self.RECORDED) as f:
+            ev = json.load(f)
+        fails = []
+        out = gate.r3_rules(ev, fails, None)
+        self.assertEqual((fails, max(out['seekLandingsS']), len(out['seekLandingsS'])), ([], 5.06, 8))
 
 
 class SeamSample(unittest.TestCase):
