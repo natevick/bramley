@@ -21,6 +21,8 @@ PROBE_STALL_S, PROBE_GAP_S, PROBE_SLOPE, PROBE_IDLE_S, PROBE_STALE_S, PROBE_SILE
 PROBE_SETTLE_S, PROBE_NEAR_S, PROBE_FAR_S = 2.0, 1.0, 3.0
 PROBE2_ACTIONS, PROBE2_PRED_S, PROBE2_ORIGIN_S = 10, 139.88, (138.0, 160.0)
 PROBE3_ACTIONS, PROBE3_SHORT_S, PROBE3_SET_S, PROBE3_SET_TOL_S = 8, 243.86, 874.5, 1.5
+SOAK_CAPTURE_S, SOAK_WAIT_MS, SOAK_WINDOW_MS = 1.5, 1000, 12000
+FAST_STEP_MS = {'debounce': 251, 'response': 95, 'append': 108, 'currentTime': 1, 'settle': 26}
 CHECKS = ('F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6')
 EVIDENCE = {'F1': ('f1',), 'F2': ('f2',), 'F3': ('f3',), 'F4': ('f4',), 'F5': ('f5',), 'F6': ('f6',), 'F7': ('f7',), 'F8': ('f8',), 'F9': ('f9',),
             'F10': ('f10-badid', 'f10-net'), 'R3': ('r3',), 'R4': ('r4',), 'R5': ('r5',)}
@@ -542,6 +544,47 @@ def probe_check(out, rules=probe_seek_rules):
     return dict(judged, verdict='FAIL' if fails else 'VOID' if voids else judged['verdict'], reasons=fails + voids + judged['reasons'])
 
 
+def soak_seek_steps(events):
+    pairs = lambda *kinds: [(t, d) for t, kind, d in events if kind in kinds]
+    sized = [(int(d[2:]), t) for t, d in pairs('append') if re.fullmatch(r'ab\d+', d)]
+    at = {'debounce': min((t for t, _ in pairs('fetch', 'remove')), default=None), 'response': min((t for t, d in pairs('fetch') if d[:1].isdigit()), default=None),
+          'append': max(sized)[1] if sized else None, 'currentTime': min((t for t, _ in pairs('currentTime')), default=None),
+          'settle': min((t for t, d in pairs('seekToTime') if d == 'done'), default=None)}
+    prev, grown, gone = 0.0, {}, False
+    for name, fast in FAST_STEP_MS.items():
+        here = at[name] if at[name] is not None else None if gone else SOAK_WINDOW_MS
+        gone |= at[name] is None
+        if here is not None:
+            grown[name], prev = round(here - prev - fast, 1), max(prev, here)
+    return {'steps': at, 'growth': grown, 'waiting': max(grown, key=grown.get)}
+
+
+def soak_trace_rules(ev):
+    if not ev.get('traceInstalled') or ev.get('seekWindows') is None:
+        return {'verdict': 'VOID', 'reasons': ['no trace installed or no seek windows recorded'], 'seeks': [], 'captured': [], 'identifiable': False}
+    seeks, caught = [], []
+    for w in ev['seekWindows']:
+        got = probe_seek_derive(w['rows'], w['tSeek'], w.get('seq'))
+        seeks.append({k: got[k] for k in ('duration', 'origin', 'tApp', 'tSkip')} | {'events': len(w.get('trace') or [])})
+        if w['rows'] and w.get('seq') is not None and w.get('trace') and (got['tApp'] is None or got['tApp'] >= SOAK_CAPTURE_S):
+            caught.append(seeks[-1] | soak_seek_steps(w['trace']) | {'throws': [d for _, k, d in w['trace'] if k == 'appendThrow']})
+    return {'verdict': 'CAPTURED' if caught else 'NOT CAPTURED', 'reasons': [], 'seeks': seeks, 'captured': caught,
+            'identifiable': any(c['growth'][c['waiting']] >= SOAK_WAIT_MS for c in caught)}
+
+
+def soak_trace_check(out):
+    missing, fails, voids = session_problems(out)
+    ev, sink = load(out, 'soak.r3.json'), (load(out, 'session.verdict.json') or {}).get('sink')
+    missing += [] if ev else ['missing evidence: soak.r3.json']
+    if ev:
+        more_voids, more_missing = guard_voids(out, ev, sink, True)
+        voids, missing = voids + more_voids + renderer_voids(ev.get('renderers') or [], 'soak'), missing + more_missing
+    if missing:
+        return {'verdict': 'FAIL', 'reasons': missing + fails + voids}
+    traced = soak_trace_rules(ev)
+    return dict(traced, verdict='FAIL' if fails else 'VOID' if voids else traced['verdict'], reasons=fails + voids + traced['reasons'])
+
+
 def readable_delta(rows, key):
     return rows[-1][key] - rows[0][key] if rows and rows[0].get(key) is not None and rows[-1].get(key) is not None else None
 
@@ -851,6 +894,7 @@ def verdict(out):
     if build.get('mode') == 'soak':
         v['countsTowardV1'] = False
         v['soak'] = soak_check(out, build.get('soakMinutes') or 0)
+        v['soakTrace'] = soak_trace_check(out) if build.get('trace') else None
         v['gate'] = 'PASS' if safe and v['soak']['verdict'] == 'PASS' else 'VOID' if v['soak']['verdict'] == 'VOID' and safe else 'FAIL'
         return v
     if build.get('mode') in PROBE_MODES:
@@ -879,7 +923,7 @@ def verdict(out):
 
 def brief(v):
     keep = lambda c: {k: x for k, x in c.items() if k not in ('reasons',) or x}
-    return dict(gate=v['gate'], realStateUnchanged=v['realStateUnchanged'], leakGrep=v['leakGrep'], pacing=v.get('pacing'), soak=v.get('soak'), probe=v.get('probe'), countsTowardV1=v.get('countsTowardV1'), checks={n: keep(c) for n, c in (v.get('checks') or {}).items()},
+    return dict(gate=v['gate'], realStateUnchanged=v['realStateUnchanged'], leakGrep=v['leakGrep'], pacing=v.get('pacing'), soak=v.get('soak'), soakTrace=v.get('soakTrace'), probe=v.get('probe'), countsTowardV1=v.get('countsTowardV1'), checks={n: keep(c) for n, c in (v.get('checks') or {}).items()},
                 ballast=v.get('ballast') and keep(v['ballast']), reference=v['reference'], controls=v.get('controls'), llvmpipeControl=v.get('llvmpipeControl'), errors=v['errors'])
 
 

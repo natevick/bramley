@@ -1285,5 +1285,94 @@ class ProbeV3Verdict(unittest.TestCase):
         self.assertEqual(gate.verdict(SCRATCH)['gate'], 'FAIL')
 
 
+def fast_steps(response=320.0, append=387.0, current=388.0, settle=414.0, debounce=251.0):
+    return [[0.0, 'seekToTime', 'start'], [debounce + 1.0, 'fetch', 'GET cdn.example~ab12'], [debounce, 'remove', '0,490.8'], [response, 'fetch', '200 content-length=970'], [append, 'append', 'ab387000'],
+            [current, 'currentTime', '630.7'], [settle, 'seekToTime', 'done']]
+
+
+def window(t_app=0.6, trace=None, **arm):
+    got = probe_arm(**dict(dict(t_skip=t_app, t_app=t_app, origin=145.0), **arm))
+    return dict(got, trace=fast_steps() if trace is None else trace)
+
+
+def soak_ev(*windows, installed=True):
+    return {'traceInstalled': installed, 'seekWindows': list(windows)}
+
+
+class SoakTrace(unittest.TestCase):
+    def test_each_outcome_is_reached_with_its_own_reason(self):
+        for name, ev, verdict in (
+            ('every seek fast', soak_ev(window(), window(0.8)), 'NOT CAPTURED'),
+            ('no seeks at all', soak_ev(), 'NOT CAPTURED'),
+            ('a seek at 1.4 s is not slow enough', soak_ev(window(1.4)), 'NOT CAPTURED'),
+            ('a seek at 1.6 s is captured', soak_ev(window(1.6)), 'CAPTURED'),
+            ('a seek that never settles is captured', soak_ev(window(None, t_skip=None)), 'CAPTURED'),
+            ('one slow seek among fast ones', soak_ev(window(), window(1.9), window()), 'CAPTURED'),
+            ('a slow seek with an empty timeline is not captured', soak_ev(window(1.9, trace=[])), 'NOT CAPTURED'),
+            ('a window with no rows is not captured', soak_ev(dict(window(1.9), rows=[])), 'NOT CAPTURED'),
+            ('a window with no seq is not captured', soak_ev(dict(window(1.9), seq=None)), 'NOT CAPTURED'),
+            ('no trace installed', soak_ev(window(1.9), installed=False), 'VOID'),
+            ('no seek windows recorded', {'traceInstalled': True}, 'VOID'),
+        ):
+            with self.subTest(name):
+                self.assertEqual(gate.soak_trace_rules(ev)['verdict'], verdict)
+
+    def test_the_step_whose_delay_grew_the_most_is_named(self):
+        for name, steps, waiting, growth, identifiable in (
+            ('the response waits', fast_steps(response=3320.0, append=3387.0, current=3388.0, settle=3414.0), 'response', 2974.0, True),
+            ('the append waits', fast_steps(append=4387.0, current=4388.0, settle=4414.0), 'append', 3959.0, True),
+            ('the debounce waits', fast_steps(debounce=2251.0, response=2320.0, append=2387.0, current=2388.0, settle=2414.0), 'debounce', 2000.0, True),
+            ('the settle waits', fast_steps(settle=5414.0), 'settle', 5000.0, True),
+            ('the currentTime set waits', fast_steps(current=2388.0, settle=2414.0), 'currentTime', 2000.0, True),
+            ('a small delay is named but not identifiable', fast_steps(response=620.0, append=687.0, current=688.0, settle=714.0), 'response', 274.0, False),
+        ):
+            with self.subTest(name):
+                got = gate.soak_trace_rules(soak_ev(window(1.9, trace=steps)))
+                self.assertEqual((got['captured'][0]['waiting'], got['identifiable']), (waiting, identifiable), got['captured'][0]['growth'])
+                self.assertEqual(got['captured'][0]['growth'][waiting], growth)
+
+    def test_a_missing_step_is_named_as_the_one_the_window_ended_on(self):
+        steps = [x for x in fast_steps() if x[1] != 'currentTime' and x[2] != 'done']
+        got = gate.soak_trace_rules(soak_ev(window(1.9, trace=steps)))['captured'][0]
+        self.assertEqual((got['waiting'], got['steps']['currentTime'], got['steps']['settle']), ('currentTime', None, None))
+        self.assertEqual(got['growth']['currentTime'], 12000 - 387 - 1)
+        self.assertNotIn('settle', got['growth'])
+
+    def test_the_largest_append_is_the_segment_and_a_throw_is_listed(self):
+        steps = fast_steps() + [[200.0, 'append', 'ab970'], [900.0, 'appendThrow', 'QuotaExceededError']]
+        got = gate.soak_trace_rules(soak_ev(window(1.9, trace=steps)))['captured'][0]
+        self.assertEqual((got['steps']['append'], got['throws']), (387.0, ['QuotaExceededError']))
+
+    def test_the_per_seek_record_names_duration_origin_and_settle_without_an_id(self):
+        got = gate.soak_trace_rules(soak_ev(window(1.8)))['seeks'][0]
+        self.assertEqual((got['duration'], got['origin'], got['tApp'], got['tSkip']), (500.79, 145.0, 1.8, 1.8))
+
+
+class SoakTraceVerdict(unittest.TestCase):
+    def setUp(self):
+        shutil.rmtree(SCRATCH, ignore_errors=True)
+        os.makedirs(SCRATCH)
+        self.addCleanup(shutil.rmtree, SCRATCH, True)
+        write_soak(SCRATCH)
+        put('build.json', trace=True)(SCRATCH)
+        put('soak.r3.json', **soak_ev(window(1.9)))(SCRATCH)
+
+    def test_the_trace_verdict_is_reported_beside_the_unchanged_soak_verdict(self):
+        v = gate.verdict(SCRATCH)
+        self.assertEqual((v['soak']['verdict'], v['soakTrace']['verdict'], v['gate']), ('PASS', 'CAPTURED', 'PASS'))
+
+    def test_a_soak_without_trace_has_no_trace_verdict(self):
+        put('build.json', trace=False)(SCRATCH)
+        self.assertIsNone(gate.verdict(SCRATCH)['soakTrace'])
+
+    def test_a_stream_off_the_null_sink_voids_the_trace_verdict(self):
+        put('soak.shipped.guard.json', log=[])(SCRATCH)
+        self.assertEqual(gate.verdict(SCRATCH)['soakTrace']['verdict'], 'VOID')
+
+    def test_missing_soak_evidence_fails_the_trace_verdict(self):
+        os.remove(os.path.join(SCRATCH, 'soak.r3.json'))
+        self.assertEqual(gate.verdict(SCRATCH)['soakTrace']['verdict'], 'FAIL')
+
+
 if __name__ == '__main__':
     unittest.main(argv=sys.argv[:1] + [a for a in sys.argv[1:] if a.startswith('-')])
