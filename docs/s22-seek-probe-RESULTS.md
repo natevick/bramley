@@ -138,3 +138,22 @@ The quota error happens because the remove range is item-relative while MSE appl
 Open question, which sets the fix: why are the range fetches 5 to 10 times slower inside the soak than in the probes? Candidates:
 - queueing in our network layer behind cover or forward-fill downloads, or connection handling;
 - real CDN variance.
+
+### Why the range fetches were slow (investigator, 2026-10-14)
+
+Our network layer is not the bottleneck. These are verified from code and logs:
+- **No queue or cap:** every JS fetch gets its own thread, and ureq 3.4.2 HTTP/1.1 keep-alive pools them, so no fetch queues behind another (net.rs:85-95, 139-162). Covers use a separate agent, and all 50 had loaded by t=14 s.
+- **No link to concurrency:** across all 699 soak fetches, duration does not correlate with the number of fetches in flight (Spearman ρ −0.00 on the audio host). The probes show the same: 0.00 and −0.02.
+- **Slow in bursts:** the slowness came in wall-clock minutes. The audio host's per-minute median was 341–1239 ms in minutes 1–2 and 7–16, and 29–62 ms in minutes 19–26.
+- **Every Apple endpoint slowed together:** the license POST went from 187 to 2503 ms and the activity POST from 337 to 1228 ms.
+- **The cost is per request, not bandwidth:** a 970 B fetch took longer than the 338 KB fetch after it.
+
+Ranked causes (inferred): latency on the local link or upstream, then Apple CDN variance. This part of the slow seek is not a Bramley defect.
+
+### What S22 fixes
+
+The quota retry (MID: about 0.7 s) is ours. MusicKit's `remove` frees nothing when the item's timestamp offset is non-zero, and `make_room` (buffer.rs:85) evicts only data behind the playhead, so a far-ahead target append throws `QuotaExceededError`.
+
+The fix makes eviction match Chromium's MSE garbage collection. Its pass condition is pre-registered before a re-run.
+
+LONG at about 150 s, the steady ~5 s case, was not captured: the R3 race gave it origin 290. Whether the quota retry is the whole of that case is unproven.
