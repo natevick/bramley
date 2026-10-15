@@ -18,6 +18,7 @@ ALBUM = ['6781024028', '6781024424', '6781024426', '6781024428', '6781024429', '
          '6781024436', '6781024437', '6781024440', '6781024441', '6781024442', '6781024443', '6781024444', '6781024445', '6781024448']
 F8_ORDER, TERM, BAD_ID = [ALBUM[9], ALBUM[0], ALBUM[6], ALBUM[3]], 'bohemian rhapsody', '1'
 SOAK_S, SOAK_EVERY_S, SOAK_TRACK_S, F6_WINDOW_S, RECOVER_S, CUT_BEFORE_END_S = 1800, 10, 150, 5, 90, 3
+TRACE_RUN = False
 HOLE_BAR_S = 20
 NAMES = {'library': set(), 'catalog': set()}
 COUNTERS = ('sentMs', 'skippedMs', 'decryptedMs', 'readinessDips', 'outputUnderflows', 'decryptFails', 'drainsAcked', 'drainTimeouts')
@@ -407,6 +408,9 @@ def r3(a, pre, loop=False):
     seeks, starts, sought, start = [0], {}, set(), time.time()
     underflows, queued, cur, stalls = [a.snap().get('outputUnderflows') or 0], [len(ALBUM)], [None], gate.StallWatch()
     ev['stalls'] = stalls.stalls
+    log, watchers = TRACE_RUN and probe_seek.TraceLog(a.log.name), []
+    if log:
+        ev.update(traceInstalled=any('trace installed' in line for line in log.lines(0, log.mark())), seekWindows=[])
 
     def pace():
         s = a.snap()
@@ -431,7 +435,7 @@ def r3(a, pre, loop=False):
         if at in starts and at not in sought and item == cur[0] and dur > SOAK_TRACK_S + 15 and pos - starts[at] >= SOAK_TRACK_S:
             sought.add(at)
             ev['seekTimes'].append(round(time.time(), 2))
-            a.cli('seek', str(round(dur - 10, 1)))
+            watchers.append(probe_seek.windowed_seek(a, log, ('seek', str(round(dur - 10, 1))), ev['seekWindows'])) if log else a.cli('seek', str(round(dur - 10, 1)))
             ev['seekTimes'].append(round(time.time(), 2))
             seeks[0] += 1
         return {'m': round((time.time() - start) / 60, 3), 'seeks': seeks[0]}
@@ -444,6 +448,7 @@ def r3(a, pre, loop=False):
                 time.sleep(1)
                 pace()
     finally:
+        [w.join(15) for w in watchers]
         ev['samples'] = rows
         evidence(a.out, f'{pre}r3.json', ev, a)
 
@@ -833,7 +838,7 @@ def phases(out, mode, bins, sock, sink):
         return
     yield 'reference', lambda: reference(out, sock, sink, 'reference')
     if mode == 'soak':
-        yield 'soak', lambda: signed_in('soak', lambda e, c: main_session(out, shipped, e, sink, 'soak.', ('soak',)))
+        yield 'soak', lambda: signed_in('soak', lambda e, c: main_session(out, b('bramley-trace') if TRACE_RUN else shipped, e, sink, 'soak.', ('soak',)))
     elif mode == 'llvmpipe':
         yield 'f1', lambda: signed_in('f1', lambda e, c: f1(out, shipped, e, sink))
         yield 'f4', lambda: signed_in('f4', lambda e, c: f4_cold(out, shipped, e, sink))
@@ -905,8 +910,9 @@ def prior_actions():
         return []
 
 
-def run(out, mode, soak_minutes=None):
-    global PACER, SOAK_S
+def run(out, mode, soak_minutes=None, trace=False):
+    global PACER, SOAK_S, TRACE_RUN
+    TRACE_RUN = trace
     SOAK_S = int(soak_minutes * 60) if soak_minutes else SOAK_S
     PACER = gate.Pacer(prior_actions(), keep=keep_actions)
     os.makedirs(os.path.join(ROOT, 'target', 'tmp'), exist_ok=True)
@@ -951,11 +957,12 @@ def main():
     ap.add_argument('--out')
     ap.add_argument('--mode', choices=('counted', 'llvmpipe', 'controls', 'soak', 'probe', 'probe2', 'probe3'), default='counted')
     ap.add_argument('--soak-minutes', type=float)
+    ap.add_argument('--trace', action='store_true')
     ap.add_argument('--cleanup')
     a = ap.parse_args()
     if a.cleanup:
         return cleanup(a.cleanup)
-    run(a.out, a.mode, a.soak_minutes)
+    run(a.out, a.mode, a.soak_minutes, a.trace)
 
 
 if __name__ == '__main__':

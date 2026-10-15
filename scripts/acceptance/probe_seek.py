@@ -1,4 +1,4 @@
-import json, os, re, time
+import json, os, re, threading, time
 
 FIELDS = ('position', 'applied', 'seq', 'skippedMs', 'sentMs', 'duration', 'state')
 ID = re.compile(r'[A-Za-z0-9._-]+')
@@ -58,6 +58,29 @@ class TraceLog:
         with open(self.path, 'rb') as f:
             f.seek(start)
             return f.read(end - start).decode(errors='replace').splitlines()
+
+
+def windowed_seek(a, trace, args, windows, clock=time.time, sleep=time.sleep, post=12.0, poll=0.2):
+    logged, rows, first, held = trace.mark(), [], threading.Event(), {}
+
+    def watch():
+        start = clock()
+        while clock() < held.get('t', start) + post:
+            s = a.snap()
+            rows.append(dict({k: s.get(k) for k in FIELDS}, t=clock(), itemId=None))
+            first.set()
+            sleep(poll)
+        windows.append({'tSeek': held.get('t', start), 'seq': held.get('seq'), 'rows': rows, 'trace': parse_trace(trace.lines(logged, trace.mark()))})
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+    first.wait(5)
+    sleep(0.01)
+    try:
+        reply = a.cli(*args)[1]
+    finally:
+        held['t'] = a.last_t
+    held['seq'] = reply.get('seq')
+    return watcher
 
 
 class Run:
