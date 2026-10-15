@@ -20,6 +20,7 @@ PROBE_POLL_S, PROBE_PRE_S, PROBE_POST_S, PROBE_POLL_SHARE = 0.2, 2.0, 12.0, 0.8
 PROBE_STALL_S, PROBE_GAP_S, PROBE_SLOPE, PROBE_IDLE_S, PROBE_STALE_S, PROBE_SILENCE = 3.0, 1.0, (0.9, 1.1), 0.5, 3.0, 0.5
 PROBE_SETTLE_S, PROBE_NEAR_S, PROBE_FAR_S = 2.0, 1.0, 3.0
 PROBE2_ACTIONS, PROBE2_PRED_S, PROBE2_ORIGIN_S = 10, 139.88, (138.0, 160.0)
+PROBE3_ACTIONS, PROBE3_SHORT_S, PROBE3_SET_S, PROBE3_SET_TOL_S = 8, 243.86, 874.5, 1.5
 CHECKS = ('F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6')
 EVIDENCE = {'F1': ('f1',), 'F2': ('f2',), 'F3': ('f3',), 'F4': ('f4',), 'F5': ('f5',), 'F6': ('f6',), 'F7': ('f7',), 'F8': ('f8',), 'F9': ('f9',),
             'F10': ('f10-badid', 'f10-net'), 'R3': ('r3',), 'R4': ('r4',), 'R5': ('r5',)}
@@ -507,6 +508,27 @@ def probe2_rules(ev):
     return {'verdict': verdict, 'reasons': voids or uncounted or ([] if verdict == 'PASS' else [f'A reproduces {defect}, entry effect {origin}']), 'defect': defect, 'entryEffect': origin, 'arms': arms}
 
 
+def probe_seek_v3_rules(ev):
+    rawA = (ev.get('arms') or {}).get('A') or {}
+    armV = probe_seek_derive(rawA.get('rows') or [], rawA.get('tSeek') or 0, rawA.get('seq'))
+    need, within, entry = PROBE_POLL_SHARE * (PROBE_PRE_S + PROBE_POST_S) / PROBE_POLL_S, lambda x, lo, hi: x is not None and lo <= x <= hi, ev.get('entry') or {}
+    sets = [e[2] for e in rawA.get('trace') or [] if e[1] == 'currentTime']
+    steps = entry.get('order') or []
+    near = lambda v: within(float(v) if re.fullmatch(r'\d+(\.\d+)?', str(v)) else None, PROBE3_SET_S - PROBE3_SET_TOL_S, PROBE3_SET_S + PROBE3_SET_TOL_S)
+    voids = [why for ok, why in ((armV['polls'] >= need, f'arm A: {armV["polls"]} polls < {need:g}'), (armV['itemId'] == 'LONG', f'arm A item {armV["itemId"]}'),
+                                 ([x[0] for x in steps] == ['SHORT', 'PRED', 'LONG'] and all(x[1] is not None and x[1] == entry.get('lastSeq') for x in steps[1:]),
+                                  f'PRED and LONG were not reached by natural item changes from SHORT: {steps}, last command {entry.get("lastSeq")}'),
+                                 (within(armV['origin'], *PROBE2_ORIGIN_S), f'arm A origin {armV["origin"]}'), (armV['seqDelta'] == 1, f'arm A seq delta {armV["seqDelta"]}'),
+                                 (any(near(v) for v in sets), f'no currentTime set near {PROBE3_SET_S} in arm A: {sets}')) if not ok]
+    pace, hold, settle = armV['slope'], armV['tSkip'], armV['tApp']
+    defect = within(hold, PROBE_STALL_S, math.inf) and settle is not None and 0 <= settle - hold <= PROBE_GAP_S and within(pace, *PROBE_SLOPE)
+    verdict = 'VOID' if voids else 'REPRODUCED' if defect else 'NOT REPRODUCED'
+    return {'verdict': verdict, 'reasons': voids or ([] if defect else [f'A stall {hold}, settle {settle}, slope {pace}']), 'defect': defect, 'arms': {'A': armV}}
+
+
+PROBE_MODES = {'probe': (probe_seek_rules, PROBE_ACTIONS), 'probe2': (probe2_rules, PROBE2_ACTIONS), 'probe3': (probe_seek_v3_rules, PROBE3_ACTIONS)}
+
+
 def probe_check(out, rules=probe_seek_rules):
     missing, fails, voids = session_problems(out)
     ev, sink = load(out, 'probe.json'), (load(out, 'session.verdict.json') or {}).get('sink')
@@ -831,8 +853,8 @@ def verdict(out):
         v['soak'] = soak_check(out, build.get('soakMinutes') or 0)
         v['gate'] = 'PASS' if safe and v['soak']['verdict'] == 'PASS' else 'VOID' if v['soak']['verdict'] == 'VOID' and safe else 'FAIL'
         return v
-    if build.get('mode') in ('probe', 'probe2'):
-        rules, cap = (probe_seek_rules, PROBE_ACTIONS) if build['mode'] == 'probe' else (probe2_rules, PROBE2_ACTIONS)
+    if build.get('mode') in PROBE_MODES:
+        rules, cap = PROBE_MODES[build['mode']]
         v['probe'] = probe_check(out, rules)
         v['gate'] = v['probe']['verdict'] if safe and v['pacing'].get('actions', cap + 1) <= cap else 'FAIL'
         return v

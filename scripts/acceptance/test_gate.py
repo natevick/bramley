@@ -1202,5 +1202,88 @@ class ProbeV2Verdict(unittest.TestCase):
         self.assertEqual(gate.verdict(SCRATCH)['gate'], 'VOID')
 
 
+V3_ENTRY = {'order': [['SHORT', 1], ['PRED', 9], ['LONG', 9]], 'lastSeq': 9}
+V3_TRACE = [[0.0, 'seekToTime', 'start'], [388.0, 'currentTime', '874.5']]
+
+
+def v3_ev(entry=None, trace=V3_TRACE, **arm):
+    a = probe_arm(**dict(dict(t_skip=4.4, t_app=4.6, origin=145.0), **arm))
+    a['trace'] = trace
+    return {'arms': {'A': a}, 'entry': V3_ENTRY if entry is None else entry}
+
+
+class ProbeV3(unittest.TestCase):
+    def test_each_outcome_is_reached_with_its_own_reason(self):
+        for name, kw, verdict, reason in (
+            ('the defect is shown', {}, 'REPRODUCED', None),
+            ('every threshold exactly on its bar', {'t_skip': 3.0, 't_app': 4.0}, 'REPRODUCED', None),
+            ('origin 138 is inclusive', {'origin': 138.0}, 'REPRODUCED', None),
+            ('origin 160 is inclusive', {'origin': 160.0}, 'REPRODUCED', None),
+            ('currentTime 873 is inclusive', {'trace': [[1.0, 'currentTime', '873.0']]}, 'REPRODUCED', None),
+            ('currentTime 876 is inclusive', {'trace': [[1.0, 'currentTime', '876.0']]}, 'REPRODUCED', None),
+            ('one matching set among others', {'trace': [[1.0, 'currentTime', 'str5'], [2.0, 'currentTime', '630.7'], [3.0, 'currentTime', '875.0']]}, 'REPRODUCED', None),
+            ('other trace events are recorded, not judged', {'trace': V3_TRACE + [[5.0, 'appendThrow', 'QuotaExceededError']]}, 'REPRODUCED', None),
+            ('80% of the polls is enough', {'polls': 56}, 'REPRODUCED', None),
+            ('A lands fast', dict(t_skip=0.2, t_app=0.4), 'NOT REPRODUCED', 'A stall 0.2'),
+            ('stall under 3 s', dict(t_skip=2.8, t_app=3.4), 'NOT REPRODUCED', 'A stall 2.8'),
+            ('settle gap over 1 s', dict(t_skip=4.0, t_app=5.2), 'NOT REPRODUCED', 'A stall 4.0'),
+            ('settle before the discard', dict(t_skip=4.0, t_app=3.8), 'NOT REPRODUCED', 'A stall 4.0'),
+            ('slope under 0.9', {'slope': 0.8}, 'NOT REPRODUCED', 'slope 0.8'),
+            ('slope over 1.1', {'slope': 1.2}, 'NOT REPRODUCED', 'slope 1.2'),
+            ('A with 55 of 70 polls', {'polls': 55}, 'VOID', 'arm A: 55 polls'),
+            ('A on the wrong item', {'item': 'other'}, 'VOID', 'item other'),
+            ('origin under 138', {'origin': 137.8}, 'VOID', 'origin 137.8'),
+            ('origin over 160', {'origin': 160.2}, 'VOID', 'origin 160.2'),
+            ('A seq delta 2', {'seq_delta': 2}, 'VOID', 'seq delta 2'),
+            ('the small-offset set of probe-2', {'trace': [[1.0, 'currentTime', '630.73']]}, 'VOID', 'no currentTime set near'),
+            ('currentTime just under the band', {'trace': [[1.0, 'currentTime', '872.9']]}, 'VOID', 'no currentTime set near'),
+            ('currentTime just over the band', {'trace': [[1.0, 'currentTime', '876.1']]}, 'VOID', 'no currentTime set near'),
+            ('no currentTime set', {'trace': [[0.0, 'seekToTime', 'start']]}, 'VOID', 'no currentTime set near'),
+            ('a remove at the offset is not a currentTime set', {'trace': [[1.0, 'remove', '874.5']]}, 'VOID', 'no currentTime set near'),
+            ('no trace', {'trace': []}, 'VOID', 'no currentTime set near'),
+            ('PRED skipped', {'entry': {'order': [['SHORT', 1], ['LONG', 9]], 'lastSeq': 9}}, 'VOID', 'natural item changes'),
+            ('another item between', {'entry': {'order': [['SHORT', 1], ['PRED', 9], ['other', 9], ['LONG', 9]], 'lastSeq': 9}}, 'VOID', 'natural item changes'),
+            ('LONG not reached from PRED', {'entry': {'order': [['PRED', 1], ['LONG', 9]], 'lastSeq': 9}}, 'VOID', 'natural item changes'),
+            ('a command before PRED started', {'entry': {'order': [['SHORT', 1], ['PRED', 8], ['LONG', 9]], 'lastSeq': 9}}, 'VOID', 'natural item changes'),
+            ('a command before LONG started', {'entry': {'order': [['SHORT', 1], ['PRED', 9], ['LONG', 10]], 'lastSeq': 9}}, 'VOID', 'natural item changes'),
+            ('seqs never observed', {'entry': {'order': [['SHORT', 1], ['PRED', None], ['LONG', None]], 'lastSeq': None}}, 'VOID', 'natural item changes'),
+            ('no entry record', {'entry': {}}, 'VOID', 'natural item changes'),
+        ):
+            with self.subTest(name):
+                trace, entry = kw.pop('trace', V3_TRACE), kw.pop('entry', None)
+                got = gate.probe_seek_v3_rules(v3_ev(entry, trace, **kw))
+                self.assertEqual(got['verdict'], verdict, got['reasons'])
+                self.assertTrue(reason is None or any(reason in r for r in got['reasons']), got['reasons'])
+
+    def test_a_missing_arm_is_void(self):
+        self.assertEqual(gate.probe_seek_v3_rules({'arms': {}, 'entry': V3_ENTRY})['verdict'], 'VOID')
+
+
+class ProbeV3Verdict(unittest.TestCase):
+    def setUp(self):
+        shutil.rmtree(SCRATCH, ignore_errors=True)
+        os.makedirs(SCRATCH)
+        self.addCleanup(shutil.rmtree, SCRATCH, True)
+        write_valid(SCRATCH, mode='probe3')
+        gate.save(SCRATCH, 'probe.json', dict(v3_ev(), session='probe', t0=1000.0, t1=1060.0, started=True, renderers=[RADEONSI]))
+        self.actions = lambda n: put('pacing.json', prior=[], waits=[], actions=[[1000.0 + 30 * i, 'play'] for i in range(n)])(SCRATCH)
+
+    def test_a_clean_run_names_the_verdict_and_the_cap_is_eight(self):
+        self.actions(8)
+        self.assertEqual(gate.verdict(SCRATCH)['gate'], 'REPRODUCED')
+        self.actions(9)
+        self.assertEqual(gate.verdict(SCRATCH)['gate'], 'FAIL')
+
+    def test_a_stream_off_the_null_sink_voids_a_reproduction(self):
+        self.actions(8)
+        put('probe.guard.json', log=[])(SCRATCH)
+        self.assertEqual(gate.verdict(SCRATCH)['gate'], 'VOID')
+
+    def test_an_unsafe_run_fails_beside_a_reproduction(self):
+        self.actions(8)
+        put('leakgrep.json', hits={'repo': 0, 'run': 1})(SCRATCH)
+        self.assertEqual(gate.verdict(SCRATCH)['gate'], 'FAIL')
+
+
 if __name__ == '__main__':
     unittest.main(argv=sys.argv[:1] + [a for a in sys.argv[1:] if a.startswith('-')])
