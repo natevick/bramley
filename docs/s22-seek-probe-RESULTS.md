@@ -81,3 +81,28 @@ Two cases this does not yet explain:
 - MID's steady ~1.75 s.
 
 The next step is a trace from an R3-shaped run, looking for an `appendBuffer` throw named `QuotaExceededError` inside a slow seek window.
+
+## s22-probe-3 (2026-10-14, commit 05f9fec): NOT REPRODUCED
+
+The run was valid: commit 05f9fec, clean tree, mode probe3, real state unchanged, leak grep clean, 6 license actions, 71 polls. The chain matched R3: SHORT, then PRED, then LONG, with each change natural (seq 15 at both entries, equal to the SHORT seek's reply). The trace's `currentTime` set was 874.64, so LONG's offset was 383.84, R3's offset.
+
+Arm A, LONG from origin 144.9: t_skip 0.6 s, t_app 0.6 s, slope 0.77. The trace has no throw and no rejected settle. The steps were:
+- `remove(0, 490.8)` at 251 ms, then a second `remove(0, 490)` at 330 ms;
+- the 387 KB append succeeded at 461 ms;
+- `currentTime` was set to 874.64 at 462 ms;
+- the seek settled at 477 ms.
+
+The offset/quota hypothesis is refuted. R3's exact chain at R3's exact offset lands fast in a fresh session. By the PREREG, the next step is a full R3-length trace run.
+
+## Where this leaves S22
+
+The slow seek reproduces only inside a full R3 session, about 19 minutes in. Three short probes landed fast at every offset tried: 139.9, 383.8, and fresh. What has been ruled out:
+- fresh entry versus seamless entry;
+- PRED seeked versus PRED played through;
+- the timestamp offset and the `remove` range;
+- a quota throw on the seek path.
+
+Still open:
+- in R3, LONG seeked about 145 s in was slow 4 of 4 times, while about 287 s in was fast 5 of 5;
+- MID is a steady ~1.75 s in R3;
+- whatever state builds up over a session: earlier items, refills, retired media, CDM sessions, and the UI and cover load.
