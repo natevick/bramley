@@ -64,12 +64,13 @@ def windowed_seek(a, trace, args, windows, clock=time.time, sleep=time.sleep, po
     logged, rows, first, held = trace.mark(), [], threading.Event(), {}
 
     def watch():
-        start = clock()
-        while clock() < held.get('t', start) + post:
+        start, n = clock(), 0
+        while start + n * poll <= held.get('t', start) + post:
+            sleep(max(0.0, start + n * poll - clock()))
             s = a.snap()
             rows.append(dict({k: s.get(k) for k in FIELDS}, t=clock(), itemId=None))
             first.set()
-            sleep(poll)
+            n += 1
         windows.append({'tSeek': held.get('t', start), 'seq': held.get('seq'), 'rows': rows, 'trace': parse_trace(trace.lines(logged, trace.mark()))})
     watcher = threading.Thread(target=watch, daemon=True)
     watcher.start()

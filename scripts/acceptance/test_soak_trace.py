@@ -70,14 +70,14 @@ class Player:
         return ['radeonsi']
 
 
-def soak(trace, installed=True):
+def soak(trace, installed=True, window=None):
     os.makedirs(TMP, exist_ok=True)
     out = tempfile.mkdtemp(dir=TMP)
     log = open(os.path.join(out, 'soak.shipped.log'), 'w+')
     log.write('JS[log] TRACE 1.000 trace installed\n' if installed else 'engine up\n')
     log.flush()
     a = Player(out, log)
-    windowed = functools.partial(probe_seek.windowed_seek, post=1.0, poll=0.05)
+    windowed = functools.partial(probe_seek.windowed_seek, **(window or {}))
     patches = (mock.patch.object(drive, 'SOAK_S', 3), mock.patch.object(drive, 'SOAK_EVERY_S', 1), mock.patch.object(drive, 'SOAK_TRACK_S', 1.0), mock.patch.object(drive, 'TRACE_RUN', trace),
                mock.patch.object(drive, 'PACER', gate.Pacer()), mock.patch.object(drive.probe_seek, 'windowed_seek', windowed))
     with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
@@ -87,36 +87,46 @@ def soak(trace, installed=True):
 
 
 class SoakTrace(unittest.TestCase):
-    def tearDown(self):
-        [shutil.rmtree(d, ignore_errors=True) for d in getattr(self, 'dirs', [])]
+    @classmethod
+    def setUpClass(cls):
+        cls.plain, cls.plain_ev, plain_out = soak(False)
+        cls.traced, cls.ev, traced_out = soak(True)
+        cls.dirs = [plain_out, traced_out]
 
-    def run_soak(self, trace):
-        a, ev, out = soak(trace)
-        self.dirs = getattr(self, 'dirs', []) + [out]
-        return a, ev
+    @classmethod
+    def tearDownClass(cls):
+        [shutil.rmtree(d, ignore_errors=True) for d in cls.dirs]
 
     def test_a_traced_soak_records_a_window_per_seek_and_changes_nothing_else(self):
-        plain, plain_ev = self.run_soak(False)
-        traced, ev = self.run_soak(True)
-        seeks = [c for c in traced.calls if c[0] == 'seek']
-        self.assertEqual((len(seeks), len(ev['seekWindows']), ev['traceInstalled']), (1, 1, True))
-        self.assertEqual(([c[0] for c in traced.calls if c[0] != 'now'], len(ev['seekTimes'])), ([c[0] for c in plain.calls if c[0] != 'now'], len(plain_ev['seekTimes'])))
-        self.assertEqual([c for c in plain.calls if c[0] == 'seek'], seeks)
-        self.assertNotIn('seekWindows', plain_ev)
+        seeks = [c for c in self.traced.calls if c[0] == 'seek']
+        self.assertEqual((len(seeks), len(self.ev['seekWindows']), self.ev['traceInstalled']), (1, 1, True))
+        self.assertEqual(([c[0] for c in self.traced.calls if c[0] != 'now'], len(self.ev['seekTimes'])), ([c[0] for c in self.plain.calls if c[0] != 'now'], len(self.plain_ev['seekTimes'])))
+        self.assertEqual([c for c in self.plain.calls if c[0] == 'seek'], seeks)
+        self.assertNotIn('seekWindows', self.plain_ev)
 
-    def test_each_window_has_its_polls_the_settle_and_the_trace_between_the_marks(self):
-        _, ev = self.run_soak(True)
-        window = ev['seekWindows'][0]
+    def test_the_real_size_window_passes_the_judge_guards_and_has_its_settle_and_trace(self):
+        window = self.ev['seekWindows'][0]
         got = gate.probe_seek_derive(window['rows'], window['tSeek'], window['seq'])
-        self.assertTrue(got['polls'] >= 15 and 0.2 <= got['tApp'] <= 0.6 and got['tSkip'] is not None, got)
+        self.assertTrue(got['polls'] >= 56 and 0.2 <= got['tApp'] <= 0.6 and got['tSkip'] is not None, got)
         self.assertEqual([k for _, k, _ in window['trace']], ['seekToTime', 'currentTime', 'seekToTime'])
         self.assertNotIn(window['rows'][0]['itemId'], drive.ALBUM)
-        self.assertEqual(gate.soak_trace_rules(ev)['verdict'], 'NOT CAPTURED')
+        judged = gate.soak_trace_rules(self.ev)
+        self.assertEqual((judged['verdict'], judged['reasons']), ('NOT CAPTURED', []))
 
     def test_a_log_without_the_trace_installed_is_recorded_and_voids_the_trace_verdict(self):
-        a, ev, out = soak(True, installed=False)
-        self.dirs = [out]
+        a, ev, out = soak(True, installed=False, window={'post': 1.0, 'poll': 0.05})
+        self.addCleanup(shutil.rmtree, out, True)
         self.assertEqual((ev['traceInstalled'], gate.soak_trace_rules(ev)['verdict']), (False, 'VOID'))
+
+    def test_polls_are_scheduled_against_deadlines_so_slow_reads_do_not_stretch_the_period(self):
+        a = Player(TMP, open(os.devnull, 'w'))
+        a.item, snap = 'x', a.snap
+        a.snap = lambda: (time.sleep(0.012), snap())[1]
+        log = mock.Mock(mark=lambda: 0, lines=lambda s, e: [])
+        windows = []
+        probe_seek.windowed_seek(a, log, ('seek', '5'), windows, post=0.6, poll=0.02).join(5)
+        rows = windows[0]['rows']
+        self.assertTrue(len(rows) >= 24 and rows[-1]['t'] - rows[0]['t'] <= 0.7, (len(rows), rows[-1]['t'] - rows[0]['t']))
 
     def test_a_window_does_not_block_the_caller(self):
         a = Player(TMP, open(os.devnull, 'w'))
