@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-RUN="${1:?usage: acceptance.sh <run-name> [--llvmpipe | --controls | --soak <minutes> | --probe-seek <long-id> <short-id> | --probe-seek-v2 <pred-id> <long-id> <short-id>]}"
+RUN="${1:?usage: acceptance.sh <run-name> [--llvmpipe | --controls | --soak <minutes> | --probe-seek <long-id> <short-id> | --probe-seek-v2 <pred-id> <long-id> <short-id> | --probe-seek-v3 <short-id> <pred-id> <long-id>]}"
 SOAK_MIN=0
 case "${2:-}" in "") MODE=counted ;; --llvmpipe) MODE=llvmpipe ;; --controls) MODE=controls ;; --soak) MODE=soak; SOAK_MIN="${3:?--soak needs minutes}"; [[ "$SOAK_MIN" =~ ^[0-9]+$ ]] && [ "$SOAK_MIN" -ge 6 ] || { echo "--soak needs whole minutes >= 6" >&2; exit 2; } ;; --probe-seek) MODE=probe; PROBE_LONG="${3:?--probe-seek needs a long and a short item id}"; PROBE_SHORT="${4:?--probe-seek needs a long and a short item id}"
   [[ "$PROBE_LONG" =~ ^[A-Za-z0-9._-]+$ && "$PROBE_SHORT" =~ ^[A-Za-z0-9._-]+$ && "$PROBE_LONG" != "$PROBE_SHORT" ]] || { echo "--probe-seek needs two different item ids of letters, digits, . _ -" >&2; exit 2; }
   export BRAMLEY_PROBE_LONG="$PROBE_LONG" BRAMLEY_PROBE_SHORT="$PROBE_SHORT" ;;
-  --probe-seek-v2) MODE=probe2; PROBE_PRED="${3:?--probe-seek-v2 needs a pred, a long and a short item id}"; PROBE_LONG="${4:?--probe-seek-v2 needs a pred, a long and a short item id}"; PROBE_SHORT="${5:?--probe-seek-v2 needs a pred, a long and a short item id}"
-  [[ "$PROBE_PRED" =~ ^[A-Za-z0-9._-]+$ && "$PROBE_LONG" =~ ^[A-Za-z0-9._-]+$ && "$PROBE_SHORT" =~ ^[A-Za-z0-9._-]+$ && "$PROBE_PRED" != "$PROBE_LONG" && "$PROBE_PRED" != "$PROBE_SHORT" && "$PROBE_LONG" != "$PROBE_SHORT" ]] || { echo "--probe-seek-v2 needs three different item ids of letters, digits, . _ -" >&2; exit 2; }
-  export BRAMLEY_PROBE_PRED="$PROBE_PRED" BRAMLEY_PROBE_LONG="$PROBE_LONG" BRAMLEY_PROBE_SHORT="$PROBE_SHORT" ;;
+  --probe-seek-v2) MODE=probe2; PROBE_PRED="${3:?--probe-seek-v2 needs a pred, a long and a short item id}"; PROBE_LONG="${4:?--probe-seek-v2 needs a pred, a long and a short item id}"; PROBE_SHORT="${5:?--probe-seek-v2 needs a pred, a long and a short item id}" ;;
+  --probe-seek-v3) MODE=probe3; PROBE_SHORT="${3:?--probe-seek-v3 needs a short, a pred and a long item id}"; PROBE_PRED="${4:?--probe-seek-v3 needs a short, a pred and a long item id}"; PROBE_LONG="${5:?--probe-seek-v3 needs a short, a pred and a long item id}" ;;
   *) echo "unknown option $2" >&2; exit 2 ;; esac
+case "$MODE" in probe2|probe3)
+  [[ "$PROBE_PRED" =~ ^[A-Za-z0-9._-]+$ && "$PROBE_LONG" =~ ^[A-Za-z0-9._-]+$ && "$PROBE_SHORT" =~ ^[A-Za-z0-9._-]+$ && "$PROBE_PRED" != "$PROBE_LONG" && "$PROBE_PRED" != "$PROBE_SHORT" && "$PROBE_LONG" != "$PROBE_SHORT" ]] || { echo "$2 needs three different item ids of letters, digits, . _ -" >&2; exit 2; }
+  export BRAMLEY_PROBE_PRED="$PROBE_PRED" BRAMLEY_PROBE_LONG="$PROBE_LONG" BRAMLEY_PROBE_SHORT="$PROBE_SHORT" ;; esac
 OUT="$ROOT/target/acceptance/$RUN"
 BIN="$OUT/bin"
 [ -e "$OUT" ] && { echo "refusing: $OUT already exists" >&2; exit 2; }
@@ -30,7 +32,7 @@ build() {
 }
 case "$MODE" in
   probe) ;;
-  probe2) build bramley-trace --features trace ;;
+  probe2|probe3) build bramley-trace --features trace ;;
   *) build bramley-sabotage --features gate-sabotage; build bramley-dev --features dev ;;
 esac
 build bramley
@@ -38,7 +40,7 @@ set +e
 SHIPPED_OUT="$(scripts/check-shipped-features.sh "$BIN/bramley" 2>&1)"; SHIPPED=$?
 case "$MODE" in
   probe) SABOTAGE_OUT=""; SABOTAGE=0 ;;
-  probe2) SABOTAGE_OUT="$(scripts/check-shipped-features.sh "$BIN/bramley-trace" 2>&1)"; SABOTAGE=$? ;;
+  probe2|probe3) SABOTAGE_OUT="$(scripts/check-shipped-features.sh "$BIN/bramley-trace" 2>&1)"; SABOTAGE=$? ;;
   *) SABOTAGE_OUT="$(scripts/check-shipped-features.sh "$BIN/bramley-sabotage" 2>&1)"; SABOTAGE=$? ;;
 esac
 set -e

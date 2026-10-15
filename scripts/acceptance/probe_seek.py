@@ -3,10 +3,11 @@ import json, os, re, time
 FIELDS = ('position', 'applied', 'seq', 'skippedMs', 'sentMs', 'duration', 'state')
 ID = re.compile(r'[A-Za-z0-9._-]+')
 STEP_S, BACK_TO_S, NATURAL_S, SHORT_REACH_S, LONG_REACH_S, ENTRY_REACH_S = 0.05, 280.0, 15.0, 150.0, 150.0, 143.0
-PLAY_TIMEOUT_S, REACH_TIMEOUT_S, SEEK_TIMEOUT_S, ENTRY_TIMEOUT_S, MAX_TRACE_EVENTS = 60, 400, 90, 330, 400
+PLAY_TIMEOUT_S, REACH_TIMEOUT_S, SEEK_TIMEOUT_S, ENTRY_TIMEOUT_S, MAX_TRACE_EVENTS = 60, 400, 90, 360, 400
+SHORT_SEEK_AT_S = 145.0
 TRACE_MARKER = b'bramley-unshipped-feature:engine/trace'
 TRACE_LINE = re.compile(r'TRACE (\d+\.\d+) (\S.*)$')
-TRACE_KINDS = (('seekToTime', r'mark step seek (\w+)$'), ('fetch', r'call \S+ (?:fetch|open) (\w+) (\S+)$'), ('fetch', r'(?:resolve|done) \S+ (\d+)\b'),
+TRACE_KINDS = (('seekToTime', r'mark step seek (\w+)$'), ('rejected', r'settled (\S+) (\w+) rejected (\w+)'), ('fetch', r'call \S+ (?:fetch|open) (\w+) (\S+)$'), ('fetch', r'(?:resolve|done) \S+ (\d+)\b'),
                ('append', r'call SourceBuffer#\d+ appendBuffer (\S+)$'), ('appendThrow', r'throw SourceBuffer#\d+ appendBuffer (\w+)$'), ('remove', r'call SourceBuffer#\d+ remove (\S*)$'),
                ('currentTime', r'set \w+#\d+ currentTime (\S+)$'), ('cdm', r'cdm-event keys=\d+ (\{.*\})$'))
 
@@ -155,6 +156,33 @@ def sequence2(d, a, ids, ev, clock=time.time, sleep=time.sleep, trace=None):
     run.arm('C')
 
 
+def sequence3(d, a, ids, ev, clock=time.time, sleep=time.sleep, trace=None):
+    g, run, order = d.gate, Run(d, a, ids, ev, clock, sleep, d.gate.PROBE3_ACTIONS, trace), []
+    tail = d.ALBUM[d.ALBUM.index(ids['PRED']):] if ids['PRED'] in d.ALBUM else []
+    if tail[:2] != [ids['PRED'], ids['LONG']] or len(tail) < 3:
+        raise RuntimeError('PRED and LONG must be consecutive items of the acceptance album, with one more item after LONG')
+
+    def watch(s, want):
+        label = run.names.get(s.get('itemId'), 'other' if s.get('itemId') else None)
+        if label and (not order or order[-1][0] != label):
+            order.append([label, s.get('seq')])
+        return want(s)
+    d.PACER.room(run.cap)
+    run.play('SHORT', lambda dur: abs(dur - g.PROBE3_SHORT_S) <= g.PROBE_LONG_TOL_S, lambda dur: 0.0)
+    if trace and not any('trace installed' in line for line in trace.lines(0, trace.mark())):
+        raise RuntimeError('the engine did not install the trace')
+    queued = [a.cli('queue', 'add', i)[1] for i in tail][-1]
+    seen = run.wait_for(lambda s: watch(s, lambda s: applied(s, queued) and (s.get('position') or 0) >= SHORT_SEEK_AT_S), REACH_TIMEOUT_S, 'SHORT to reach its seek position')
+    sought = run.spend('seek', str(round(seen['duration'] - 10, 1)))[1]
+    ev['entry'] = {'order': order, 'lastSeq': sought.get('seq')}
+    run.wait_for(lambda s: watch(s, lambda s: s.get('itemId') == ids['LONG'] and s.get('state') == 'Playing' and (s.get('position') or 0) >= ENTRY_REACH_S), ENTRY_TIMEOUT_S, 'LONG to start by itself')
+    d.PACER.note('item-change', len(order) - 1)
+    if abs((a.snap().get('duration') or 0) - g.PROBE_LONG_S) > g.PROBE_LONG_TOL_S:
+        raise RuntimeError('LONG has an unexpected duration')
+    run.arm('A')
+    d.PACER.note('item-change', sum(1 for x, y in zip(ev['arms']['A']['rows'], ev['arms']['A']['rows'][1:]) if x['itemId'] and y['itemId'] and x['itemId'] != y['itemId']))
+
+
 def session(d, out, binary, env, sink):
     ids = probe_ids()
     with d.app(out, 'probe', binary, env, sink) as a:
@@ -168,7 +196,7 @@ def session(d, out, binary, env, sink):
             d.evidence(out, 'probe.json', ev, a)
 
 
-def session2(d, out, binary, env, sink):
+def session2(d, out, binary, env, sink, sequence=None):
     ids = probe_ids(names=('PRED', 'LONG', 'SHORT'))
     with open(binary, 'rb') as image:
         if TRACE_MARKER not in image.read():
@@ -179,7 +207,7 @@ def session2(d, out, binary, env, sink):
         trace = TraceLog(a.log.name)
         ev = {'t0': time.time(), 'started': False, 'arms': {}}
         try:
-            sequence2(d, a, ids, ev, trace=trace)
+            (sequence or sequence2)(d, a, ids, ev, trace=trace)
         finally:
             ev['actions'] = len(d.PACER.actions)
             d.evidence(out, 'probe.json', ev, a)

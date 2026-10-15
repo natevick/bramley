@@ -827,8 +827,9 @@ def phases(out, mode, bins, sock, sink):
     if mode == 'probe':
         yield 'probe', lambda: signed_in('probe', lambda e, c: probe_seek.session(sys.modules[__name__], out, shipped, e, sink))
         return
-    if mode == 'probe2':
-        yield 'probe', lambda: signed_in('probe', lambda e, c: probe_seek.session2(sys.modules[__name__], out, b('bramley-trace'), e, sink))
+    if mode in ('probe2', 'probe3'):
+        sequence = probe_seek.sequence3 if mode == 'probe3' else probe_seek.sequence2
+        yield 'probe', lambda: signed_in('probe', lambda e, c: probe_seek.session2(sys.modules[__name__], out, b('bramley-trace'), e, sink, sequence))
         return
     yield 'reference', lambda: reference(out, sock, sink, 'reference')
     if mode == 'soak':
@@ -948,7 +949,7 @@ def cleanup(run):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--out')
-    ap.add_argument('--mode', choices=('counted', 'llvmpipe', 'controls', 'soak', 'probe', 'probe2'), default='counted')
+    ap.add_argument('--mode', choices=('counted', 'llvmpipe', 'controls', 'soak', 'probe', 'probe2', 'probe3'), default='counted')
     ap.add_argument('--soak-minutes', type=float)
     ap.add_argument('--cleanup')
     a = ap.parse_args()

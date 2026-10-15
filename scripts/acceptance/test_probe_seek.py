@@ -18,9 +18,10 @@ ALBUM = ['i.zero', 'i.pred1', 'i.long1', 'i.next1', 'i.next2']
 
 
 class World:
-    def __init__(self, slow_if, long_duration=500.79, snap_cost=0.0, slow_by=None, pred_duration=139.88, short_duration=120.0, installed=True):
+    def __init__(self, slow_if, long_duration=500.79, snap_cost=0.0, slow_by=None, pred_duration=139.88, short_duration=120.0, installed=True, quota=False):
         self.t, self.last, self.slow_if, self.snap_cost, self.slow_by = 1000.0, 1000.0, slow_if, snap_cost, slow_by
         self.queue, self.natural, self.lines, self.adds, self.installed = [], False, [], 0, installed
+        self.offset, self.quota, self.seeks, self.origins = 0.0, quota, [], []
         self.item, self.state, self.pos, self.pending = None, 'Stopped', 0.0, None
         self.seq = self.applied = self.sent = self.skipped = 0
         self.last_t, self.durations = None, dict(DURATIONS, **{'i.long1': long_duration, 'i.pred1': pred_duration, 'i.short1': short_duration})
@@ -41,6 +42,7 @@ class World:
                 if self.pos >= self.durations.get(self.item, 200.0):
                     self.pos, self.natural = 0.0, bool(self.queue)
                     if self.queue:
+                        self.offset += self.durations.get(self.item, 200.0)
                         self.item = self.queue.pop(0)
                     else:
                         self.state = 'Stopped'
@@ -52,7 +54,7 @@ class World:
                     self.state, self.pos = 'Playing', 0.0
                 else:
                     self.pos, self.skipped = p['target'], self.skipped + 1000
-                    self.log(end, 'set HTMLAudioElement#2 currentTime %s' % p['target'])
+                    self.log(end, 'set HTMLAudioElement#2 currentTime %s' % round(p['target'] + self.offset, 2))
                     self.log(end, 'mark step seek done')
 
     def log(self, at, text):
@@ -81,13 +83,18 @@ class World:
             return 0, {'seq': self.seq, 'engine': 1}, 0
         target = float(args[1]) if args[0] == 'seek' else None
         if args[0] == 'play':
-            self.item, self.state, self.queue, self.natural = args[1], 'Loading', [], False
+            self.item, self.state, self.queue, self.natural, self.offset = args[1], 'Loading', [], False, 0.0
             if self.installed and not self.lines:
                 self.log(self.t, 'trace installed')
         else:
             self.log(self.t + 0.01, 'mark step seek start')
+            self.seeks.append(target)
+            self.origins.append(round(self.pos))
+            self.log(self.t + 0.25, 'call SourceBuffer#1 remove 0,%s' % target)
         delay = 0.3 if args[0] == 'play' else self.slow_by(self, target) if self.slow_by else self.slow_if(self.pos, target)
         self.pending = {'kind': args[0], 'seq': self.seq, 'target': target, 'land': self.t + delay}
+        if self.quota and delay > 1:
+            self.log(self.t + 1.0, 'throw SourceBuffer#1 appendBuffer QuotaExceededError')
         return 0, {'seq': self.seq, 'engine': 1}, 0
 
 
@@ -103,12 +110,13 @@ class Log:
 
 
 def run(slow_if, ids=IDS, **world):
+    steps = probe_seek.sequence3 if 'SHORT' in ids and 'PRED' in ids and world.pop('v3', False) else probe_seek.sequence2
     w, noted = World(slow_if, **world), []
     d = types.SimpleNamespace(gate=gate, PACER=w.pacer, ALBUM=ALBUM, note_names=lambda found, kind: noted.append(found))
     ev = {'arms': {}}
     try:
         if 'PRED' in ids:
-            probe_seek.sequence2(d, w, ids, ev, w.clock, w.sleep, Log(w))
+            steps(d, w, ids, ev, w.clock, w.sleep, Log(w))
         else:
             probe_seek.sequence(d, w, ids, ev, w.clock, w.sleep)
     finally:
@@ -182,7 +190,7 @@ class Sequence2(unittest.TestCase):
         ev = run.ev
         self.assertEqual((ev['entry']['from'], ev['entry']['item'], ev['entry']['seqAtEntry'] == ev['entry']['lastSeq']), ('PRED', 'LONG', True))
         self.assertEqual(([x['polls'] for x in verdict['arms'].values()], run.world.adds), ([71, 71, 71], 3))
-        self.assertEqual([[k for _, k, _ in ev['arms'][a]['trace']] for a in 'AFC'], [['seekToTime', 'currentTime', 'seekToTime']] * 3)
+        self.assertEqual([[k for _, k, _ in ev['arms'][a]['trace']] for a in 'AFC'], [['seekToTime', 'remove', 'currentTime', 'seekToTime']] * 3)
         self.assertEqual([ev['arms'][k]['target'] for k in 'AFC'], [490.8, 490.8, 110.0])
         kinds = [k for _, k in run.world.pacer.actions]
         self.assertTrue(len(kinds) <= gate.PROBE2_ACTIONS and kinds[:3] == ['play', 'item-change', 'seek-to-end'], kinds)
@@ -255,6 +263,65 @@ class Sequence2(unittest.TestCase):
         for bad in (dict(env, BRAMLEY_PROBE_PRED='b'), dict(env, BRAMLEY_PROBE_SHORT='x y'), {k: v for k, v in env.items() if k != 'BRAMLEY_PROBE_LONG'}):
             with self.assertRaises(RuntimeError):
                 probe_seek.probe_ids(bad, ('PRED', 'LONG', 'SHORT'))
+
+
+IDS3 = {'SHORT': 'i.short1', 'PRED': 'i.pred1', 'LONG': 'i.long1'}
+offset_slow = lambda w, target: 4.5 if w.offset > 300 and w.item == 'i.long1' and target > 400 else 0.3
+
+
+def run3(slow_by, **world):
+    return run(None, IDS3, slow_by=slow_by, v3=True, **dict({'short_duration': 243.86}, **world))
+
+
+class Sequence3(unittest.TestCase):
+    def test_a_player_slow_only_at_a_large_offset_is_reproduced_with_the_quota_throw_in_the_trace(self):
+        verdict = gate.probe_seek_v3_rules(run3(offset_slow, quota=True))
+        self.assertEqual((verdict['verdict'], verdict['defect']), ('REPRODUCED', True), verdict['reasons'])
+        ev = run.ev
+        self.assertEqual((ev['entry']['order'], ev['entry']['lastSeq']), ([['SHORT', 5], ['PRED', 6], ['LONG', 6]], 6))
+        self.assertEqual((list(ev['arms']), run.world.seeks, run.world.adds), (['A'], [233.9, 490.8], 4))
+        self.assertEqual(run.world.origins[0], 145)
+        events = ev['arms']['A']['trace']
+        self.assertEqual([k for _, k, _ in events], ['seekToTime', 'remove', 'appendThrow', 'currentTime', 'seekToTime'])
+        self.assertEqual([x[2] for x in events if x[1] in ('remove', 'appendThrow', 'currentTime')], ['0,490.8', 'QuotaExceededError', '874.54'])
+        kinds = [k for _, k in run.world.pacer.actions]
+        self.assertTrue(len(kinds) <= gate.PROBE3_ACTIONS and kinds[:5] == ['play', 'seek-to-end', 'item-change', 'item-change', 'seek-to-end'], kinds)
+
+    def test_a_player_fast_at_every_offset_is_counted_and_not_reproduced(self):
+        verdict = gate.probe_seek_v3_rules(run3(lambda w, target: 0.3))
+        self.assertEqual((verdict['verdict'], verdict['defect']), ('NOT REPRODUCED', False), verdict['reasons'])
+        self.assertEqual([k for _, k in run.world.pacer.actions].count('item-change'), 3)
+
+    def test_the_record_carries_labels_and_never_an_id_or_a_name(self):
+        body = json.dumps(run3(offset_slow))
+        self.assertEqual([x in body for x in (*IDS3.values(), TITLE)], [False] * 4)
+
+    def test_a_wrong_short_or_long_is_refused_and_a_missing_trace_stops_after_one_action(self):
+        with self.assertRaisesRegex(RuntimeError, 'not the expected item'):
+            run3(offset_slow, short_duration=120.0)
+        self.assertEqual(len(run.world.pacer.actions), 1)
+        with self.assertRaisesRegex(RuntimeError, 'did not install the trace'):
+            run3(offset_slow, installed=False)
+        self.assertEqual(len(run.world.pacer.actions), 1)
+        with self.assertRaisesRegex(RuntimeError, 'unexpected duration'):
+            run3(offset_slow, long_duration=400.0)
+
+    def test_unrelated_ids_are_refused_before_any_action_and_the_cap_refuses_a_ninth(self):
+        with self.assertRaisesRegex(RuntimeError, 'consecutive'):
+            run(None, dict(IDS3, PRED='i.zero'), slow_by=offset_slow, v3=True)
+        self.assertEqual(len(run.world.pacer.actions), 0)
+        w = World(None, slow_by=offset_slow, short_duration=243.86)
+        w.pacer.note('earlier', 7)
+        d = types.SimpleNamespace(gate=gate, PACER=w.pacer, ALBUM=ALBUM, note_names=lambda *a: None)
+        with self.assertRaisesRegex(RuntimeError, 'refusing'):
+            probe_seek.sequence3(d, w, IDS3, {'arms': {}}, w.clock, w.sleep, Log(w))
+        self.assertEqual(len(w.pacer.actions), 8)
+
+    def test_the_timeline_names_rejected_settles_and_every_remove_range(self):
+        lines = ['JS[log] TRACE 10.000 mark step seek start', 'JS[log] TRACE 11.000 call SourceBuffer#1 remove 0,490.8', 'JS[log] TRACE 12.000 call SourceBuffer#1 remove 12,14',
+                 'JS[log] TRACE 13.000 settled MediaKeySession#2 update rejected NotAllowedError msg18', 'JS[log] TRACE 14.000 throw SourceBuffer#1 appendBuffer QuotaExceededError']
+        self.assertEqual(probe_seek.parse_trace(lines), [[0.0, 'seekToTime', 'start'], [1.0, 'remove', '0,490.8'], [2.0, 'remove', '12,14'],
+                                                         [3.0, 'rejected', 'MediaKeySession#2 update NotAllowedError'], [4.0, 'appendThrow', 'QuotaExceededError']])
 
 
 if __name__ == '__main__':
