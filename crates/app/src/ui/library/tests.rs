@@ -359,6 +359,17 @@ fn opening_another_playlist_starts_its_tracks_afresh() {
     );
 }
 
+#[test]
+fn opening_a_library_album_reads_its_tracks_from_the_library() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    frame(&ctx, &mut lib, &Route::Album("l.A".into()), 600.0, vec![]);
+    let sent = lib.tick(now, true, || {});
+    assert_eq!(
+        sent.iter().map(|j| &j.call).collect::<Vec<_>>(),
+        [&Call::AlbumTracks("l.A".into())]
+    );
+}
+
 fn click(
     ctx: &egui::Context,
     lib: &mut Library,

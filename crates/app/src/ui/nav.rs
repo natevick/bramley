@@ -33,6 +33,7 @@ impl Route {
                 true
             }
             Route::Playlist(id) => id.starts_with("p."),
+            Route::Album(id) => id.starts_with("l."),
             _ => false,
         }
     }
