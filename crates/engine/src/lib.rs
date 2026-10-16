@@ -15,7 +15,7 @@ use std::path::PathBuf;
 pub use player::Diagnostics;
 pub use player::{
     COMMAND_WAIT, Command, PlayState, Player, PlayerConfig, PlayerError, QUEUE_SHOWN, Queue,
-    QueueItem, Snapshot, Tokens,
+    QueueItem, Repeat, Snapshot, Tokens,
 };
 pub use runtime::Engine;
 

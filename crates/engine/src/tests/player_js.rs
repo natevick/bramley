@@ -5,7 +5,7 @@ use serde_json::{Value as J, json};
 use super::FakeSink;
 use super::element::engine;
 use crate::Engine;
-use crate::player::{Command, PLAYER, Queue, command_js};
+use crate::player::{Command, PLAYER, Queue, Repeat, command_js};
 
 const FAKE_MK: &str = r#"
 globalThis.mklog = [];
@@ -280,6 +280,61 @@ fn the_queue_window_reads_the_public_queue_and_jumps_only_to_the_item_shown() {
     send(&mut e, &[jump(4, "B"), jump(4, "C")], 300);
     assert_eq!(log(&e), json!(["change 4"]));
     assert_eq!(ids(&e), ["C", "D"]);
+}
+
+const FAKE_MODES: &str = r#"
+MusicKit.PlayerRepeatMode = { none: 0, one: 1, all: 2 };
+let shuffleMode = 0;
+fakeM.repeatMode = 0;
+Object.defineProperty(fakeM, "shuffleMode", {
+  get: () => shuffleMode,
+  set: v => { shuffleMode = v; const [now, ...rest] = fakeM.queue.list; fakeM.queue.list = [now, ...rest.reverse()]; },
+});
+"#;
+
+#[test]
+fn shuffle_and_repeat_use_musickits_public_modes_and_the_queue_window_follows_the_shuffled_order() {
+    let (mut e, _sink) = player(1000);
+    ready(&mut e);
+    e.eval_script("queue.js", FAKE_QUEUE).unwrap();
+    e.eval_script("modes.js", FAKE_MODES).unwrap();
+    let one = |id: &str| Queue::Songs(vec![id.into()]);
+    send(
+        &mut e,
+        &[
+            Command::PlayLater(one("B")),
+            Command::PlayLater(one("C")),
+            Command::PlayLater(one("D")),
+        ],
+        300,
+    );
+    let modes = |e: &Engine| (field(e, "shuffleMode"), field(e, "repeatMode"));
+    let ids = |e: &Engine| {
+        let items = field(e, "queue")["items"].clone();
+        items
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["id"].clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(modes(&e), (json!(0), json!(0)));
+    let unshuffled = [json!("A"), J::Null, json!("B"), json!("C")];
+    assert_eq!(ids(&e), unshuffled);
+    send(&mut e, &[Command::Shuffle(true)], 100);
+    assert_eq!(
+        (modes(&e).0, ids(&e)),
+        (
+            json!(1),
+            vec![json!("A"), json!("D"), json!("C"), json!("B")]
+        )
+    );
+    for (mode, want) in [(Repeat::One, 1), (Repeat::All, 2), (Repeat::Off, 0)] {
+        send(&mut e, &[Command::Repeat(mode)], 100);
+        assert_eq!(modes(&e).1, json!(want), "{mode:?}");
+    }
+    send(&mut e, &[Command::Shuffle(false)], 100);
+    assert_eq!((modes(&e).0, ids(&e)), (json!(0), unshuffled.to_vec()));
 }
 
 const SLOW_ADD: &str = r#"

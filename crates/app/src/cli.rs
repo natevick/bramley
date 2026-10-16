@@ -4,6 +4,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Result, bail};
+use bramley_engine::Repeat;
 use fastframe_instance::Slot;
 use serde_json::{Value, json};
 
@@ -21,7 +22,7 @@ const LIBRARY_VIA_MCP: &str =
     "your library is shared only with an agent you connect through `bramley mcp`";
 const AGENT: &str = "mcp";
 pub(crate) const LATE: &str = "the app did not answer in time; the command was not applied";
-const COMMANDS: &str = "usage: bramley [play [id] | pause | toggle | next | prev | seek <seconds> | volume <0-100> | now | queue add <id> | search <term> | open <view> | scroll top|end | sign-in | sign-out | mcp]";
+const COMMANDS: &str = "usage: bramley [play [id] | pause | toggle | next | prev | seek <seconds> | volume <0-100> | shuffle on|off | repeat off|all|one | now | queue add <id> | search <term> | open <view> | scroll top|end | sign-in | sign-out | mcp]";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Request {
@@ -62,6 +63,11 @@ pub fn parse(args: &[String]) -> Result<Request> {
         ["volume", v] => match v.parse::<u8>() {
             Ok(v) if v <= 100 => Request::Do(Action::Volume(f32::from(v) / 100.0)),
             _ => bail!("volume needs a whole number from 0 to 100, not {v:?}"),
+        },
+        ["shuffle", mode @ ("on" | "off")] => Request::Do(Action::SetShuffle(*mode == "on")),
+        ["repeat", mode] => match Repeat::parse(mode) {
+            Some(mode) => Request::Do(Action::SetRepeat(mode)),
+            None => bail!("repeat needs off, all or one, not {mode:?}"),
         },
         ["queue", "add", id] => Request::Do(Action::QueueAdd(catalog_id(id)?)),
         ["search", term @ ..] if !term.is_empty() => Request::Search(term.join(" ")),

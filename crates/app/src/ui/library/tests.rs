@@ -948,7 +948,7 @@ fn sidebar(
     };
     let mut out = ctx.run_ui(input, |ui| {
         crate::ui::sidebar::show(ui, route, lib, &mut navs);
-        crate::ui::sidebar::account(ui, true, Some("file"));
+        crate::ui::sidebar::account(ui, true);
     });
     out.textures_delta.clear();
     let tree = out.platform_output.accesskit_update.expect("a tree");
@@ -1045,10 +1045,10 @@ fn hundreds_of_playlists_still_leave_albums_songs_and_sign_out_on_screen() {
     let (ctx, mut lib) = (egui::Context::default(), playlists(300));
     let (nodes, _) = sidebar(&ctx, &mut lib, &Route::Home, 420.0, vec![]);
     let (songs, out) = (bounds(&nodes, "Songs"), bounds(&nodes, "Sign out"));
-    let footer = nodes.iter().find(|(l, _)| l.starts_with("Sign-in kept"));
+    let footer = nodes.iter().find(|(l, _)| l == "Signed in to Apple Music");
     let footer = footer
         .and_then(|(_, n)| n.bounds())
-        .expect("the storage line");
+        .expect("the signed-in line");
     assert!(bounds(&nodes, "Albums").y1 <= songs.y0);
     let rows = nodes.iter().filter(|(l, _)| l.starts_with("Secret"));
     let last = rows

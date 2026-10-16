@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
-use bramley_engine::{Command, PlayState, PlayerError, Queue, Snapshot};
+use bramley_engine::{Command, PlayState, PlayerError, Queue, Repeat, Snapshot};
 use serde_json::{Value, json};
 
 use crate::covers::{self, Grid, Source};
@@ -217,6 +217,60 @@ fn shuffle_sets_the_container_then_shuffles_and_the_next_play_unshuffles() {
     assert!(!signed_out.apply(Action::Shuffle(album.clone())));
     assert!(!signed_out.apply(Action::PlayIn(album, 0)));
     assert!(ends.borrow().is_empty());
+}
+
+#[test]
+fn a_chosen_shuffle_and_repeat_reach_the_engine_and_survive_the_next_play() {
+    let (mut p, ends) = fake(false);
+    let album = Queue::Album("1".into());
+    assert!(
+        !p.apply(Action::SetShuffle(true)),
+        "no engine before a play"
+    );
+    p.apply(Action::Shuffle(album.clone()));
+    p.apply(Action::SetShuffle(true));
+    p.apply(Action::SetRepeat(Repeat::One));
+    p.apply(Action::PlayIn(album.clone(), 2));
+    p.apply(Action::SetShuffle(false));
+    p.receive();
+    let sent: Vec<Command> = ends.borrow()[0].0.try_iter().collect();
+    let set = |start| Command::SetQueue {
+        queue: album.clone(),
+        start,
+    };
+    let expected = [
+        set(0),
+        Command::Shuffle(true),
+        Command::Play,
+        Command::Shuffle(true),
+        Command::Repeat(Repeat::One),
+        set(2),
+        Command::Play,
+        Command::Shuffle(false),
+    ];
+    assert_eq!(sent, expected);
+}
+
+#[test]
+fn status_reports_shuffle_and_repeat_from_the_engine_and_off_before_it_starts() {
+    let (mut app, ends, inbox, ctx, config, _) = app_on(SERVE);
+    let modes = |app: &crate::app::App| {
+        let status = app.status_json();
+        (status["shuffleMode"].clone(), status["repeatMode"].clone())
+    };
+    assert_eq!(modes(&app), (json!("off"), json!("off")));
+    let play = crate::cli::Request::Do(Action::PlaySong("1".into()));
+    inbox
+        .send((play, Instant::now() + Duration::from_secs(5), channel().0))
+        .unwrap();
+    cover_meshes(&ctx, &mut app);
+    let mut on = snap(PlayState::Playing, 1.0, 1, None);
+    (on.shuffle, on.repeat) = (true, Repeat::All);
+    ends.borrow()[0].1.send(on).unwrap();
+    cover_meshes(&ctx, &mut app);
+    let seen = modes(&app);
+    std::fs::remove_dir_all(&config).unwrap();
+    assert_eq!(seen, (json!("on"), json!("all")));
 }
 
 #[test]
@@ -613,6 +667,11 @@ fn cli_arguments_parse_into_requests_and_bad_ones_are_usage_errors() {
         ("seek 120", Request::Do(Action::Seek(120.0))),
         ("volume 40", Request::Do(Action::Volume(0.4))),
         ("queue add 7", Request::Do(Action::QueueAdd("7".into()))),
+        ("shuffle on", Request::Do(Action::SetShuffle(true))),
+        ("shuffle off", Request::Do(Action::SetShuffle(false))),
+        ("repeat off", Request::Do(Action::SetRepeat(Repeat::Off))),
+        ("repeat all", Request::Do(Action::SetRepeat(Repeat::All))),
+        ("repeat one", Request::Do(Action::SetRepeat(Repeat::One))),
         (
             "search bohemian rhapsody",
             Request::Search("bohemian rhapsody".into()),
@@ -654,6 +713,10 @@ fn cli_arguments_parse_into_requests_and_bad_ones_are_usage_errors() {
         "play 1;rm",
         "queue add",
         "queue 7",
+        "shuffle",
+        "shuffle maybe",
+        "repeat",
+        "repeat twice",
         "search",
         "pause now",
         "sign-in now",

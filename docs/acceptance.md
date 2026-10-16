@@ -68,6 +68,7 @@ Nate delegated the definition of "done" to Norm on 2026-10-10. Bramley v1 on Lin
 - **Leak build** (`sabotage` feature): it leaks 3 MiB on every track change, which is ≥ 24 MiB over 8 tracks. R3 must fail.
 - **llvmpipe forced:** the run is VOID.
 - **No null sink or no PipeWire stream:** F4 is VOID, not PASS, but only once playback has started (position advancing). If playback never started, F4 is FAIL. Clarified 2026-10-10: S2a found the two rules collided, so a signed-out run came out VOID.
+- **Shuffle or repeat on at session start:** the harness assumes items play in order and advance, so a session whose status reads `shuffleMode` or `repeatMode` other than `off` when the app is ready is VOID, for every check that session feeds. A session whose guard record carries no modes is a missing artifact. The pinned reference binary predates both fields and is not checked.
 - **A missing artifact counts as a FAIL:** any check with no evidence file counts as FAIL, so a harness that ran nothing cannot pass.
 
 ## Amendments to the functional checks

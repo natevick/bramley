@@ -126,6 +126,7 @@ def ticks(pid):
 class App:
     def __init__(self, out, name, binary, env, sink, args=(), wrap=(), status=True):
         self.out, self.name, self.binary, self.env, self.sink = out, name, binary, env, sink
+        self.modes = None
         self.st = os.path.join(out, f'{name}.status.json') if status else None
         cs.assert_isolated(env)
         if subprocess.run([binary, 'now'], env=env, capture_output=True).returncode != 3:
@@ -158,9 +159,14 @@ class App:
         while time.time() < end:
             s = self.snap()
             if pred(s):
-                return s, time.time()
+                return self.noted(s), time.time()
             time.sleep(step)
-        return s, None
+        return self.noted(s), None
+
+    def noted(self, s):
+        if self.modes is None:
+            self.modes = {k: s.get(k) for k in gate.OFF_MODES}
+        return s
 
     def safe_to_play(self):
         cs.wait_for(lambda: self.guard.polls > 0, 10, 'a clean guard poll')
@@ -181,7 +187,7 @@ class App:
         self.guard.join(2)
         self.log.close()
         gate.save(self.out, f'{self.name}.guard.json', {'pid': self.pid, 'polls': self.guard.polls, 'killed': self.guard.killed and self.guard.killed['why'],
-                                                        'seen': sorted(map(str, self.guard.seen)), 'log': self.guard.log})
+                                                        'seen': sorted(map(str, self.guard.seen)), 'log': self.guard.log, 'modes': self.modes})
 
 
 @contextlib.contextmanager
@@ -540,6 +546,7 @@ def f1(out, binary, env, sink, pre=''):
             listed, _ = a.until(lambda s: ((s.get('library') or {}).get('playlists') or {}).get('loaded'), 20)
             ev['starts'].append({'ms': seen and round((seen - a.t_exec) * 1000), 'route': listed.get('route'), 'playlists': ((listed.get('library') or {}).get('playlists') or {}).get('loaded')})
             ev.setdefault('renderers', []).append(s.get('glRenderer'))
+            ev.setdefault('sessions', []).append(a.name)
     gate.save(out, f'{pre}f1.json', ev)
 
 

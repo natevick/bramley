@@ -15,8 +15,9 @@ SEEK_SETTLE_S, LANDING_EPS_S, SEEK_FROM_END_S = 15.0, 0.05, 10
 LANDING_MAX_S = SEEK_SETTLE_S
 F6_SENT_SLACK_S, F6_SKIPPED_S, F6_STALL_S, F6_LAND_S, F6_WINDOW_S = 3.0, 0.1, 1.0, 1.0, 5.0
 BAD_TOKEN_SEARCH, BAD_TOKEN_PLAY, NO_OUTPUT = 'developer token was rejected', 'developer token was rejected', 'the audio output could not be opened'
-TOOLS = sorted('search play pause resume next previous seek queue_add now_playing library_playlists open scroll'.split())
+TOOLS = sorted('search play pause resume next previous seek shuffle repeat queue_add now_playing library_playlists open scroll'.split())
 HOLE_BAR_S, DROP_GAP_S = 20, 15
+OFF_MODES = {'shuffleMode': 'off', 'repeatMode': 'off'}
 CHECKS = ('F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6')
 EVIDENCE = {'F1': ('f1',), 'F2': ('f2',), 'F3': ('f3',), 'F4': ('f4',), 'F5': ('f5',), 'F6': ('f6',), 'F7': ('f7',), 'F8': ('f8',), 'F9': ('f9',),
             'F10': ('f10-badid', 'f10-net'), 'R3': ('r3',), 'R4': ('r4',), 'R5': ('r5',)}
@@ -206,6 +207,13 @@ def reference_problems(out):
     return missing, voids, drifts
 
 
+def modes_problems(guard, session):
+    if 'modes' not in guard:
+        return [], [f'missing evidence: modes in {session}.guard.json']
+    modes = guard['modes']
+    return ([] if modes == OFF_MODES else [f'{session} did not start with shuffle and repeat off, so items may not play in order: {modes}']), []
+
+
 def guard_voids(out, ev, sink, started):
     voids, missing, window = [], [], []
     for session in ev.get('sessions') or [ev.get('session')]:
@@ -214,6 +222,8 @@ def guard_voids(out, ev, sink, started):
             missing.append(f'missing evidence: {session}.guard.json')
             continue
         voids += [f'guard killed the app: {guard["killed"]}'] if guard.get('killed') else []
+        more_voids, more_missing = modes_problems(guard, session)
+        voids, missing = voids + more_voids, missing + more_missing
         window += [targets for t, targets in guard.get('log', []) if ev.get('t0', 0) <= t <= ev.get('t1', 0)]
     if started and not missing and (any(targets not in ([], [sink]) for targets in window) or [sink] not in window):
         voids.append('playback started but no stream was seen linked to the null sink only')
@@ -243,6 +253,9 @@ def memory_check(out, name, kind, sink):
     ref_missing, ref_voids, drifts = reference_problems(out)
     ev, guard = load(out, f'{name}.{kind}.json'), load(out, f'{name}.guard.json')
     missing += ref_missing + [f'missing evidence: {f}' for f, d in ((f'{name}.{kind}.json', ev), (f'{name}.guard.json', guard)) if d is None]
+    if guard:
+        more_voids, more_missing = modes_problems(guard, name)
+        voids, missing = voids + more_voids, missing + more_missing
     if missing:
         return {'verdict': 'FAIL', 'reasons': missing + fails + voids + ref_voids}
     voids += ref_voids
