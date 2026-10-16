@@ -41,14 +41,6 @@ pub fn banner(ui: &mut egui::Ui, banner: &Banner, offer_sign_in: bool) -> bool {
     sign_in
 }
 
-pub fn storage(ui: &mut egui::Ui, mode: &str) {
-    let text = match mode {
-        "keyring" => "Sign-in kept in the system keyring",
-        _ => "Sign-in kept in a private file: this system has no keyring service",
-    };
-    ui.label(RichText::new(text).weak());
-}
-
 pub fn notice(ui: &mut egui::Ui, notice: &str) {
     let color = if ui.visuals().dark_mode {
         ACCENT

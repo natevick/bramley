@@ -231,6 +231,12 @@ MUTANTS = [
     ('leak reason', "'holds': real_fail(leak, 'USS growth') and", "'holds': real_fail(leak) and"),
     ('guards of every session', "for session in ev.get('sessions') or [ev.get('session')]:", "for session in [ev.get('session') or (ev.get('sessions') or [None])[-1]]:"),
     ('cold F4 guard checked', "if 'session' in ev or 'sessions' in ev:", "if 'session' in ev:"),
+    ('modes unchecked in a check', "        more_voids, more_missing = modes_problems(guard, session)\n", "        more_voids, more_missing = [], []\n"),
+    ('modes unchecked in R1 and R2', "    if guard:\n        more_voids, more_missing = modes_problems(guard, name)\n        voids, missing = voids + more_voids, missing + more_missing\n", ""),
+    ('modes not recorded passes', "if 'modes' not in guard:\n        return [], [f'missing evidence: modes in {session}.guard.json']\n", "if 'modes' not in guard:\n        return [], []\n"),
+    ('only shuffle judged', "[] if modes == OFF_MODES else", "[] if modes.get('shuffleMode') == 'off' else"),
+    ('only repeat judged', "[] if modes == OFF_MODES else", "[] if modes.get('repeatMode') == 'off' else"),
+    ('unread modes pass', "[] if modes == OFF_MODES else", "[] if None in modes.values() or modes == OFF_MODES else"),
 ]
 
 

@@ -114,6 +114,8 @@
     r.storefrontId = g(() => m.storefrontId);
     r.previewOnly = g(() => m.previewOnly);
     r.playbackState = g(() => m.playbackState);
+    r.shuffleMode = g(() => m.shuffleMode);
+    r.repeatMode = g(() => m.repeatMode);
     r.currentPlaybackTime = g(() => m.currentPlaybackTime);
     r.currentPlaybackDuration = g(() => m.currentPlaybackDuration);
     r.queuePosition = g(() => m.queue.position);
@@ -147,6 +149,7 @@
       topUp: options => ready.then(() => S.signInNeeded || queueFailed ? null : add(m.playLater(options)))
         .catch(e => err("topUp", e)).then(() => { S.background++; }),
       shuffle: on => enqueue("shuffle", () => { m.shuffleMode = on ? 1 : 0; }, true),
+      repeat: mode => enqueue("repeat", () => { m.repeatMode = MusicKit.PlayerRepeatMode[mode]; }, true),
       playNext: options => enqueue("playNext", () => m.playNext(options), true),
       jumpTo: ([index, id]) => enqueue("jumpTo", () => (m.queue.items[index] || {}).id === id ? m.changeToMediaAtIndex(index) : false, true),
     },

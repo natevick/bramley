@@ -65,13 +65,13 @@ pub fn show(ui: &mut egui::Ui, current: &Route, library: &mut Library, navs: &mu
     }
 }
 
-pub fn account(ui: &mut egui::Ui, signed_in: bool, storage: Option<&str>) -> bool {
+pub fn account(ui: &mut egui::Ui, signed_in: bool) -> bool {
     let mut sign_out = false;
     ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
         ui.add_space(10.0);
         sign_out = signed_in && ui.button("Sign out").clicked();
-        if let Some(mode) = storage {
-            super::storage(ui, mode);
+        if signed_in {
+            ui.label(RichText::new("Signed in to Apple Music").weak());
         }
     });
     sign_out

@@ -2,7 +2,7 @@ use std::sync::mpsc::{Receiver, Sender, TryRecvError};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
-use bramley_engine::{COMMAND_WAIT, Command, PlayState, PlayerError, Queue, Snapshot};
+use bramley_engine::{COMMAND_WAIT, Command, PlayState, PlayerError, Queue, Repeat, Snapshot};
 
 pub type Link = (Sender<Command>, Receiver<Snapshot>);
 pub type Spawn = Box<dyn FnMut() -> Receiver<Result<Link>>>;
@@ -25,6 +25,8 @@ pub enum Action {
     PlaySong(String),
     PlayIn(Queue, usize),
     Shuffle(Queue),
+    SetShuffle(bool),
+    SetRepeat(Repeat),
     Play,
     Pause,
     Seek(f64),
@@ -138,6 +140,11 @@ impl Playback {
             Action::Next => (Command::Next, None, Some(0.0)),
             Action::Previous => (Command::Previous, None, Some(0.0)),
             Action::Volume(v) => (Command::Volume(v), None, None),
+            Action::SetShuffle(on) => {
+                self.shuffled = false;
+                (Command::Shuffle(on), None, None)
+            }
+            Action::SetRepeat(mode) => (Command::Repeat(mode), None, None),
             Action::QueueAdd(id) => (Command::PlayLater(Queue::Songs(vec![id])), None, None),
             Action::PlayNext(id) => (Command::PlayNext(Queue::Songs(vec![id])), None, None),
             Action::JumpTo(index, id) => (Command::JumpTo { index, id }, None, Some(0.0)),

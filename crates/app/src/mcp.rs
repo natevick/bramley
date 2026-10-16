@@ -77,13 +77,23 @@ const TOOLS: &[Spec] = &[
         args: &[("seconds", "number")],
     },
     Spec {
+        name: "shuffle",
+        description: "Turn shuffle on or off (`mode`: \"on\" or \"off\"). While on, the queue plays in a shuffled order. Refused if nothing has been played since Bramley started; Bramley starts with shuffle off.",
+        args: &[("mode", "string")],
+    },
+    Spec {
+        name: "repeat",
+        description: "Set repeat (`mode`: \"off\", \"all\" for the whole queue or \"one\" for the current item). Refused if nothing has been played since Bramley started; Bramley starts with repeat off.",
+        args: &[("mode", "string")],
+    },
+    Spec {
         name: "queue_add",
         description: "Add a catalog song (a song id only) to the end of the queue. Does not start playback; refused if nothing has been played since Bramley started.",
         args: &[ID],
     },
     Spec {
         name: "now_playing",
-        description: "What Bramley is playing: state, item, position and duration in seconds. `playing` is true only when the player has applied every command and audio is going out. If sign-in is needed or the audio output failed, `state` names that problem and `problem` says why, even when the player itself reports Playing.",
+        description: "What Bramley is playing: state, item, position and duration in seconds, plus `shuffleMode` (on/off) and `repeatMode` (off/all/one). `playing` is true only when the player has applied every command and audio is going out. If sign-in is needed or the audio output failed, `state` names that problem and `problem` says why, even when the player itself reports Playing.",
         args: &[],
     },
     Spec {
@@ -151,6 +161,7 @@ fn words(spec: &Spec, args: &JsonObject) -> Result<Vec<String>, String> {
         },
         "play" => vec!["play".into(), text(args, "id")?],
         "queue_add" => vec!["queue".into(), "add".into(), text(args, "id")?],
+        "shuffle" | "repeat" => vec![spec.name.into(), text(args, "mode")?],
         "seek" => match args.get("seconds").and_then(Value::as_f64) {
             Some(s) => vec!["seek".into(), s.to_string()],
             None => return Err("`seconds` must be a number".into()),
@@ -248,6 +259,8 @@ pub fn now_playing(status: &Value) -> Value {
         "artist": status["artist"],
         "position": status["position"],
         "duration": status["duration"],
+        "shuffleMode": status["shuffleMode"],
+        "repeatMode": status["repeatMode"],
     })
 }
 
@@ -390,7 +403,7 @@ mod tests {
         )
     }
 
-    const STATUS: &str = r#"{"state":"Playing","itemId":"6781024437","position":40.5,"applied":2,"seq":2,"banner":null,"tokenStorage":"keyring","signInUrl":"http://127.0.0.1:1/x"}"#;
+    const STATUS: &str = r#"{"state":"Playing","itemId":"6781024437","position":40.5,"applied":2,"seq":2,"banner":null,"tokenStorage":"keyring","shuffleMode":"on","repeatMode":"all","signInUrl":"http://127.0.0.1:1/x"}"#;
 
     #[test]
     fn each_tool_sends_the_cli_words_for_its_command() {
@@ -402,6 +415,8 @@ mod tests {
             ("next", "{}", "next"),
             ("previous", "{}", "prev"),
             ("seek", r#"{"seconds":12.5}"#, "seek 12.5"),
+            ("shuffle", r#"{"mode":"on"}"#, "shuffle on"),
+            ("repeat", r#"{"mode":"one"}"#, "repeat one"),
             ("queue_add", r#"{"id":"678107"}"#, "queue add 678107"),
             ("now_playing", "{}", "now"),
             ("library_playlists", "{}", "library playlists"),
@@ -420,6 +435,10 @@ mod tests {
         assert_eq!(*sent.lock().unwrap(), expected);
         let (_, now) = run(&channel, "now_playing", "{}");
         assert!(now["itemId"] == "6781024437" && !now.to_string().contains("keyring"));
+        assert_eq!(
+            (&now["shuffleMode"], &now["repeatMode"]),
+            (&json!("on"), &json!("all"))
+        );
         let (channel, _) = fake(Ok(r#"{"seq":1,"route":"Playlist","title":"Secret"}"#));
         assert_eq!(
             run(&channel, "open", r#"{"view":"playlist:p.1"}"#).1,
@@ -460,6 +479,13 @@ mod tests {
                 "open takes no argument `route`",
             ),
             ("scroll", r#"{"to":"down"}"#, "scroll top|end"),
+            ("shuffle", r#"{"mode":"maybe"}"#, "usage: bramley"),
+            (
+                "repeat",
+                r#"{"mode":"twice"}"#,
+                "repeat needs off, all or one",
+            ),
+            ("repeat", "{}", "`mode` must be a non-empty string"),
         ];
         let long = format!(r#"{{"term":"{}"}}"#, "q".repeat(MAX_TERM + 1));
         for (name, args, why) in bad {

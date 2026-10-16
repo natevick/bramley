@@ -286,6 +286,8 @@ impl App {
             "detail": self.detail.status(),
         });
         status["signInReason"] = json!(self.playback.sign_in_reason());
+        status["shuffleMode"] = json!(if shown.shuffle { "on" } else { "off" });
+        status["repeatMode"] = json!(shown.repeat.as_str());
         status["loadFailReason"] = match &shown.error {
             Some(PlayerError::LoadFailed(why)) => json!(why),
             _ => Value::Null,
@@ -647,7 +649,7 @@ impl App {
             .default_size(200.0)
             .show(ui, |ui| {
                 ui::sidebar::show(ui, &self.shell.route, &mut self.library, &mut self.navs);
-                sign_out = ui::sidebar::account(ui, signed_in, self.user.storage());
+                sign_out = ui::sidebar::account(ui, signed_in);
             });
         if self.shell.queue_open {
             egui::Panel::right("queue")

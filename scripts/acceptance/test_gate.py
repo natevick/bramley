@@ -7,6 +7,7 @@ _spec.loader.exec_module(gate)
 SCRATCH = os.path.join(gate.ROOT, 'target', 'tmp', f'test-gate-{os.getpid()}')
 RADEONSI, LLVMPIPE, SINK, SONG = 'AMD Radeon RX 5700 XT (radeonsi, navi10)', 'llvmpipe (LLVM 21.1.8, 256 bits)', 'null-1', '6781024437'
 SESSIONS = ('shipped', 'ballast', 'signedout', 'browse', 'offline', 'cpu')
+OFF = {'shuffleMode': 'off', 'repeatMode': 'off'}
 
 
 def weston_says(*lines):
@@ -62,13 +63,13 @@ def write_valid(out, renderer=RADEONSI, mode='counted'):
         w(f'{ref}.json', {'sha256': gate.REFERENCE['sha256'], 'pid': 7, 'samples': rows(20, round(gate.REFERENCE['pss'] + 0.7, 1), 62.0, 104.0, playing=False)})
     log = [[990.0 + i / 4, [SINK]] for i in range(400)]
     for name in SESSIONS:
-        w(f'{name}.guard.json', {'pid': 7, 'killed': None, 'log': log})
+        w(f'{name}.guard.json', {'pid': 7, 'killed': None, 'log': log, 'modes': OFF})
     for name, r1 in (('shipped', (170.0, 148.0, 198.0)), ('ballast', (233.0, 215.0, 260.0))):
         w(f'{name}.r2.json', {'pid': 7, 'samples': rows(20, 72.0, 50.0, 98.0, renderer, playing=False)})
         w(f'{name}.r1.json', {'pid': 7, 'started': True, 'prePlay': {'default': 'iec958'}, 'ballastMiB': 67 if name == 'ballast' else None, 'samples': rows(60, *r1, renderer)})
     put('ballast.r1.json', baseSamples=rows(60, 167.0, 148.0, 195.0, renderer), ballastTouched=67)(out)
     s = lambda name, **ev: dict(ev, session=name, renderers=[renderer])
-    w('f1.json', {'starts': [{'ms': 110, 'route': 'Home', 'playlists': 34}] * 5, 'renderers': [renderer] * 5})
+    w('f1.json', {'starts': [{'ms': 110, 'route': 'Home', 'playlists': 34}] * 5, 'renderers': [renderer] * 5, 'sessions': ['shipped']})
     w('f2.json', s('signedout', t0=1000.0, t1=1020.0, banner='SignInNeeded', playExit=5, played=False, streams=[]))
     w('f3.json', s('browse', t0=1000.0, t1=1010.0, reps=[{'exit': 0, 'wallMs': 250, 'songs': 10, 'uiMs': 420}] * 5))
     w('f4.json', dict(played(), sessions=['shipped'], renderers=[renderer]))
@@ -207,6 +208,14 @@ FUNCTIONAL = [
     ('F2 played', put('f2.json', played=True), 'F2', 'FAIL', 'not refused'),
     ('F2 a stream appeared', put('f2.json', streams=[SINK]), 'F2', 'FAIL', 'not refused'),
     ('F2 guard kill', put('signedout.guard.json', killed='linked to spdif'), 'F2', 'VOID', 'guard killed'),
+    *[(f'{c} session started shuffled', put(f'{s}.guard.json', modes=dict(OFF, shuffleMode='on')), c, 'VOID', 'shuffle and repeat off')
+      for c, s in (('F1', 'shipped'), ('F2', 'signedout'), ('F3', 'browse'), ('F4', 'shipped'), ('F5', 'shipped'), ('F6', 'shipped'), ('F8', 'shipped'), ('F9', 'browse'), ('R3', 'shipped'), ('R4', 'cpu'))],
+    ('F4 session started on repeat one', put('shipped.guard.json', modes=dict(OFF, repeatMode='one')), 'F4', 'VOID', 'shuffle and repeat off'),
+    ('F4 modes never read', put('shipped.guard.json', modes={'shuffleMode': None, 'repeatMode': None}), 'F4', 'VOID', 'shuffle and repeat off'),
+    ('F4 modes not recorded', edit('shipped.guard.json', lambda d: d.pop('modes')), 'F4', 'FAIL', 'modes in shipped.guard.json'),
+    ('R1 session started shuffled', put('shipped.guard.json', modes=dict(OFF, shuffleMode='on')), 'R1', 'VOID', 'shuffle and repeat off'),
+    ('R2 session started on repeat all', put('shipped.guard.json', modes=dict(OFF, repeatMode='all')), 'R2', 'VOID', 'shuffle and repeat off'),
+    ('R1 modes not recorded', edit('shipped.guard.json', lambda d: d.pop('modes')), 'R1', 'FAIL', 'modes in shipped.guard.json'),
     ('F3 slow CLI', put('f3.json', reps=[{'exit': 0, 'wallMs': 2100, 'songs': 3, 'uiMs': 2100}] * 5), 'F3', 'FAIL', 'wallMs median 2100'),
     ('F3 slow view', put('f3.json', reps=[{'exit': 0, 'wallMs': 300, 'songs': 3, 'uiMs': 2100}] * 5), 'F3', 'FAIL', 'uiMs median 2100'),
     ('F3 view never showed', put('f3.json', reps=[{'exit': 0, 'wallMs': 300, 'songs': 3, 'uiMs': None}] + [{'exit': 0, 'wallMs': 300, 'songs': 3, 'uiMs': 400}] * 4), 'F3', 'FAIL', 'Search view'),
@@ -656,7 +665,7 @@ def soak_rows(n=721):
 def write_soak(out):
     write_valid(out, mode='soak')
     put('build.json', soakMinutes=120)(out)
-    gate.save(out, 'soak.shipped.guard.json', {'pid': 7, 'killed': None, 'log': [[990.0 + i / 4, [SINK]] for i in range(400)]})
+    gate.save(out, 'soak.shipped.guard.json', {'pid': 7, 'killed': None, 'log': [[990.0 + i / 4, [SINK]] for i in range(400)], 'modes': OFF})
     gate.save(out, 'soak.r3.json', {'pid': 7, 't0': 1000.0, 't1': 8210.0, 'session': 'soak.shipped', 'renderers': [RADEONSI], 'samples': soak_rows(),
                                     'changes': [[1000.0 + 160 * i, f'i{i}'] for i in range(45)], 'stalls': [], 'refills': [3000.0, 5500.0], 'soakS': 7200})
 
@@ -691,6 +700,7 @@ SOAK = [
     ('ended just past the tolerance', soak_edit(lambda d: d['samples'][-1].__setitem__('m', 119.8)), 'FAIL', 'soak ended at minute 119.8 < 120'),
     ('no soak evidence', remove('soak.r3.json'), 'FAIL', 'missing evidence: soak.r3.json'),
     ('no guard record', remove('soak.shipped.guard.json'), 'FAIL', 'soak.shipped.guard.json'),
+    ('a soak that started shuffled', put('soak.shipped.guard.json', modes=dict(OFF, shuffleMode='on')), 'VOID', 'shuffle and repeat off'),
     ('guard killed the app', put('soak.shipped.guard.json', killed='linked to spdif'), 'VOID', 'guard killed'),
     ('not radeonsi', soak_edit(lambda d: d.__setitem__('renderers', [LLVMPIPE])), 'VOID', 'renderer'),
     ('a reference on the wrong sha', put('reference.json', sha256='feed'), 'VOID', 'sha'),

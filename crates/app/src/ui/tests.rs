@@ -665,3 +665,172 @@ fn a_queue_row_jumps_to_its_absolute_index_and_the_current_row_does_nothing() {
         "nothing is current"
     );
 }
+
+type Nodes = Vec<(String, egui::accesskit::Node)>;
+
+fn bar(
+    ctx: &egui::Context,
+    shown: &bramley_engine::Snapshot,
+    started: bool,
+    events: Vec<Event>,
+) -> (Nodes, Vec<Action>) {
+    ctx.enable_accesskit();
+    let mut actions = Vec::new();
+    let input = RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(1100.0, 80.0),
+        )),
+        events,
+        ..RawInput::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        let emit = (&mut actions, &mut Vec::new());
+        super::player_bar::show(ui, shown, started, false, emit);
+    });
+    out.textures_delta.clear();
+    let tree = out.platform_output.accesskit_update.expect("a tree");
+    let named = tree
+        .nodes
+        .into_iter()
+        .filter_map(|(_, n)| Some((n.label().or(n.value())?.to_owned(), n)));
+    (named.collect(), actions)
+}
+
+fn centre(nodes: &Nodes, label: &str) -> egui::Pos2 {
+    let node = nodes.iter().find(|(l, _)| l == label);
+    let at = node.and_then(|(_, n)| n.bounds()).expect(label);
+    egui::pos2(
+        ((at.x0 + at.x1) / 2.0) as f32,
+        ((at.y0 + at.y1) / 2.0) as f32,
+    )
+}
+
+fn click_bar(shown: &bramley_engine::Snapshot, started: bool, label: &str) -> Vec<Action> {
+    let ctx = egui::Context::default();
+    let at = centre(&bar(&ctx, shown, started, vec![]).0, label);
+    let button = |pressed| Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    bar(
+        &ctx,
+        shown,
+        started,
+        vec![Event::PointerMoved(at), button(true)],
+    );
+    bar(&ctx, shown, started, vec![button(false)]).1
+}
+
+#[test]
+fn the_shuffle_and_repeat_buttons_ask_for_the_next_mode_and_do_nothing_before_a_play() {
+    use bramley_engine::Repeat;
+    let with = |shuffle, repeat| {
+        let mut shown = bramley_engine::Snapshot::default();
+        (shown.shuffle, shown.repeat) = (shuffle, repeat);
+        shown
+    };
+    let cases = [
+        (
+            with(false, Repeat::Off),
+            "Shuffle",
+            Action::SetShuffle(true),
+        ),
+        (
+            with(true, Repeat::Off),
+            "Shuffle",
+            Action::SetShuffle(false),
+        ),
+        (
+            with(false, Repeat::Off),
+            "Repeat off",
+            Action::SetRepeat(Repeat::All),
+        ),
+        (
+            with(false, Repeat::All),
+            "Repeat all",
+            Action::SetRepeat(Repeat::One),
+        ),
+        (
+            with(false, Repeat::One),
+            "Repeat one",
+            Action::SetRepeat(Repeat::Off),
+        ),
+    ];
+    for (shown, label, want) in cases {
+        assert_eq!(click_bar(&shown, true, label), [want], "{label}");
+        assert_eq!(click_bar(&shown, false, label), [], "{label} before a play");
+    }
+    let on = bar(
+        &egui::Context::default(),
+        &with(true, Repeat::One),
+        true,
+        vec![],
+    )
+    .0;
+    let toggled = |label: &str| {
+        let node = on.iter().find(|(l, _)| l == label);
+        node.and_then(|(_, n)| n.toggled())
+    };
+    let yes = Some(egui::accesskit::Toggled::True);
+    assert_eq!((toggled("Shuffle"), toggled("Repeat one")), (yes, yes));
+}
+
+#[test]
+fn a_long_title_and_artist_stay_one_line_each_and_show_in_full_on_hover() {
+    let ctx = egui::Context::default();
+    ctx.all_styles_mut(|style| style.interaction.tooltip_delay = 0.0);
+    let long = "Synthetic Song One (feat. Fixture Artist, Fixture Guest and Yet Another Fixture Guest) - Extended Mix";
+    let long_artist =
+        "Fixture Artist, Fixture Guest, Another Fixture Guest, Yet Another Fixture Guest";
+    let shown = |title: &str, artist: &str| {
+        let mut shown = bramley_engine::Snapshot::default();
+        (shown.title, shown.artist) = (Some(title.into()), Some(artist.into()));
+        shown
+    };
+    let height = |nodes: &Nodes, label: &str| {
+        let named = nodes.iter().filter(|(l, _)| l.starts_with(label));
+        let tallest = named.filter_map(|(_, n)| n.bounds()).map(|r| r.y1 - r.y0);
+        tallest.fold(f64::NAN, f64::max)
+    };
+    let (nodes, _) = bar(&ctx, &shown(long, long_artist), true, vec![]);
+    let (one, _) = bar(&ctx, &shown("Short title", "Short artist"), true, vec![]);
+    assert_eq!(
+        (
+            height(&nodes, "Synthetic Song One"),
+            height(&nodes, "Fixture Artist,")
+        ),
+        (height(&one, "Short title"), height(&one, "Short artist"))
+    );
+    let hover = vec![Event::PointerMoved(centre(&nodes, long))];
+    let shown_in_full = |_: u8| {
+        let (nodes, _) = bar(&ctx, &shown(long, long_artist), true, hover.clone());
+        nodes.iter().filter(|(l, _)| l == long).count()
+    };
+    let counts: Vec<_> = (0..5).map(shown_in_full).collect();
+    assert!(counts.iter().any(|n| *n >= 2), "no tooltip: {counts:?}");
+}
+
+#[test]
+fn the_footer_says_signed_in_above_sign_out_and_says_nothing_when_signed_out() {
+    let labels = |signed_in| {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut out = ctx.run_ui(RawInput::default(), |ui| {
+            super::sidebar::account(ui, signed_in);
+        });
+        out.textures_delta.clear();
+        let tree = out.platform_output.accesskit_update.expect("a tree");
+        let named = tree
+            .nodes
+            .into_iter()
+            .filter_map(|(_, n)| n.label().or(n.value()).map(str::to_owned));
+        named.collect::<Vec<_>>()
+    };
+    let has = |labels: &[String], want: &str| labels.iter().any(|l| l == want);
+    let (signed_in, signed_out) = (labels(true), labels(false));
+    assert!(has(&signed_in, "Sign out") && has(&signed_in, "Signed in to Apple Music"));
+    assert_eq!(signed_out, Vec::<String>::new());
+}

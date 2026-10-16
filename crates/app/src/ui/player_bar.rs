@@ -1,5 +1,5 @@
-use bramley_engine::Snapshot;
-use egui::{RichText, WidgetType};
+use bramley_engine::{Repeat, Snapshot};
+use egui::{RichText, WidgetInfo, WidgetType};
 
 use super::labeled;
 use super::nav::Nav;
@@ -26,8 +26,9 @@ pub fn show(
         ui.vertical(|ui| {
             ui.set_width(220.0);
             let title = shown.title.as_deref().unwrap_or("Nothing playing");
-            ui.label(RichText::new(title).strong().size(15.0));
-            ui.label(RichText::new(shown.artist.as_deref().unwrap_or("")).weak());
+            ui.add(egui::Label::new(RichText::new(title).strong().size(15.0)).truncate());
+            let artist = RichText::new(shown.artist.as_deref().unwrap_or("")).weak();
+            ui.add(egui::Label::new(artist).truncate());
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.selectable_label(queue_open, "Queue").clicked() {
@@ -38,6 +39,13 @@ pub fn show(
             });
         });
     });
+}
+
+fn toggle(ui: &mut egui::Ui, on: bool, text: &str, label: &str) -> bool {
+    let response = ui.add(egui::Button::selectable(on, RichText::new(text).size(18.0)));
+    let enabled = response.enabled();
+    response.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, on, label));
+    response.clicked()
 }
 
 fn controls(ui: &mut egui::Ui, shown: &Snapshot, started: bool, actions: &mut Vec<Action>) {
@@ -56,6 +64,17 @@ fn controls(ui: &mut egui::Ui, shown: &Snapshot, started: bool, actions: &mut Ve
         }
         if glyph(ui, "⏭", 18.0, "Next track") {
             actions.push(Action::Next);
+        }
+        if toggle(ui, shown.shuffle, "🔀", "Shuffle") {
+            actions.push(Action::SetShuffle(!shown.shuffle));
+        }
+        let (text, label) = match shown.repeat {
+            Repeat::Off => ("🔁", "Repeat off"),
+            Repeat::All => ("🔁", "Repeat all"),
+            Repeat::One => ("🔂", "Repeat one"),
+        };
+        if toggle(ui, shown.repeat != Repeat::Off, text, label) {
+            actions.push(Action::SetRepeat(shown.repeat.next()));
         }
         let duration = shown.duration.unwrap_or(0.0);
         let mut position = shown.position.unwrap_or(0.0).min(duration);

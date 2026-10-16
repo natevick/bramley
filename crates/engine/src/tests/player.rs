@@ -8,8 +8,8 @@ use serde_json::{Value as J, json};
 
 use super::element::engine;
 use crate::player::{
-    Backend, Command, PlayState, PlayerError, QUEUE_SHOWN, Queue, QueueItem, Snapshot, command_js,
-    spawn_with,
+    Backend, Command, PlayState, PlayerError, QUEUE_SHOWN, Queue, QueueItem, Repeat, Snapshot,
+    command_js, spawn_with,
 };
 
 const SECRET: &str = "sekrit-token-value-123456";
@@ -164,6 +164,8 @@ fn ids_are_passed_as_json_so_they_cannot_run_script() {
     for command in [
         Command::PlayLater(Queue::Songs(vec![evil.into()])),
         Command::Shuffle(true),
+        Command::Repeat(Repeat::All),
+        Command::Repeat(Repeat::One),
         Command::TopUp(Queue::Songs(vec![evil.into()])),
         Command::PlayNext(Queue::Songs(vec![evil.into()])),
         Command::JumpTo {
@@ -183,6 +185,8 @@ fn ids_are_passed_as_json_so_they_cannot_run_script() {
             ["seek", [30.5]],
             ["playLater", [{"songs": [evil]}]],
             ["shuffle", [true]],
+            ["repeat", ["all"]],
+            ["repeat", ["one"]],
             ["topUp", [{"songs": [evil]}]],
             ["playNext", [{"songs": [evil]}]],
             ["jumpTo", [[4, evil]]],
@@ -332,6 +336,24 @@ fn a_state_read_error_mid_song_is_a_playback_error_that_clears_on_the_next_good_
     fake.0.lock().unwrap().read_fails = false;
     let s = wait_for(&rx, |s| s.state == PlayState::Playing);
     assert_eq!(s.error, None);
+    tx.send(Command::Shutdown).unwrap();
+}
+
+#[test]
+fn the_snapshot_carries_musickits_shuffle_and_repeat_modes_defaulting_to_off() {
+    let fake = FakeEngine::default();
+    let f = fake.clone();
+    let (tx, rx, _) = spawn_fake(move || Ok(f), SNAPSHOT_EVERY);
+    let modes = |s: &Snapshot| (s.shuffle, s.repeat);
+    fake.set(json!({"shuffleMode": 1, "repeatMode": 2}), None);
+    let s = wait_for(&rx, |s| s.shuffle);
+    assert_eq!(modes(&s), (true, Repeat::All));
+    fake.set(json!({"shuffleMode": 0, "repeatMode": 1}), None);
+    let s = wait_for(&rx, |s| s.repeat == Repeat::One);
+    assert_eq!(modes(&s), (false, Repeat::One));
+    fake.set(json!({"phase": "loading-musickit"}), None);
+    let s = wait_for(&rx, |s| s.repeat == Repeat::Off);
+    assert_eq!(modes(&s), (false, Repeat::Off));
     tx.send(Command::Shutdown).unwrap();
 }
 

@@ -58,6 +58,46 @@ pub enum Queue {
     Playlist(String),
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Repeat {
+    #[default]
+    Off,
+    All,
+    One,
+}
+
+impl Repeat {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Repeat::Off => "off",
+            Repeat::All => "all",
+            Repeat::One => "one",
+        }
+    }
+
+    pub fn parse(word: &str) -> Option<Repeat> {
+        [Repeat::Off, Repeat::All, Repeat::One]
+            .into_iter()
+            .find(|r| r.as_str() == word)
+    }
+
+    pub fn next(self) -> Repeat {
+        match self {
+            Repeat::Off => Repeat::All,
+            Repeat::All => Repeat::One,
+            Repeat::One => Repeat::Off,
+        }
+    }
+
+    fn musickit(self) -> &'static str {
+        match self {
+            Repeat::Off => "none",
+            Repeat::All => "all",
+            Repeat::One => "one",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     SetQueue { queue: Queue, start: usize },
@@ -69,6 +109,7 @@ pub enum Command {
     Volume(f32),
     PlayLater(Queue),
     Shuffle(bool),
+    Repeat(Repeat),
     TopUp(Queue),
     PlayNext(Queue),
     JumpTo { index: usize, id: String },
@@ -128,6 +169,8 @@ pub struct Snapshot {
     pub queue: Vec<QueueItem>,
     pub queue_position: Option<usize>,
     pub queue_length: usize,
+    pub shuffle: bool,
+    pub repeat: Repeat,
     pub background_done: u64,
     #[cfg(feature = "diagnostics")]
     pub diagnostics: Option<Diagnostics>,
@@ -408,6 +451,7 @@ pub(crate) fn command_js(command: &Command) -> String {
         Command::Volume(v) => ("volume", json!(v)),
         Command::PlayLater(queue) => ("playLater", queue_options(queue)),
         Command::Shuffle(on) => ("shuffle", json!(on)),
+        Command::Repeat(mode) => ("repeat", json!(mode.musickit())),
         Command::TopUp(queue) => ("topUp", queue_options(queue)),
         Command::PlayNext(queue) => ("playNext", queue_options(queue)),
         Command::JumpTo { index, id } => ("jumpTo", json!([index, id])),
@@ -491,6 +535,12 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
         queue: shown.collect(),
         queue_position: queue["position"].as_u64().map(|at| at as usize),
         queue_length: queue["length"].as_u64().unwrap_or(0) as usize,
+        shuffle: js["shuffleMode"] == 1,
+        repeat: match js["repeatMode"].as_u64() {
+            Some(1) => Repeat::One,
+            Some(2) => Repeat::All,
+            _ => Repeat::Off,
+        },
         background_done: js["background"].as_u64().unwrap_or(0),
         #[cfg(feature = "diagnostics")]
         diagnostics: Some(Diagnostics {
