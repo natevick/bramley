@@ -27,3 +27,7 @@
   - Three isolated probes could not reproduce it. It shows only inside a full R3 session.
   - Holding v0.1.2 kept S17's position fix from users. On v0.1.1 the song time pins to the end from the second song of a seamless queue on.
   - v0.1.2 ships with the slow seek recorded as a known issue. S22 continues on `natevick/s22-seek-probe`, and the pre-registered next step is a 30-minute trace run.
+- **2026-10-16: the sidebar no longer shows where the sign-in is stored (Nate).**
+  - Nate, during the 2026-10-16 feedback session: "we don't really care where the credentials are stored." The footer now reads "Signed in to Apple Music" with a Sign out button.
+  - This amends the 2026-10-10 user-token storage decision. The storage mode ("keyring" or "file") still shows in the status file as `tokenStorage`, but no longer in the UI. Keyring errors still surface through the notice line.
+  - Apple's documented Apple Music API has no endpoint that returns the user's name or Apple ID, so the footer cannot say which account is signed in.
