@@ -527,3 +527,18 @@ R3 stays one of the 16 checks.
 **Scope.** It applies to runs made at or after this commit.
 - `v012-counted-1` stays FAIL on record. Replaying its `r3.json` through the new rules gives R3 PASS with a max landing of 5.06 s over 8 seeks. That replay is a probe of the rule, not a re-judgement of that run.
 - No threshold of any other check changes.
+
+## Amendment 16 (2026-10-16, v0.1.4: a session that does not start with shuffle and repeat off is VOID; written before v014-counted-1)
+**Why.** `natevick/player-controls` adds shuffle and repeat to the player, and the status JSON carries `shuffleMode` (on/off) and `repeatMode` (off/all/one). The harness assumes items play in order and advance, so a session that starts with either mode on cannot be judged. `docs/acceptance.md` already lists this under the VOID conditions.
+
+**The rule, as `drive.py` and `gate.py` implement it.**
+- `drive.py` records `modes` for each session: `shuffleMode` and `repeatMode` from the status snapshot at which the session's first `App.until` wait returns, whether its predicate was met or it timed out. A field absent from that snapshot is recorded as null. `App.close` writes `modes` to `<session>.guard.json`. A session that never calls `until` writes `modes` as null.
+- `gate.py` compares `modes` with `OFF_MODES`, `{shuffleMode: off, repeatMode: off}`. Anything else is VOID, including one mode on, a null field, and `modes` itself null. The reason names the session and the recorded modes.
+- A guard record with no `modes` key at all is missing evidence, so the check is FAIL. That differs from a recorded null, which is VOID.
+- The rule runs in every place a session's guard is read. That is `guard_voids` for each session named in a check's evidence (`sessions`, or `session`), which covers the soak and every check whose evidence names a session, and `memory_check` for the session behind R1 and R2. A VOID applies to every check that session feeds.
+- `F1` now records its `sessions`, so its guard is read.
+- The pinned reference binary predates both fields, and its records are not checked.
+
+**F9.** The expected `tools/list` is now the 14 tools of `gate.TOOLS`, which adds `shuffle` and `repeat`. A server that lists any other set FAILs F9.
+
+**Scope.** It applies to runs made at or after this commit. No threshold of any other check changes.
