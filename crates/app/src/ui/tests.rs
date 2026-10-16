@@ -869,6 +869,16 @@ fn click_bar(shown: &bramley_engine::Snapshot, started: bool, label: &str) -> Ve
 }
 
 #[test]
+fn shuffle_and_repeat_sit_at_the_right_end_beside_the_queue() {
+    let ctx = egui::Context::default();
+    let nodes = bar(&ctx, &bramley_engine::Snapshot::default(), true, vec![]).0;
+    let x = |label| centre(&nodes, label).x;
+    let order = ["Next track", "Position", "Shuffle", "Repeat off", "Queue"];
+    let xs: Vec<f32> = order.iter().map(|l| x(l)).collect();
+    assert!(xs.windows(2).all(|w| w[0] < w[1]), "{order:?} at {xs:?}");
+}
+
+#[test]
 fn the_shuffle_and_repeat_buttons_ask_for_the_next_mode_and_do_nothing_before_a_play() {
     use bramley_engine::Repeat;
     let with = |shuffle, repeat| {

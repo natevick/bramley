@@ -34,6 +34,7 @@ pub fn show(
             if ui.selectable_label(queue_open, "Queue").clicked() {
                 navs.push(Nav::ToggleQueue);
             }
+            ui.add_enabled_ui(started, |ui| modes(ui, shown, actions));
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 controls(ui, shown, started, actions);
             });
@@ -46,6 +47,20 @@ fn toggle(ui: &mut egui::Ui, on: bool, text: &str, label: &str) -> bool {
     let enabled = response.enabled();
     response.widget_info(|| WidgetInfo::selected(WidgetType::Button, enabled, on, label));
     response.clicked()
+}
+
+fn modes(ui: &mut egui::Ui, shown: &Snapshot, actions: &mut Vec<Action>) {
+    let (text, label) = match shown.repeat {
+        Repeat::Off => ("🔁", "Repeat off"),
+        Repeat::All => ("🔁", "Repeat all"),
+        Repeat::One => ("🔂", "Repeat one"),
+    };
+    if toggle(ui, shown.repeat != Repeat::Off, text, label) {
+        actions.push(Action::SetRepeat(shown.repeat.next()));
+    }
+    if toggle(ui, shown.shuffle, "🔀", "Shuffle") {
+        actions.push(Action::SetShuffle(!shown.shuffle));
+    }
 }
 
 fn controls(ui: &mut egui::Ui, shown: &Snapshot, started: bool, actions: &mut Vec<Action>) {
@@ -64,17 +79,6 @@ fn controls(ui: &mut egui::Ui, shown: &Snapshot, started: bool, actions: &mut Ve
         }
         if glyph(ui, "⏭", 18.0, "Next track") {
             actions.push(Action::Next);
-        }
-        if toggle(ui, shown.shuffle, "🔀", "Shuffle") {
-            actions.push(Action::SetShuffle(!shown.shuffle));
-        }
-        let (text, label) = match shown.repeat {
-            Repeat::Off => ("🔁", "Repeat off"),
-            Repeat::All => ("🔁", "Repeat all"),
-            Repeat::One => ("🔂", "Repeat one"),
-        };
-        if toggle(ui, shown.repeat != Repeat::Off, text, label) {
-            actions.push(Action::SetRepeat(shown.repeat.next()));
         }
         let duration = shown.duration.unwrap_or(0.0);
         let mut position = shown.position.unwrap_or(0.0).min(duration);
