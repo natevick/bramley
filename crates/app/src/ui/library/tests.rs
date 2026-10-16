@@ -1113,7 +1113,16 @@ fn names(shown: &[String]) -> Vec<&str> {
 #[test]
 fn typing_a_letter_or_a_prefix_jumps_to_the_first_matching_artist() {
     let (ctx, mut lib) = (egui::Context::default(), Library::default());
-    lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);
+    let mut items = lettered(b'A'..b'Z' + 1);
+    items.insert(
+        20,
+        Item {
+            id: "i.mid".into(),
+            name: Some("Cmx".into()),
+            ..item(0)
+        },
+    );
+    lib.lists[List::Artists as usize].items = items;
     let shown = at(&ctx, &mut lib, 0.0, vec![]);
     assert!(names(&shown).contains(&"Ax0") && !names(&shown).contains(&"Mx0"));
     at(&ctx, &mut lib, 1.0, vec![text("m")]);
