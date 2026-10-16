@@ -17,6 +17,7 @@ use crate::playback::Action;
 pub const DEBOUNCE: Duration = Duration::from_millis(250);
 pub const DEADLINE: Duration = Duration::from_secs(10);
 const ART_PT: f32 = 40.0;
+const RECENT_PT: f32 = 96.0;
 
 type Found = (u64, bramley_api::Result<Reply>);
 type Fetched = (u64, String, ColorImage);
@@ -31,6 +32,13 @@ pub enum State {
     Failed(String, String),
 }
 
+#[derive(Debug, PartialEq)]
+enum Recent {
+    Unasked,
+    Asked,
+    Albums(Vec<Item>),
+}
+
 pub struct Search {
     pending: Option<(String, Instant, Option<Instant>)>,
     seq: u64,
@@ -40,6 +48,10 @@ pub struct Search {
     tx: Sender<Found>,
     rx: Receiver<Found>,
     pub(super) art: Art,
+    recent: Recent,
+    recent_tx: Sender<bramley_api::Result<Reply>>,
+    recent_rx: Receiver<bramley_api::Result<Reply>>,
+    recent_art: Art,
     #[cfg(feature = "dev")]
     pub click_first_song: bool,
     #[cfg(feature = "dev")]
@@ -51,6 +63,7 @@ pub struct Search {
 impl Search {
     pub fn new(art_prefix: Option<String>) -> Self {
         let (tx, rx) = channel();
+        let (recent_tx, recent_rx) = channel();
         Search {
             pending: None,
             seq: 0,
@@ -59,6 +72,10 @@ impl Search {
             took: None,
             tx,
             rx,
+            recent: Recent::Unasked,
+            recent_tx,
+            recent_rx,
+            recent_art: Art::new(art_prefix.clone(), RECENT_PT),
             art: Art::new(art_prefix, ART_PT),
             #[cfg(feature = "dev")]
             click_first_song: false,
@@ -94,6 +111,7 @@ impl Search {
     ) -> Option<Job> {
         if !signed_in {
             self.pending = None;
+            self.recent = Recent::Unasked;
             if self.state != State::Idle {
                 self.replace(State::Idle);
             }
@@ -125,6 +143,27 @@ impl Search {
         Some(job.superseding())
     }
 
+    pub fn recent_job(
+        &mut self,
+        now: Instant,
+        wanted: bool,
+        wake: impl Fn() + Send + 'static,
+    ) -> Option<Job> {
+        if !wanted || self.recent != Recent::Unasked {
+            return None;
+        }
+        self.recent = Recent::Asked;
+        let tx = self.recent_tx.clone();
+        Some(Job::new(
+            Call::RecentlyPlayed,
+            now + DEADLINE,
+            move |found| {
+                let _ = tx.send(found);
+                wake();
+            },
+        ))
+    }
+
     fn replace(&mut self, state: State) {
         self.seq += 1;
         self.state = state;
@@ -146,7 +185,15 @@ impl Search {
                 Err(e) => State::Failed(cause(&e), variant(&e)),
             };
         }
-        self.art.receive(ctx) | any
+        for found in self.recent_rx.try_iter() {
+            any = true;
+            if let (Recent::Asked, Ok(Reply::Page(page))) = (&self.recent, found) {
+                let album = |item: &Item| matches!(item.kind, Kind::Albums | Kind::LibraryAlbums);
+                let albums = page.items.into_iter().filter(album);
+                self.recent = Recent::Albums(albums.collect());
+            }
+        }
+        self.art.receive(ctx) | self.recent_art.receive(ctx) | any
     }
 
     pub fn status(&self) -> Value {
@@ -160,15 +207,21 @@ impl Search {
         let count = |page: fn(&SearchResults) -> &bramley_api::Page| {
             found.map_or(0, |r| page(r).items.len())
         };
-        let (songs, albums, playlists) = (
+        let (songs, albums, artists, playlists) = (
             count(|r| &r.songs),
             count(|r| &r.albums),
+            count(|r| &r.artists),
             count(|r| &r.playlists),
         );
+        let recent = match &self.recent {
+            Recent::Albums(albums) => albums.len(),
+            _ => 0,
+        };
         let ms = self.took.map(|t| t.as_millis() as u64);
         let art = self.art.textures.values().flatten().count();
-        json!({ "state": state, "error": error, "results": songs + albums + playlists,
-            "songs": songs, "albums": albums, "playlists": playlists, "ms": ms, "art": art,
+        json!({ "state": state, "error": error, "results": songs + albums + artists + playlists,
+            "songs": songs, "albums": albums, "artists": artists, "playlists": playlists,
+            "recent": recent, "ms": ms, "art": art,
             "seq": self.seq })
     }
 }
@@ -193,6 +246,7 @@ pub fn variant(e: &Error) -> String {
 
 pub fn sections(r: &SearchResults) -> Vec<(&'static str, &[Item])> {
     let all = [
+        ("Artists", &r.artists),
         ("Songs", &r.songs),
         ("Albums", &r.albums),
         ("Playlists", &r.playlists),
@@ -209,6 +263,7 @@ pub fn clicked(item: &Item, actions: &mut Vec<Action>, navs: &mut Vec<Nav>) {
         Kind::Songs => actions.extend(crate::cli::catalog_id(&id).ok().map(Action::PlaySong)),
         Kind::Albums => navs.push(Nav::Go(Route::Album(id))),
         Kind::Playlists => navs.push(Nav::Go(Route::Playlist(id))),
+        Kind::Artists => navs.push(Nav::Go(Route::Artist(id))),
         _ => {}
     }
 }
@@ -341,6 +396,9 @@ pub fn show(
     }
     ui.add_space(6.0);
     let results = match &search.state {
+        State::Idle if shell.query.trim().is_empty() => {
+            return recent(ui, (&search.recent, &mut search.recent_art), navs);
+        }
         State::Idle => return,
         State::Loading(_) => return drop(ui.spinner()),
         State::Empty => return drop(ui.label(RichText::new("No results.").weak())),
@@ -361,15 +419,60 @@ pub fn show(
         search.click_first_playlist = false;
         clicked(playlist, actions, navs);
     }
-    egui::ScrollArea::vertical().show(ui, |ui| {
+    results_list(ui, results, &mut search.art, (actions, navs));
+}
+
+pub(super) fn results_list(
+    ui: &mut egui::Ui,
+    results: &SearchResults,
+    art: &mut Art,
+    (actions, navs): (&mut Vec<Action>, &mut Vec<Nav>),
+) -> egui::Rect {
+    let area = egui::ScrollArea::vertical().auto_shrink([false, true]);
+    area.show(ui, |ui| {
         for (title, items) in sections(results) {
             ui.label(RichText::new(title).strong().size(15.0));
             for item in items {
-                row(ui, item, &mut search.art, (actions, navs));
+                row(ui, item, art, (actions, navs));
             }
             ui.add_space(8.0);
         }
-    });
+    })
+    .inner_rect
+}
+
+fn recent(ui: &mut egui::Ui, (recent, art): (&Recent, &mut Art), navs: &mut Vec<Nav>) {
+    let Recent::Albums(albums) = recent else {
+        return;
+    };
+    ui.label(RichText::new("Recently played").strong().size(15.0));
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for item in albums {
+                    let name = item.name.as_deref().unwrap_or("Untitled");
+                    let size = egui::vec2(RECENT_PT, RECENT_PT);
+                    let button = egui::Button::image(blank_or(art, item, size)).frame(false);
+                    let label = format!("Open album {name}");
+                    let cover = labeled(ui.add(button), WidgetType::Button, &label);
+                    if ui.is_rect_visible(cover.rect) {
+                        art.want(ui.ctx(), item);
+                    }
+                    if cover.clicked() {
+                        navs.push(Nav::Go(Route::Album(item.id.clone())));
+                    }
+                }
+            });
+        });
+}
+
+fn blank_or<'a>(art: &'a Art, item: &Item, size: egui::Vec2) -> egui::Image<'a> {
+    match art.texture(item) {
+        Some(texture) => egui::Image::new(texture),
+        _ => egui::Image::new((egui::TextureId::default(), size)).tint(Color32::TRANSPARENT),
+    }
+    .fit_to_exact_size(size)
 }
 
 fn row(ui: &mut egui::Ui, item: &Item, art: &mut Art, emit: (&mut Vec<Action>, &mut Vec<Nav>)) {
@@ -382,14 +485,11 @@ fn row(ui: &mut egui::Ui, item: &Item, art: &mut Art, emit: (&mut Vec<Action>, &
         Kind::Songs => format!("Play {text}"),
         Kind::Albums => format!("Open album {text}"),
         Kind::Playlists => format!("Open playlist {text}"),
+        Kind::Artists => format!("Open artist {text}"),
         _ => text.clone(),
     };
     let size = egui::vec2(ART_PT, ART_PT);
-    let image = match art.texture(item) {
-        Some(texture) => egui::Image::new(texture),
-        _ => egui::Image::new((egui::TextureId::default(), size)).tint(Color32::TRANSPARENT),
-    };
-    let button = egui::Button::image_and_text(image.fit_to_exact_size(size), text).frame(false);
+    let button = egui::Button::image_and_text(blank_or(art, item, size), text).frame(false);
     let response = labeled(ui.add(button), WidgetType::Button, &label);
     if ui.is_rect_visible(response.rect) {
         art.want(ui.ctx(), item);

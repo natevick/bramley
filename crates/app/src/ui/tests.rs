@@ -129,6 +129,36 @@ fn space_toggles_play_only_when_no_text_field_has_focus() {
 }
 
 #[test]
+fn the_artists_list_neither_swallows_space_nor_command_l_nor_types_for_them() {
+    let ctx = egui::Context::default();
+    let mut lib = super::library::Library::default();
+    let events = vec![
+        key(Key::Space, true, Modifiers::NONE),
+        Event::Text(" ".into()),
+        key(Key::L, true, Modifiers::COMMAND),
+    ];
+    let (mut actions, mut navs) = (Vec::new(), Vec::new());
+    let mut out = ctx.run_ui(
+        RawInput {
+            events,
+            ..RawInput::default()
+        },
+        |ui| {
+            let route = Route::Artists;
+            let emit = (&mut Vec::new(), &mut Vec::new());
+            super::library::show(ui, &mut lib, (&route, &mut None), emit);
+            shortcuts(ui.ctx(), Some(Action::Pause), &mut actions, &mut navs);
+        },
+    );
+    out.textures_delta.clear();
+    assert_eq!(
+        (actions, navs),
+        (vec![Action::Pause], vec![Nav::FocusSearch])
+    );
+    assert!(lib.jump.is_none());
+}
+
+#[test]
 fn holding_space_toggles_once_and_swallows_the_repeats() {
     let ctx = egui::Context::default();
     let held = || press(Key::Space, Modifiers::NONE);
@@ -323,7 +353,9 @@ mod search {
     use serde_json::json;
 
     use super::super::nav::{Nav, Route, Shell};
-    use super::super::search::{Search, State, art_key, cause, clicked, sections, show};
+    use super::super::search::{
+        Search, State, art_key, cause, clicked, results_list, sections, show,
+    };
     use crate::playback::Action;
 
     const LOCAL: &str = "http://127.0.0.1:9";
@@ -415,30 +447,38 @@ mod search {
     }
 
     #[test]
-    fn results_group_songs_albums_playlists_in_order_without_artists() {
+    fn results_group_artists_songs_albums_playlists_in_order() {
         let ctx = egui::Context::default();
         let mut r = found(&["1", "2"]);
         (r.albums, r.artists) = (page("albums", &["3"]), page("artists", &["4"]));
         r.playlists = page("playlists", &["pl.5"]);
         let titles: Vec<_> = sections(&r).iter().map(|(t, s)| (*t, s.len())).collect();
-        assert_eq!(titles, [("Songs", 2), ("Albums", 1), ("Playlists", 1)]);
+        assert_eq!(
+            titles,
+            [
+                ("Artists", 1),
+                ("Songs", 2),
+                ("Albums", 1),
+                ("Playlists", 1)
+            ]
+        );
         let mut search = Search::new(None);
         (ask(&mut search, "a", Instant::now()).done)(Ok(Reply::Search(r)));
         search.receive(&ctx);
-        let counts =
-            ["songs", "albums", "playlists", "results"].map(|k| search.status()[k].clone());
-        assert_eq!(counts, [2, 1, 1, 4].map(serde_json::Value::from));
-        r = SearchResults {
+        let keys = ["songs", "albums", "artists", "playlists", "results"];
+        let counts = keys.map(|k| search.status()[k].clone());
+        assert_eq!(counts, [2, 1, 1, 1, 5].map(serde_json::Value::from));
+        let only_artists = SearchResults {
             artists: page("artists", &["4"]),
             ..SearchResults::default()
         };
-        (ask(&mut search, "b", Instant::now()).done)(Ok(Reply::Search(r)));
+        (ask(&mut search, "b", Instant::now()).done)(Ok(Reply::Search(only_artists)));
         search.receive(&ctx);
-        assert_eq!(search.state, State::Empty);
+        assert!(matches!(search.state, State::Results(_)));
     }
 
     #[test]
-    fn a_song_click_plays_it_and_albums_and_playlists_navigate() {
+    fn a_song_click_plays_it_and_albums_playlists_and_artists_navigate() {
         let (mut actions, mut navs) = (Vec::new(), Vec::new());
         let clicks = [
             ("1", "songs"),
@@ -450,7 +490,11 @@ mod search {
             clicked(&item(id, kind), &mut actions, &mut navs);
         }
         assert_eq!(actions, [Action::PlaySong("1".into())]);
-        let routes = [Route::Album("2".into()), Route::Playlist("pl.3".into())];
+        let routes = [
+            Route::Album("2".into()),
+            Route::Playlist("pl.3".into()),
+            Route::Artist("4".into()),
+        ];
         assert_eq!(navs, routes.map(Nav::Go));
     }
 
@@ -616,6 +660,106 @@ mod search {
         search.receive(&ctx);
         assert_eq!(search.state, State::Failed(keyring.into(), "Config".into()));
         assert!(!search.status().to_string().contains("bohemian"));
+    }
+
+    fn list_width(name: &str) -> f32 {
+        let ctx = egui::Context::default();
+        let mut search = Search::new(None);
+        let mut r = found(&["1"]);
+        r.songs.items[0].name = Some(name.into());
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(500.0, 400.0));
+        let mut width = 0.0;
+        for _ in 0..3 {
+            let input = RawInput {
+                screen_rect: Some(rect),
+                ..RawInput::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| {
+                let emit = (&mut Vec::new(), &mut Vec::new());
+                results_list(ui, &r, &mut search.art, emit);
+                width = ui.min_rect().width();
+            });
+            out.textures_delta.clear();
+        }
+        width
+    }
+
+    #[test]
+    fn the_results_column_keeps_the_full_width_whatever_the_names() {
+        let short = list_width("Hi");
+        let long = list_width(&"Bohemian ".repeat(6));
+        assert_eq!(short, long);
+        assert!(short > 450.0, "{short}");
+    }
+
+    fn recent_albums() -> Reply {
+        let mut page = page("albums", &["10", "11"]);
+        page.items.push(item("pl.12", "playlists"));
+        Reply::Page(page)
+    }
+
+    fn recents(ctx: &egui::Context, search: &mut Search, query: &str) -> Vec<String> {
+        ctx.enable_accesskit();
+        let mut shell = Shell::default();
+        shell.query = query.into();
+        let mut out = ctx.run_ui(RawInput::default(), |ui| {
+            let emit = (&mut Vec::new(), &mut Vec::new());
+            show(ui, (&mut shell, search), egui::Id::NULL, emit);
+        });
+        out.textures_delta.clear();
+        let nodes = out.platform_output.accesskit_update.expect("a tree").nodes;
+        let labels = nodes.iter().filter_map(|(_, n)| n.label());
+        labels
+            .filter(|l| l.starts_with("Open album"))
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn an_empty_search_shows_recently_played_albums_fetched_once_and_hides_them_while_typing() {
+        let (ctx, mut search, now) = (egui::Context::default(), Search::new(None), Instant::now());
+        assert!(
+            search.recent_job(now, false, || {}).is_none(),
+            "not on the page yet"
+        );
+        let job = search
+            .recent_job(now, true, || {})
+            .expect("the first visit asks");
+        assert_eq!(job.call, Call::RecentlyPlayed);
+        assert!(
+            search.recent_job(now, true, || {}).is_none(),
+            "once while in flight"
+        );
+        (job.done)(Ok(recent_albums()));
+        search.receive(&ctx);
+        assert!(
+            search.recent_job(now, true, || {}).is_none(),
+            "once per session"
+        );
+        assert_eq!(search.status()["recent"], 2);
+        let shown = recents(&ctx, &mut search, "");
+        assert_eq!(shown, ["Open album albums 10", "Open album albums 11"]);
+        assert!(
+            recents(&ctx, &mut search, "bea").is_empty(),
+            "hidden while a query is typed"
+        );
+        assert!(recents(&ctx, &mut search, "  ").len() == 2);
+        assert!(
+            search.recent_job(now, true, || {}).is_none(),
+            "emptying the box asks nothing"
+        );
+    }
+
+    #[test]
+    fn a_failed_recent_fetch_is_not_retried_until_signing_in_again() {
+        let (ctx, mut search, now) = (egui::Context::default(), Search::new(None), Instant::now());
+        let job = search.recent_job(now, true, || {}).unwrap();
+        (job.done)(Err(Error::Network("down".into())));
+        search.receive(&ctx);
+        assert!(recents(&ctx, &mut search, "").is_empty());
+        assert!(search.recent_job(now, true, || {}).is_none());
+        search.tick(now, false, || {});
+        assert!(search.recent_job(now, true, || {}).is_some());
     }
 
     #[test]

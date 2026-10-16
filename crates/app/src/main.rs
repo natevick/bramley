@@ -150,6 +150,8 @@ pub struct Args {
     #[cfg(feature = "dev")]
     jump_to: Option<usize>,
     #[cfg(feature = "dev")]
+    jump_letter: Option<String>,
+    #[cfg(feature = "dev")]
     queue_fixture: bool,
     #[cfg(feature = "dev")]
     playlists_collapsed: bool,
@@ -202,6 +204,8 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
             "--click-row" => a.click_row = Some(value()?.parse()?),
             #[cfg(feature = "dev")]
             "--jump-to" => a.jump_to = Some(value()?.parse()?),
+            #[cfg(feature = "dev")]
+            "--jump-letter" => a.jump_letter = Some(value()?.to_lowercase()),
             #[cfg(feature = "dev")]
             "--queue-fixture" => a.queue_fixture = true,
             #[cfg(feature = "dev")]

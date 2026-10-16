@@ -1059,3 +1059,216 @@ fn hundreds_of_playlists_still_leave_albums_songs_and_sign_out_on_screen() {
     assert!(last > songs.y1 && last <= footer.y0, "{last} {footer:?}");
     assert!(footer.y1 <= out.y0 && out.y1 <= 420.0, "{footer:?} {out:?}");
 }
+
+fn lettered(letters: std::ops::Range<u8>) -> Vec<Item> {
+    let named = |letter: u8, n: u8| Item {
+        id: format!("i.{letter}{n}"),
+        name: Some(format!("{}x{n}", letter as char)),
+        ..item(0)
+    };
+    letters
+        .flat_map(|l| (0..10).map(move |n| named(l, n)))
+        .collect()
+}
+
+fn text(t: &str) -> Event {
+    Event::Text(t.into())
+}
+
+fn on(
+    (ctx, lib): (&egui::Context, &mut Library),
+    (route, verb): (Route, &str),
+    time: f64,
+    events: Vec<Event>,
+) -> Vec<String> {
+    ctx.enable_accesskit();
+    let screen = Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0));
+    let input = RawInput {
+        screen_rect: Some(screen),
+        time: Some(time),
+        events,
+        ..RawInput::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        show(ui, lib, (&route, &mut None), (&mut vec![], &mut vec![]))
+    });
+    out.textures_delta.clear();
+    let nodes = out.platform_output.accesskit_update.expect("a tree").nodes;
+    let labels = nodes.iter().filter_map(|(_, n)| n.label());
+    let verb = format!("{verb} ");
+    labels
+        .filter_map(|l| l.strip_prefix(&verb))
+        .map(str::to_owned)
+        .collect()
+}
+
+fn at(ctx: &egui::Context, lib: &mut Library, time: f64, events: Vec<Event>) -> Vec<String> {
+    on((ctx, lib), (Route::Artists, "Open artist"), time, events)
+}
+
+fn names(shown: &[String]) -> Vec<&str> {
+    shown.iter().map(String::as_str).collect()
+}
+
+#[test]
+fn typing_a_letter_or_a_prefix_jumps_to_the_first_matching_artist() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);
+    let shown = at(&ctx, &mut lib, 0.0, vec![]);
+    assert!(names(&shown).contains(&"Ax0") && !names(&shown).contains(&"Mx0"));
+    at(&ctx, &mut lib, 1.0, vec![text("m")]);
+    let shown = at(&ctx, &mut lib, 1.1, vec![]);
+    assert!(names(&shown).contains(&"Mx0") && !names(&shown).contains(&"Ax0"));
+    at(&ctx, &mut lib, 1.4, vec![text("x7")]);
+    assert!(names(&at(&ctx, &mut lib, 1.5, vec![])).contains(&"Mx7"));
+    at(&ctx, &mut lib, 5.0, vec![text("c")]);
+    let shown = at(&ctx, &mut lib, 5.1, vec![]);
+    assert!(
+        names(&shown).contains(&"Cx0"),
+        "a pause starts a new prefix"
+    );
+}
+
+#[test]
+fn the_index_strip_jumps_to_a_letter() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);
+    click(&ctx, &mut lib, &Route::Artists, "Jump to Q");
+    let shown = at(&ctx, &mut lib, 1000.0, vec![]);
+    assert!(names(&shown).contains(&"Qx0") && !names(&shown).contains(&"Ax0"));
+}
+
+#[test]
+fn typing_is_left_alone_for_space_shortcuts_the_search_box_and_other_lists() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);
+    let shortcut = egui::Modifiers::COMMAND;
+    let held = RawInput {
+        events: vec![Event::ModifiersChanged(shortcut), text("l")],
+        ..RawInput::default()
+    };
+    let mut field = String::new();
+    let id = crate::ui::content::search_id();
+    ctx.memory_mut(|m| m.request_focus(id));
+    let mut typing = |ctx: &egui::Context, lib: &mut Library, input: RawInput| {
+        let mut out = ctx.run_ui(input, |ui| {
+            ui.add(egui::TextEdit::singleline(&mut field).id(id));
+            show(
+                ui,
+                lib,
+                (&Route::Artists, &mut None),
+                (&mut vec![], &mut vec![]),
+            )
+        });
+        out.textures_delta.clear();
+    };
+    typing(&ctx, &mut lib, RawInput::default());
+    typing(
+        &ctx,
+        &mut lib,
+        RawInput {
+            events: vec![text("m")],
+            ..RawInput::default()
+        },
+    );
+    assert!(lib.typed.0.is_empty(), "the search box owns its keys");
+    ctx.memory_mut(|m| m.surrender_focus(id));
+    at(&ctx, &mut lib, 1.0, vec![text(" ")]);
+    assert!(lib.typed.0.is_empty(), "space is the play toggle");
+    let mut out = ctx.run_ui(held, |ui| {
+        show(
+            ui,
+            &mut lib,
+            (&Route::Artists, &mut None),
+            (&mut vec![], &mut vec![]),
+        )
+    });
+    out.textures_delta.clear();
+    assert!(lib.typed.0.is_empty(), "a command chord is not typing");
+    lib.lists[List::Songs as usize].items = (0..5).map(item).collect();
+    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![text("m")]);
+    assert!(lib.typed.0.is_empty(), "only Artists and Albums jump");
+}
+
+#[test]
+fn a_letter_not_loaded_yet_pages_on_until_it_arrives_then_stops_when_the_list_ends() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    let list = &mut lib.lists[List::Artists as usize];
+    (list.items, list.pages) = (lettered(b'A'..b'D'), 1);
+    list.next = Some("/v1/me/library/artists?offset=30".into());
+    at(&ctx, &mut lib, 1.0, vec![text("z")]);
+    at(&ctx, &mut lib, 1.1, vec![]);
+    let waiting = Some((List::Artists, "z".to_owned()));
+    assert_eq!(lib.jump, waiting, "the jump waits for the page");
+    let albums = &mut lib.lists[List::Albums as usize];
+    (albums.items, albums.pages) = (lettered(b'A'..b'D'), 1);
+    let shown = on(
+        (&ctx, &mut lib),
+        (Route::Albums, "Play album"),
+        1.15,
+        vec![],
+    );
+    assert!(names(&shown).contains(&"Ax0"), "Albums stays at the top");
+    assert_eq!(lib.jump, waiting, "another list leaves it pending");
+    let sent = lib.tick(now, true, || {});
+    assert_eq!(
+        sent.iter().map(|j| &j.call).collect::<Vec<_>>(),
+        [&Call::Next("/v1/me/library/artists?offset=30".into())]
+    );
+    for job in sent {
+        let more = lettered(b'Y'..b'[');
+        let reply = Page {
+            items: more,
+            next: None,
+            total: None,
+        };
+        (job.done)(Ok(Reply::Page(reply)));
+    }
+    lib.receive(&ctx);
+    at(&ctx, &mut lib, 1.2, vec![]);
+    assert!(lib.jump.is_none());
+    assert!(names(&at(&ctx, &mut lib, 1.3, vec![])).contains(&"Zx0"));
+    at(&ctx, &mut lib, 9.0, vec![text("q")]);
+    at(&ctx, &mut lib, 9.1, vec![]);
+    assert!(
+        lib.jump.is_none(),
+        "a finished list has no more to wait for"
+    );
+}
+
+#[test]
+fn a_catalog_artist_lists_its_albums_from_the_catalog_and_an_album_opens_its_view() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    let route = Route::Artist("136975".into());
+    frame(&ctx, &mut lib, &route, 600.0, vec![]);
+    let sent = lib.tick(now, true, || {});
+    let calls: Vec<_> = sent.iter().map(|j| &j.call).collect();
+    assert_eq!(calls, [&Call::CatalogArtistAlbums("136975".into())]);
+    frame(&ctx, &mut lib, &route, 600.0, vec![]);
+    assert!(
+        lib.tick(now, true, || {}).is_empty(),
+        "no library artist or songs call"
+    );
+    for job in sent {
+        (job.done)(Ok(named(&["1440", "1441"], None)));
+    }
+    lib.receive(&ctx);
+    assert!(texts(&ctx, &mut lib, &route).contains(&"Secret Artist".to_owned()));
+    let (actions, navs) = click(&ctx, &mut lib, &route, "Open album Secret Song 1");
+    assert_eq!(
+        (actions, navs),
+        (vec![], vec![Nav::Go(Route::Album("1441".into()))])
+    );
+}
+
+#[test]
+fn typing_on_albums_jumps_the_grid_to_the_row_of_the_first_match() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    lib.lists[List::Albums as usize].items = lettered(b'A'..b'Z' + 1);
+    let albums = || (Route::Albums, "Play album");
+    let shown = on((&ctx, &mut lib), albums(), 0.0, vec![]);
+    assert!(names(&shown).contains(&"Ax0") && !names(&shown).contains(&"Mx0"));
+    on((&ctx, &mut lib), albums(), 1.0, vec![text("m")]);
+    let shown = on((&ctx, &mut lib), albums(), 1.1, vec![]);
+    assert!(names(&shown).contains(&"Mx0") && !names(&shown).contains(&"Ax0"));
+}

@@ -19,6 +19,8 @@ mod tests;
 pub const ROW_PT: f32 = 40.0;
 const CELL_PT: f32 = 140.0;
 const SIDEBAR_ROW_PT: f32 = 22.0;
+const STRIP_PT: f32 = 18.0;
+const TYPING_PAUSE: f64 = 1.0;
 pub const MARGIN: usize = 20;
 pub const ART_CAP: usize = 96;
 pub const QUEUE_AHEAD: usize = 100;
@@ -87,7 +89,10 @@ impl Paged {
                 true => Call::AlbumTracks(id),
                 false => Call::PlaylistTracks(id),
             }),
-            List::ArtistAlbums => owner.map(Call::ArtistAlbums),
+            List::ArtistAlbums => owner.map(|id| match catalog(&id) {
+                true => Call::CatalogArtistAlbums(id),
+                false => Call::ArtistAlbums(id),
+            }),
             List::ArtistName => owner.map(Call::LibraryArtist),
         }
     }
@@ -134,6 +139,8 @@ pub struct Library {
     mail: Mailbox,
     pub art: Art,
     built: (usize, usize, usize),
+    pub jump: Option<(List, String)>,
+    typed: (String, f64),
     pub denied: bool,
     pub playlists_collapsed: bool,
     #[cfg(feature = "dev")]
@@ -194,6 +201,30 @@ impl Library {
         let read = self.list(List::ArtistSongs).read;
         let album = albums.items.get(read).filter(|_| albums.complete());
         album.map(|album| album.id.clone())
+    }
+
+    fn typed(&mut self, ctx: &egui::Context, list: List) {
+        let (text, time, held) = ctx.input(|i| {
+            let text = i.events.iter().filter_map(|e| match e {
+                egui::Event::Text(text) => Some(text.as_str()),
+                _ => None,
+            });
+            (
+                text.collect::<String>(),
+                i.time,
+                i.modifiers.command || i.modifiers.alt,
+            )
+        });
+        let letters = text.chars().filter(|c| c.is_alphanumeric());
+        let letters: String = letters.flat_map(char::to_lowercase).collect();
+        if letters.is_empty() || held || ctx.text_edit_focused() {
+            return;
+        }
+        if time - self.typed.1 > TYPING_PAUSE {
+            self.typed.0.clear();
+        }
+        self.typed.0.push_str(&letters);
+        (self.typed.1, self.jump) = (time, Some((list, self.typed.0.clone())));
     }
 
     pub fn reset(&mut self) {
@@ -386,6 +417,38 @@ impl Library {
         (follow.next, follow.tries, follow.sent) = (end, 0, Some(now));
         Some(Action::TopUp(follow.batch.clone()))
     }
+}
+
+fn catalog(id: &str) -> bool {
+    !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn initial(item: &Item) -> Option<char> {
+    item.name.as_deref()?.chars().next()?.to_uppercase().next()
+}
+
+fn strip(ui: &mut egui::Ui, items: &[Item]) -> Option<char> {
+    let full = ui.available_rect_before_wrap();
+    let area = egui::Rect::from_min_max(egui::pos2(full.right() - STRIP_PT, full.top()), full.max);
+    ui.set_max_width(full.width() - STRIP_PT - ui.spacing().item_spacing.x);
+    let present: HashSet<char> = items.iter().filter_map(initial).collect();
+    let height = (area.height() / 26.0).clamp(10.0, 20.0);
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area));
+    child.spacing_mut().item_spacing.y = 0.0;
+    let mut hit = None;
+    for letter in 'A'..='Z' {
+        let text = RichText::new(letter).small();
+        let text = if present.contains(&letter) {
+            text
+        } else {
+            text.weak()
+        };
+        let button = child.add_sized([STRIP_PT, height], egui::Button::new(text).frame(false));
+        if labeled(button, WidgetType::Button, &format!("Jump to {letter}")).clicked() {
+            hit = Some(letter);
+        }
+    }
+    hit
 }
 
 fn permanent(e: &Error) -> bool {
@@ -620,6 +683,14 @@ fn artist(
         lib.lists[List::ArtistSongs as usize] = Paged::default();
         lib.lists[List::ArtistName as usize] = Paged::default();
     }
+    if catalog(id) {
+        let albums = lib.list(List::ArtistAlbums).items.first();
+        if let Some(name) = albums.and_then(|a| a.artist.as_deref()) {
+            ui.label(egui::RichText::new(name).heading());
+        }
+        let list = (List::ArtistAlbums, "Open album");
+        return view(ui, lib, list, (f32::INFINITY, scroll), (actions, navs));
+    }
     let listed = lib.list(List::Artists).items.iter().find(|a| a.id == id);
     let named = listed.or(lib.list(List::ArtistName).items.first());
     match named.and_then(|a| a.name.as_deref()) {
@@ -662,6 +733,14 @@ fn view(
     if lib.list(list).failed {
         super::notice(ui, "Your library could not load; retrying.");
     }
+    let jumpable = matches!(list, List::Artists | List::Albums);
+    if jumpable {
+        lib.typed(ui.ctx(), list);
+        if let Some(letter) = strip(ui, &lib.list(list).items) {
+            (lib.jump, lib.typed.0) =
+                (Some((list, letter.to_lowercase().collect())), String::new());
+        }
+    }
     let albums = matches!(list, List::Albums | List::ArtistAlbums);
     let columns = if albums {
         ((ui.available_width() / (CELL_PT + 8.0)) as usize).max(1)
@@ -692,6 +771,21 @@ fn view(
         }
         None => {}
     }
+    if let Some((_, prefix)) = lib.jump.take_if(|(owner, _)| *owner == list) {
+        let starts = |item: &Item| {
+            item.name
+                .as_ref()
+                .is_some_and(|n| n.to_lowercase().starts_with(&prefix))
+        };
+        let row_at = |row: usize| (row as f32) * (row_pt + ui.spacing().item_spacing.y);
+        match lib.list(list).items.iter().position(starts) {
+            Some(at) => area = area.vertical_scroll_offset(row_at(at / columns)),
+            None if lib.more(list) => {
+                (area, lib.jump) = (area.vertical_scroll_offset(end), Some((list, prefix)))
+            }
+            None => {}
+        }
+    }
     #[cfg(feature = "dev")]
     let hooked = list != List::ArtistAlbums;
     let mut hit = None;
@@ -720,7 +814,7 @@ fn view(
         let total = lib.built.0 + built;
         lib.built = (total, lib.built.1.max(total), range.end);
     });
-    if scroll.is_some() && lib.due(list, Instant::now()) {
+    if (scroll.is_some() || lib.jump.is_some()) && lib.due(list, Instant::now()) {
         ui.ctx().request_repaint();
     }
     #[cfg(feature = "dev")]
@@ -746,6 +840,9 @@ fn view(
         }
         Some(index) if list == List::Artists => {
             navs.push(Nav::Go(Route::Artist(items[index].id.clone())))
+        }
+        Some(index) if list == List::ArtistAlbums && catalog(&lib.artist) => {
+            navs.push(Nav::Go(Route::Album(items[index].id.clone())))
         }
         Some(index) => actions.extend(lib.play_from(list, index)),
         None => {}

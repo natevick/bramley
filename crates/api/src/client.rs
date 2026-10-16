@@ -19,6 +19,7 @@ const UNREADABLE_RETRY_AFTER_S: u64 = 60;
 const SEARCH_TYPES: &str = "songs,albums,artists,playlists";
 const SEARCH_LIMIT: &str = "10";
 const LIBRARY_LIMIT: &str = "100";
+const CATALOG_ARTIST_LIMIT: &str = "25";
 const LIBRARY: &str = "/v1/me/library/";
 const NO_RELATED: &str = "No related resources found for ";
 
@@ -206,6 +207,19 @@ impl Session<'_> {
         self.related("artists", id, "albums")
     }
 
+    pub fn catalog_artist_albums(&self, id: &str) -> Result<Page> {
+        let path = format!(
+            "/v1/catalog/{}/artists/{}/albums",
+            self.storefront()?,
+            id_segment(id)?
+        );
+        self.json(&path, &[("limit", CATALOG_ARTIST_LIMIT)])
+    }
+
+    pub fn recently_played(&self) -> Result<Page> {
+        self.json("/v1/me/recent/played", &[])
+    }
+
     fn related(&self, kind: &str, id: &str, relationship: &str) -> Result<Page> {
         let path = format!("{LIBRARY}{kind}/{}/{relationship}", id_segment(id)?);
         match self.json(&path, &[("limit", LIBRARY_LIMIT)]) {
@@ -383,6 +397,8 @@ pub(crate) fn allowed(path: &str) -> bool {
             | ["v1", "me", "library", "playlists" | "albums", _, "tracks"]
             | ["v1", "me", "library", "artists", _, "albums"]
             | ["v1", "catalog", _, "search"]
+            | ["v1", "me", "recent", "played"]
+            | ["v1", "catalog", _, "artists", _, "albums"]
             | ["v1", "catalog", _, "albums" | "playlists", _]
             | ["v1", "catalog", _, "albums" | "playlists", _, "tracks"]
     )

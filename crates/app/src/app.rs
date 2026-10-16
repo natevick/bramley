@@ -174,6 +174,9 @@ impl App {
             detail.clicks = args.click_track;
             search.click_first_playlist = args.click_first_playlist;
             library.click_row = args.click_row;
+            library.jump = args
+                .jump_letter
+                .map(|letter| (ui::library::List::Artists, letter));
             (shell.route, shell.queue_open) = (args.route.unwrap_or_default(), args.queue_open);
             if let Some(term) = &args.search {
                 shell.query.clone_from(term);
@@ -580,6 +583,13 @@ impl App {
         self.covers.retry(ctx, now, home);
         let wake = move || waker.request_repaint();
         if let Some(job) = self.search.tick(now, covers_allowed(&self.playback), wake) {
+            self.send_api(job);
+        }
+        let (recent_waker, signed_in) = (ctx.clone(), covers_allowed(&self.playback));
+        let browsing =
+            self.shell.route == ui::nav::Route::Search && self.shell.query.trim().is_empty();
+        let wake = move || recent_waker.request_repaint();
+        if let Some(job) = self.search.recent_job(now, signed_in && browsing, wake) {
             self.send_api(job);
         }
         if let Some(wait) = self.search.wait(now) {

@@ -283,6 +283,38 @@ fn an_artist_lists_its_albums_and_an_album_its_tracks_and_none_is_empty() {
 }
 
 #[test]
+fn a_catalog_artist_lists_albums_with_the_developer_token_and_recent_plays_use_the_user_token() {
+    let albums = r#"{"data": [{"id": "1440", "type": "albums"}], "next": "/v1/catalog/us/artists/136975/albums?offset=25"}"#;
+    let server = serve(vec![
+        ("/v1/me/storefront", vec![ok(STOREFRONT)]),
+        ("/v1/catalog/us/artists/136975/albums", vec![ok(albums)]),
+        ("/v1/me/recent/played", vec![ok(albums)]),
+    ]);
+    let api = client(&server, Some(USER));
+    let page = api.catalog_artist_albums("136975").unwrap();
+    assert_eq!(page.items[0].id, "1440");
+    assert_eq!(
+        page.next.as_deref(),
+        Some("/v1/catalog/us/artists/136975/albums?offset=25")
+    );
+    assert_eq!(api.recently_played().unwrap().items.len(), 1);
+    assert_eq!(
+        server.targets(),
+        [
+            "/v1/me/storefront",
+            "/v1/catalog/us/artists/136975/albums?limit=25",
+            "/v1/me/recent/played",
+        ]
+    );
+    assert_eq!(server.header(1, "music-user-token"), None);
+    assert_eq!(server.header(2, "music-user-token").as_deref(), Some(USER));
+    assert!(matches!(
+        api.catalog_artist_albums("../x"),
+        Err(Error::Refused(_))
+    ));
+}
+
+#[test]
 fn an_album_brings_its_first_tracks_and_pages_the_rest() {
     let server = serve(vec![
         ("/v1/me/storefront", vec![ok(STOREFRONT)]),
@@ -397,6 +429,8 @@ fn only_documented_api_paths_are_requested() {
         "/v1/catalog/us/search",
         "/v1/catalog/us/albums/2000001",
         "/v1/catalog/gb/playlists/pl.u-abc_d/tracks",
+        "/v1/catalog/us/artists/136975/albums",
+        "/v1/me/recent/played",
     ] {
         assert!(allowed(good), "{good}");
     }
@@ -408,7 +442,9 @@ fn only_documented_api_paths_are_requested() {
         "/v1/me/library/../storefront",
         "/v1/me/library/songs/../../x",
         "/v1/catalog/us/charts",
-        "/v1/me/recent/played",
+        "/v1/catalog/us/artists/136975",
+        "/v1/catalog/us/artists/136975/songs",
+        "/v1/me/recent/played/extended",
         "/v1/catalog/us/albums/1/tracks/2",
         "/v1/me/library/artists/r.A/tracks",
         "/v1/me/library/songs/i.A/tracks",
