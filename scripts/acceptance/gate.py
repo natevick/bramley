@@ -208,9 +208,9 @@ def reference_problems(out):
 
 
 def modes_problems(guard, session):
-    if 'modes' not in guard:
+    modes = guard.get('modes')
+    if not isinstance(modes, dict) or any(modes.get(k) is None for k in OFF_MODES):
         return [], [f'missing evidence: modes in {session}.guard.json']
-    modes = guard['modes']
     return ([] if modes == OFF_MODES else [f'{session} did not start with shuffle and repeat off, so items may not play in order: {modes}']), []
 
 

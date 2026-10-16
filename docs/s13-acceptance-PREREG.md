@@ -532,9 +532,10 @@ R3 stays one of the 16 checks.
 **Why.** `natevick/player-controls` adds shuffle and repeat to the player, and the status JSON carries `shuffleMode` (on/off) and `repeatMode` (off/all/one). The harness assumes items play in order and advance, so a session that starts with either mode on cannot be judged. `docs/acceptance.md` already lists this under the VOID conditions.
 
 **The rule, as `drive.py` and `gate.py` implement it.**
-- `drive.py` records `modes` for each session: `shuffleMode` and `repeatMode` from the status snapshot at which the session's first `App.until` wait returns, whether its predicate was met or it timed out. A field absent from that snapshot is recorded as null. `App.close` writes `modes` to `<session>.guard.json`. A session that never calls `until` writes `modes` as null.
-- `gate.py` compares `modes` with `OFF_MODES`, `{shuffleMode: off, repeatMode: off}`. Anything else is VOID, including one mode on, a null field, and `modes` itself null. The reason names the session and the recorded modes.
-- A guard record with no `modes` key at all is missing evidence, so the check is FAIL. That differs from a recorded null, which is VOID.
+- `drive.py` records `modes` for each session: `shuffleMode` and `repeatMode` from the first status snapshot returned by any of the session's `App.until` waits that carries both fields, whether its predicate was met or it timed out. `App.close` writes `modes` to `<session>.guard.json`. A session that never sees both fields writes `modes` as null.
+- `gate.py` compares `modes` with `OFF_MODES`, `{shuffleMode: off, repeatMode: off}`. A mode that is on (shuffle on, repeat all or one) is VOID. The reason names the session and the recorded modes.
+- No `modes` key, `modes` null, or a null field is missing evidence, so the check is FAIL. A session whose status was never read is a broken start, and a VOID there would hide a real FAIL, because VOID outranks FAIL.
+- Revised before any v0.1.4 run: the first draft recorded modes from the first `until` even on a timeout and made a null VOID, which a code read showed would turn a dead start into a VOID.
 - The rule runs in every place a session's guard is read. That is `guard_voids` for each session named in a check's evidence (`sessions`, or `session`), which covers the soak and every check whose evidence names a session, and `memory_check` for the session behind R1 and R2. A VOID applies to every check that session feeds.
 - `F1` now records its `sessions`, so its guard is read.
 - The pinned reference binary predates both fields, and its records are not checked.

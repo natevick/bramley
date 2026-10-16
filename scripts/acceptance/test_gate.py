@@ -211,7 +211,9 @@ FUNCTIONAL = [
     *[(f'{c} session started shuffled', put(f'{s}.guard.json', modes=dict(OFF, shuffleMode='on')), c, 'VOID', 'shuffle and repeat off')
       for c, s in (('F1', 'shipped'), ('F2', 'signedout'), ('F3', 'browse'), ('F4', 'shipped'), ('F5', 'shipped'), ('F6', 'shipped'), ('F8', 'shipped'), ('F9', 'browse'), ('R3', 'shipped'), ('R4', 'cpu'))],
     ('F4 session started on repeat one', put('shipped.guard.json', modes=dict(OFF, repeatMode='one')), 'F4', 'VOID', 'shuffle and repeat off'),
-    ('F4 modes never read', put('shipped.guard.json', modes={'shuffleMode': None, 'repeatMode': None}), 'F4', 'VOID', 'shuffle and repeat off'),
+    ('F4 modes never read', put('shipped.guard.json', modes={'shuffleMode': None, 'repeatMode': None}), 'F4', 'FAIL', 'modes in shipped.guard.json'),
+    ('F4 one mode never read', put('shipped.guard.json', modes={'shuffleMode': 'off', 'repeatMode': None}), 'F4', 'FAIL', 'modes in shipped.guard.json'),
+    ('F4 modes recorded as null', put('shipped.guard.json', modes=None), 'F4', 'FAIL', 'modes in shipped.guard.json'),
     ('F4 modes not recorded', edit('shipped.guard.json', lambda d: d.pop('modes')), 'F4', 'FAIL', 'modes in shipped.guard.json'),
     ('R1 session started shuffled', put('shipped.guard.json', modes=dict(OFF, shuffleMode='on')), 'R1', 'VOID', 'shuffle and repeat off'),
     ('R2 session started on repeat all', put('shipped.guard.json', modes=dict(OFF, repeatMode='all')), 'R2', 'VOID', 'shuffle and repeat off'),

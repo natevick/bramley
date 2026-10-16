@@ -164,8 +164,8 @@ class App:
         return self.noted(s), None
 
     def noted(self, s):
-        if self.modes is None:
-            self.modes = {k: s.get(k) for k in gate.OFF_MODES}
+        if self.modes is None and all(s.get(k) is not None for k in gate.OFF_MODES):
+            self.modes = {k: s[k] for k in gate.OFF_MODES}
         return s
 
     def safe_to_play(self):

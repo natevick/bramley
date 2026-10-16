@@ -233,10 +233,11 @@ MUTANTS = [
     ('cold F4 guard checked', "if 'session' in ev or 'sessions' in ev:", "if 'session' in ev:"),
     ('modes unchecked in a check', "        more_voids, more_missing = modes_problems(guard, session)\n", "        more_voids, more_missing = [], []\n"),
     ('modes unchecked in R1 and R2', "    if guard:\n        more_voids, more_missing = modes_problems(guard, name)\n        voids, missing = voids + more_voids, missing + more_missing\n", ""),
-    ('modes not recorded passes', "if 'modes' not in guard:\n        return [], [f'missing evidence: modes in {session}.guard.json']\n", "if 'modes' not in guard:\n        return [], []\n"),
+    ('modes not recorded passes', "        return [], [f'missing evidence: modes in {session}.guard.json']\n", "        return [], []\n"),
+    ('one unread mode is not missing', "or any(modes.get(k) is None for k in OFF_MODES)", "or all(modes.get(k) is None for k in OFF_MODES)"),
     ('only shuffle judged', "[] if modes == OFF_MODES else", "[] if modes.get('shuffleMode') == 'off' else"),
     ('only repeat judged', "[] if modes == OFF_MODES else", "[] if modes.get('repeatMode') == 'off' else"),
-    ('unread modes pass', "[] if modes == OFF_MODES else", "[] if None in modes.values() or modes == OFF_MODES else"),
+    ('unread modes pass', "if not isinstance(modes, dict) or any(", "if isinstance(modes, dict) and any("),
 ]
 
 
