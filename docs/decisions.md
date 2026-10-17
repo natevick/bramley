@@ -31,3 +31,7 @@
   - Nate, during the 2026-10-16 feedback session: "we don't really care where the credentials are stored." The footer now reads "Signed in to Apple Music" with a Sign out button.
   - This amends the 2026-10-10 user-token storage decision. The storage mode ("keyring" or "file") still shows in the status file as `tokenStorage`, but no longer in the UI. Keyring errors still surface through the notice line.
   - Apple's documented Apple Music API has no endpoint that returns the user's name or Apple ID, so the footer cannot say which account is signed in.
+- **2026-10-16: 0.2.0 ships over a failed acceptance check (Nate).**
+  - `v020-counted-1` FAILed one check, F4: one cold start of five got a transient HTTP 403 from Apple's storefront sign-in check at launch, and Bramley treated it as signed out. See `docs/v0.2.0-RESULTS.md`.
+  - The 403 handling predates 0.2.0 and is in every release. 0.2.0's changes (version 0.2.0 for app and engine, `#[non_exhaustive]` public engine enums, type-to-jump matching) don't touch it.
+  - 0.2.0 ships with it as a known issue. The fix is next: confirm a storefront 403 before signing the user out.
