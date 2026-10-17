@@ -1042,6 +1042,7 @@ type Requests = Arc<Mutex<Vec<(String, Option<String>, Option<String>)>>>;
 #[derive(Clone, Copy)]
 struct Serve {
     me: u16,
+    blips: usize,
     renewed: bool,
     chart: u16,
     big: bool,
@@ -1055,6 +1056,7 @@ struct Serve {
 
 const SERVE: Serve = Serve {
     me: 200,
+    blips: 0,
     renewed: false,
     chart: 200,
     big: false,
@@ -1072,6 +1074,13 @@ struct Fixture {
 }
 
 impl Fixture {
+    fn storefront_requests(&self) -> usize {
+        self.paths()
+            .iter()
+            .filter(|path| *path == "/v1/me/storefront")
+            .count()
+    }
+
     fn paths(&self) -> Vec<String> {
         self.requests
             .lock()
@@ -1119,7 +1128,12 @@ fn fixture(serve: Serve) -> Fixture {
                     continue;
                 }
                 let renewed = serve.renewed && auth.as_deref() == Some("Bearer renewed-token");
-                let status = if renewed { 200 } else { serve.me };
+                let asked = seen.lock().unwrap().iter().filter(|r| r.0 == path).count();
+                let status = match renewed {
+                    true => 200,
+                    false if asked <= serve.blips => 403,
+                    false => serve.me,
+                };
                 let found = json!({"data": [{"id": "zz"}]});
                 (status, String::new(), found.to_string().into_bytes())
             } else if serve.listening
@@ -1496,9 +1510,34 @@ fn covers_need_a_storefront_200_and_a_refusal_reads_as_sign_in() {
             error,
             "{me}"
         );
-        let tries = if me == 0 { 2 } else { 1 };
+        let tries = match me {
+            0 => 2,
+            403 => 3,
+            _ => 1,
+        };
         assert_eq!(fx.paths(), vec!["/v1/me/storefront"; tries], "{me}");
     }
+}
+
+#[test]
+fn a_storefront_403_that_clears_on_retry_is_not_a_sign_out() {
+    let (grid, fx, _) = load_covers(Serve { blips: 1, ..SERVE }, true);
+    assert_eq!((grid.rejected(), grid.uploaded()), (false, 50));
+    assert_eq!(fx.storefront_requests(), 2);
+}
+
+#[test]
+fn a_storefront_403_that_persists_signs_out_within_the_deadline() {
+    let started = Instant::now();
+    let (grid, _fx, _) = load_covers(Serve { me: 403, ..SERVE }, true);
+    assert!(grid.rejected());
+    assert!(started.elapsed() < bramley_engine::STOREFRONT_DEADLINE);
+}
+
+#[test]
+fn a_storefront_403_is_asked_at_most_three_times() {
+    let (_, fx, _) = load_covers(Serve { me: 403, ..SERVE }, true);
+    assert_eq!(fx.storefront_requests(), 3);
 }
 
 #[test]
@@ -1670,7 +1709,7 @@ fn a_chart_retry_waits_out_retry_after_and_stops_on_a_403_or_sign_out() {
         std::fs::remove_dir_all(&config).unwrap();
         asked.push((started, fx.paths().len()));
     }
-    assert_eq!(asked, [(false, 6), (false, 1), (false, 6), (false, 6)]);
+    assert_eq!(asked, [(false, 6), (false, 3), (false, 6), (false, 6)]);
 }
 
 #[test]
@@ -1789,6 +1828,21 @@ fn a_storefront_403_asks_for_sign_in_and_a_401_blames_the_developer_token() {
         assert_eq!(status["signInReason"].as_str(), reason, "{me}");
         assert_eq!(cover_meshes(&ctx, &mut app), 0, "{me}");
     }
+}
+
+#[test]
+fn a_storefront_403_that_clears_on_retry_leaves_the_user_signed_in() {
+    let (mut app, _ends, _inbox, ctx, config, _) = app_on(Serve { blips: 1, ..SERVE });
+    let until = Instant::now() + Duration::from_secs(20);
+    while app.status_json()["texturesUploaded"] != 50 && Instant::now() < until {
+        cover_meshes(&ctx, &mut app);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    std::fs::remove_dir_all(&config).unwrap();
+    let status = app.status_json();
+    assert_eq!(status["texturesUploaded"], 50);
+    assert!(status["signInReason"].is_null(), "{status}");
+    assert!(status["banner"].is_null(), "{status}");
 }
 
 fn rejected_then(error: PlayerError) -> (crate::app::App, egui::Context, std::path::PathBuf) {
@@ -2739,6 +2793,13 @@ fn a_library_403_shows_sign_in_needed_like_the_covers_do() {
         bramley_api::Call::Library(bramley_api::Shelf::Playlists)
     );
     (job.done)(Err(bramley_api::Error::SignInNeeded));
+    for _ in 0..2 {
+        cover_meshes(&ctx, &mut app);
+        std::thread::sleep(Duration::from_secs(1));
+        cover_meshes(&ctx, &mut app);
+        let job = jobs.try_recv().expect("a first 403 is asked again");
+        (job.done)(Err(bramley_api::Error::SignInNeeded));
+    }
     cover_meshes(&ctx, &mut app);
     cover_meshes(&ctx, &mut app);
     std::fs::remove_dir_all(&dir).unwrap();

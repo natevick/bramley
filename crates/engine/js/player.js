@@ -16,11 +16,11 @@
   }
   seedUserTokenIntoMusicKitStorage(C.developerToken, C.userToken);
 
-  const AUTH_REJECTED = ["UNAUTHORIZED_ERROR", "ACCESS_DENIED"];
-  const STOREFRONT_BACKOFF_MS = [250, 750];
+  const STOREFRONT_BACKOFF_MS = C.storefrontBackoffMs;
   const httpStatus = e => e && e.data && Number.isInteger(e.data.status) ? e.data.status : null;
   const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+  const storefrontRefused = e => ({ signInNeeded: "engine-auth-" + (httpStatus(e) ?? e.errorCode) });
   const storefrontFailed = why => ({ loadFailed: "the Apple Music storefront check failed (" + why + ")" });
 
   async function checkStorefront() {
@@ -32,10 +32,10 @@
         return answered ? null : storefrontFailed("timed out");
       } catch (e) {
         err("storefront", e);
-        const status = httpStatus(e);
-        if (AUTH_REJECTED.includes(e && e.errorCode)) return { signInNeeded: "engine-auth-" + (status ?? e.errorCode) };
+        const code = e && e.errorCode;
+        if (code === "UNAUTHORIZED_ERROR") return storefrontRefused(e);
         const backoff = STOREFRONT_BACKOFF_MS[attempt];
-        if (backoff === undefined || Date.now() + backoff >= until) return storefrontFailed(status ?? "network error");
+        if (backoff === undefined || Date.now() + backoff >= until) return code === "ACCESS_DENIED" ? storefrontRefused(e) : storefrontFailed(httpStatus(e) ?? "network error");
         await pause(backoff);
       }
     }
