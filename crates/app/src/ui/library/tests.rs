@@ -1139,6 +1139,29 @@ fn typing_a_letter_or_a_prefix_jumps_to_the_first_matching_artist() {
 }
 
 #[test]
+fn typing_ignores_punctuation_and_spaces_in_the_names_it_matches() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    let mut items = lettered(b'A'..b'Z' + 1);
+    for (at, name) in [(100, "Led Zeppelin"), (200, "AC/DC")] {
+        let named = Item {
+            id: format!("i.{at}"),
+            name: Some(name.into()),
+            ..item(0)
+        };
+        items.insert(at, named);
+    }
+    lib.lists[List::Artists as usize].items = items;
+    let first = at(&ctx, &mut lib, 0.0, vec![]);
+    assert!(!names(&first).contains(&"Led Zeppelin"), "{first:?}");
+    at(&ctx, &mut lib, 1.0, vec![text("led z")]);
+    let shown = at(&ctx, &mut lib, 1.1, vec![]);
+    assert!(names(&shown).contains(&"Led Zeppelin"), "{shown:?}");
+    at(&ctx, &mut lib, 5.0, vec![text("acdc")]);
+    let shown = at(&ctx, &mut lib, 5.1, vec![]);
+    assert!(names(&shown).contains(&"AC/DC"), "{shown:?}");
+}
+
+#[test]
 fn the_index_strip_jumps_to_a_letter() {
     let (ctx, mut lib) = (egui::Context::default(), Library::default());
     lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);

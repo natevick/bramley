@@ -215,8 +215,7 @@ impl Library {
                 i.modifiers.command || i.modifiers.alt,
             )
         });
-        let letters = text.chars().filter(|c| c.is_alphanumeric());
-        let letters: String = letters.flat_map(char::to_lowercase).collect();
+        let letters = searchable(&text);
         if letters.is_empty() || held || ctx.text_edit_focused() {
             return;
         }
@@ -421,6 +420,11 @@ impl Library {
 
 fn catalog(id: &str) -> bool {
     !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn searchable(text: &str) -> String {
+    let letters = text.chars().filter(|c| c.is_alphanumeric());
+    letters.flat_map(char::to_lowercase).collect()
 }
 
 fn initial(item: &Item) -> Option<char> {
@@ -775,7 +779,7 @@ fn view(
         let starts = |item: &Item| {
             item.name
                 .as_ref()
-                .is_some_and(|n| n.to_lowercase().starts_with(&prefix))
+                .is_some_and(|n| searchable(n).starts_with(&prefix))
         };
         let row_at = |row: usize| (row as f32) * (row_pt + ui.spacing().item_spacing.y);
         match lib.list(list).items.iter().position(starts) {
