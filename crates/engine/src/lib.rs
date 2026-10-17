@@ -42,6 +42,7 @@ pub fn user_agent() -> String {
 }
 
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct EngineConfig {
     pub cdm_path: PathBuf,
     pub audio_sink_name: String,

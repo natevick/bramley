@@ -42,7 +42,7 @@ pub enum Action {
 pub fn play_or_pause(state: PlayState) -> Action {
     match state {
         PlayState::Playing | PlayState::Loading => Action::Pause,
-        PlayState::Stopped | PlayState::Paused => Action::Play,
+        _ => Action::Play,
     }
 }
 
@@ -326,6 +326,7 @@ impl Playback {
             Some(PlayerError::Playback(e) | PlayerError::LoadFailed(e)) => {
                 Some(Banner::Error(e.clone()))
             }
+            Some(other) => Some(Banner::Error(format!("{other:?}"))),
             None => None,
         }
     }

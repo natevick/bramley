@@ -180,7 +180,7 @@ impl Detail {
             let call = match &open {
                 Queue::Album(id) => Call::Album(id.clone()),
                 Queue::Playlist(id) => Call::Playlist(id.clone()),
-                Queue::Songs(_) => return None,
+                _ => return None,
             };
             self.replace(Some(open), State::Loading(now + DEADLINE));
             return Some(self.job(call, now + DEADLINE, wake));

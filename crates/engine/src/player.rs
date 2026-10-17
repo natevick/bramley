@@ -52,6 +52,7 @@ impl std::fmt::Debug for PlayerConfig {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Queue {
     Songs(Vec<String>),
     Album(String),
@@ -99,6 +100,7 @@ impl Repeat {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Command {
     SetQueue { queue: Queue, start: usize },
     Play,
@@ -117,6 +119,7 @@ pub enum Command {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[non_exhaustive]
 pub enum PlayState {
     #[default]
     Stopped,
@@ -126,6 +129,7 @@ pub enum PlayState {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum PlayerError {
     SignInNeeded(String),
     Playback(String),
