@@ -570,6 +570,43 @@ class LeakGrep(unittest.TestCase):
         self.assertFalse(gate.repo_plant('', [], 0))
 
 
+def load_script(name, *path):
+    spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, '..', '..', *path))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class ColdCache(unittest.TestCase):
+    def setUp(self):
+        self.drive = load_script('drive_under_test', 'scripts', 'acceptance', 'drive.py')
+        self.cs = load_script('covers_session_under_test', 'scripts', 'app', 'covers-session.py')
+        os.makedirs(SCRATCH, exist_ok=True)
+        self.addCleanup(shutil.rmtree, SCRATCH, True)
+
+    def test_a_relaunch_in_one_session_starts_without_art_or_api_cache_and_keeps_the_developer_token(self):
+        root = os.path.join(SCRATCH, 'cache', 'bramley')
+        for sub in ('art', 'api'):
+            os.makedirs(os.path.join(root, sub))
+            open(os.path.join(root, sub, 'entry'), 'w').write('cached')
+        open(os.path.join(root, 'developer-token.json'), 'w').write('{}')
+        self.drive.cold_cache({'XDG_CACHE_HOME': os.path.join(SCRATCH, 'cache')})
+        self.assertEqual(os.listdir(root), ['developer-token.json'])
+
+    def test_a_launch_that_would_use_the_real_cache_is_refused(self):
+        base = {'BRAMLEY_CONFIG_DIR': os.path.join(SCRATCH, 'config'), 'BRAMLEY_KEYRING_SERVICE': 'bramley-gate-t'}
+        self.cs.assert_isolated(dict(base, XDG_CACHE_HOME=os.path.join(SCRATCH, 'config', 'cache')))
+        for cache in (os.path.dirname(self.cs.REAL_CACHE), None):
+            with self.assertRaises(RuntimeError):
+                self.cs.assert_isolated(dict(base, **({} if cache is None else {'XDG_CACHE_HOME': cache})))
+
+    def test_every_launch_in_the_driver_goes_through_the_cold_cache_wipe(self):
+        text = open(os.path.join(HERE, 'drive.py')).read()
+        self.assertEqual(text.count('subprocess.Popen([*wrap, binary'), 1)
+        init = text[text.index('class App:'):text.index('self.log = open')]
+        self.assertIn('cs.assert_isolated(env)\n        cold_cache(env)', init)
+
+
 class Clock:
     def __init__(self, now=10000.0):
         self.now, self.slept = now, []

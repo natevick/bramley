@@ -123,12 +123,18 @@ def ticks(pid):
     return total
 
 
+def cold_cache(env):
+    for sub in ('art', 'api'):
+        shutil.rmtree(os.path.join(env['XDG_CACHE_HOME'], 'bramley', sub), ignore_errors=True)
+
+
 class App:
     def __init__(self, out, name, binary, env, sink, args=(), wrap=(), status=True):
         self.out, self.name, self.binary, self.env, self.sink = out, name, binary, env, sink
         self.modes = None
         self.st = os.path.join(out, f'{name}.status.json') if status else None
         cs.assert_isolated(env)
+        cold_cache(env)
         if subprocess.run([binary, 'now'], env=env, capture_output=True).returncode != 3:
             raise RuntimeError(f'{name}: the instance slot is held before launch; refusing')
         self.log = open(os.path.join(out, f'{name}.log'), 'w')
