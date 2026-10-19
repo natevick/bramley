@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, anyhow, bail};
 pub use bramley_api::art_url;
 use bramley_api::store::{API_CAP, ART_CAP, ART_HITS, ART_MISSES, Store};
+use bramley_api::warm::Limiter;
 use bramley_engine::{STOREFRONT_BACKOFF, STOREFRONT_DEADLINE, redact, user_agent};
 use egui::{ColorImage, TextureHandle, TextureOptions};
 use serde_json::Value;
@@ -56,7 +57,7 @@ impl std::error::Error for DeveloperTokenRejected {}
 #[derive(Debug)]
 pub(crate) struct Refused {
     pub(crate) status: u16,
-    wait: Duration,
+    pub(crate) wait: Duration,
     why: String,
 }
 
@@ -83,6 +84,7 @@ pub struct Tally {
     requested: AtomicUsize,
     cancel: AtomicBool,
     art: Option<Arc<Store>>,
+    limiter: Option<Arc<Limiter>>,
 }
 
 impl Tally {
@@ -90,6 +92,13 @@ impl Tally {
         Tally {
             art,
             ..Tally::default()
+        }
+    }
+
+    pub fn warming(art: Arc<Store>, limiter: Arc<Limiter>) -> Self {
+        Tally {
+            limiter: Some(limiter),
+            ..Tally::caching(Some(art))
         }
     }
 }
@@ -178,8 +187,15 @@ fn get(
             .fold(agent.get(url), |r, (k, v)| r.header(*k, *v));
         request.call()
     };
-    let mut response = send(agent).or_else(|_| {
+    let mut response = send(agent).or_else(|first| {
         *agent = self::agent();
+        if tally
+            .limiter
+            .as_ref()
+            .is_some_and(|l| l.spend(false).is_err())
+        {
+            return Err(first);
+        }
         send(&configured(0))
     })?;
     let status = response.status().as_u16();
@@ -567,12 +583,12 @@ pub(crate) fn cover(
         return Ok(image);
     }
     ART_MISSES.fetch_add(1, Seq);
-    let (status, bytes, _) = get(agent, url, &[], tally)?;
+    let (status, bytes, wait) = get(agent, url, &[], tally)?;
     match status {
         200 => {}
         300..=399 => bail!("redirected (HTTP {status}); redirects are not followed"),
         _ => {
-            let (wait, why) = (Duration::ZERO, format!("HTTP {status}"));
+            let why = format!("HTTP {status}");
             return Err(anyhow!(Refused { status, wait, why }));
         }
     }

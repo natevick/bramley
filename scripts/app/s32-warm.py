@@ -3,7 +3,7 @@ import argparse, contextlib, hashlib, importlib.util, json, math, os, random, re
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SPACING, MAX_WARMS, MAX_LAUNCHES, ROW_PT = 70, 6, 10, 40
 PAGE = '/v1/me/library/albums'
-LINE = re.compile(r'bramley warm: requests=(\d+) cached=(\d+) skipped=(\d+) stopped=([a-z-]+)')
+LINE = re.compile(r'bramley warm: requests=(\d+) skipped=(\d+) stopped=([a-z-]+)')
 
 
 def load(name, file):
@@ -95,7 +95,7 @@ def note(a, entry):
 
 def parse(out):
     found = LINE.search(out)
-    return found and dict(zip(('requests', 'cached', 'skipped'), map(int, found.groups()[:3])), stopped=found[4])
+    return found and dict(zip(('requests', 'skipped'), map(int, found.groups()[:2])), stopped=found[3])
 
 
 def warm_run(a, env, tag):
@@ -221,7 +221,7 @@ def judge(rows, t, warms, coverage, build):
     return {
         'coverage': coverage,
         'build': build,
-        'warmRuns': [{k: w.get(k) for k in ('requests', 'cached', 'skipped', 'stopped')} for w in warms + [t['warm'] or {}]],
+        'warmRuns': [{k: w.get(k) for k in ('requests', 'skipped', 'stopped')} for w in warms + [t['warm'] or {}]],
         'cold': {'n': len(cold), 'median': med(cold, 'all'), 'spread': spread(cold)},
         'warm': {'n': len(warm), 'median': med(warm, 'all'), 'spread': spread(warm)},
         'bar1': bool(warm) and len(warm) >= 2 and med(warm, 'all') <= 0.5,

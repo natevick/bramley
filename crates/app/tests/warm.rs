@@ -36,7 +36,7 @@ fn bramley_warm_exits_zero_with_a_counts_only_line_and_touches_nothing_while_the
     assert!(output.status.success(), "{output:?}");
     assert_eq!(
         String::from_utf8(output.stdout).unwrap(),
-        "bramley warm: requests=0 cached=0 skipped=0 stopped=app-running\n"
+        "bramley warm: requests=0 skipped=0 stopped=app-running\n"
     );
     assert!(!dir.join("cache").exists() && !dir.join("config").exists());
 }
