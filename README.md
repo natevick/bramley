@@ -27,6 +27,8 @@ makepkg -si
 
 `packaging/aur/README.md` explains the checksum step.
 
+To keep the cache warm while Bramley is closed: `systemctl --user enable --now bramley-warm.timer`.
+
 ### From source
 
 You need stable Rust, a C and C++ compiler and `pkg-config`. At run time Bramley opens Wayland or X11, EGL and xkbcommon libraries, so install those too.
