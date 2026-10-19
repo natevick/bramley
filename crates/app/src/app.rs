@@ -792,6 +792,7 @@ impl eframe::App for App {
                 .gl()
                 .map(|gl| unsafe { gl.get_parameter_string(eframe::glow::RENDERER) });
         }
+        crate::warm::remember_scale(ctx.pixels_per_point());
         self.tick(ctx);
     }
 

@@ -18,7 +18,7 @@ use crate::playback::Action;
 mod tests;
 
 pub const ROW_PT: f32 = 40.0;
-const CELL_PT: f32 = 140.0;
+pub const CELL_PT: f32 = 140.0;
 const SIDEBAR_ROW_PT: f32 = 22.0;
 const STRIP_PT: f32 = 18.0;
 const TYPING_PAUSE: f64 = 1.0;

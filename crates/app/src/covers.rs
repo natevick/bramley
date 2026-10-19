@@ -54,8 +54,8 @@ impl std::fmt::Display for DeveloperTokenRejected {
 impl std::error::Error for DeveloperTokenRejected {}
 
 #[derive(Debug)]
-struct Refused {
-    status: u16,
+pub(crate) struct Refused {
+    pub(crate) status: u16,
     wait: Duration,
     why: String,
 }
@@ -547,13 +547,17 @@ fn home(
     Ok((sent.emitted, sent.skipped))
 }
 
+pub(crate) fn art_key(url: &str) -> [&str; 2] {
+    ["art", url]
+}
+
 pub(crate) fn cover(
     agent: &mut ureq::Agent,
     url: &str,
     px: u32,
     tally: &Tally,
 ) -> Result<ColorImage> {
-    let key = ["art", url];
+    let key = art_key(url);
     let store = tally.art.as_deref();
     let kept = store
         .and_then(|s| s.get(&key))
@@ -567,7 +571,10 @@ pub(crate) fn cover(
     match status {
         200 => {}
         300..=399 => bail!("redirected (HTTP {status}); redirects are not followed"),
-        _ => bail!("HTTP {status}"),
+        _ => {
+            let (wait, why) = (Duration::ZERO, format!("HTTP {status}"));
+            return Err(anyhow!(Refused { status, wait, why }));
+        }
     }
     let image = decode(&bytes, px)?;
     if let Some(store) = store {

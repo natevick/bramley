@@ -9,6 +9,7 @@ mod signin;
 #[cfg(test)]
 mod tests;
 mod ui;
+mod warm;
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
@@ -328,6 +329,9 @@ fn main() -> Result<()> {
         return Ok(());
     }
     let slot = cli::slot();
+    if argv.first().is_some_and(|first| first == "warm") {
+        std::process::exit(warm::command(&argv, slot));
+    }
     if argv.first().is_some_and(|first| first == "mcp") {
         let served = match (slot, argv.len()) {
             (Ok(slot), 1) => config_dir().and_then(|config| mcp::run(slot, &config)),
