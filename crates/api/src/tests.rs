@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 use crate::client::allowed;
 use crate::{Call, Client, Error, Job, Kind, Reply, Session, Shelf, Tokens, worker};
 
+mod warm;
+
 const DEVELOPER: &str = "dev-token-fixture-0123456789";
 const USER: &str = "user-token-fixture-9876543210";
 
@@ -1333,6 +1335,31 @@ mod disk_cache {
         );
         store.put(&["after"], b"library data", store.epoch());
         assert!(store.get(&["after"]).is_some());
+    }
+
+    #[test]
+    fn age_reads_the_modified_time_without_refreshing_it() {
+        let store = Store::open(&scratch("age"), "api", 1 << 20).unwrap();
+        assert_eq!(store.age(&["k"]), None);
+        store.put(&["k"], b"x", store.epoch());
+        age(&store, &["k"], 7200);
+        assert!(store.age(&["k"]).unwrap() >= Duration::from_secs(7200));
+        assert!(store.age(&["k"]).unwrap() >= Duration::from_secs(7200));
+        store.get(&["k"]).unwrap();
+        assert!(store.age(&["k"]).unwrap() < Duration::from_secs(60));
+    }
+
+    #[test]
+    fn a_writer_never_shares_a_temp_file_with_another_process() {
+        let store = Store::open(&scratch("temp"), "api", 1 << 20).unwrap();
+        let other = store.path(&["k"]).with_extension("partial");
+        std::fs::write(&other, b"another process, half written").unwrap();
+        store.put(&["k"], b"whole", store.epoch());
+        assert_eq!(store.get(&["k"]).unwrap(), b"whole");
+        assert_eq!(
+            std::fs::read(&other).unwrap(),
+            b"another process, half written"
+        );
     }
 
     #[cfg(unix)]
