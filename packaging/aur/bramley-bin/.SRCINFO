@@ -1,6 +1,6 @@
 pkgbase = bramley-bin
 	pkgdesc = Small native player for Apple Music
-	pkgver = 0.2.0
+	pkgver = 0.2.1
 	pkgrel = 1
 	url = https://github.com/natevick/bramley
 	arch = x86_64
@@ -22,12 +22,12 @@ pkgbase = bramley-bin
 	depends = xdg-utils
 	optdepends = fontconfig: follow the desktop text hinting and antialiasing settings
 	optdepends = gnome-keyring: keep the Apple Music sign-in in the Secret Service keyring; without one it is kept in a private file under ~/.config/bramley
-	provides = bramley=0.2.0
+	provides = bramley=0.2.1
 	conflicts = bramley
 	conflicts = bramley-git
 	options = !debug
 	options = !strip
-	source_x86_64 = https://github.com/natevick/bramley/releases/download/v0.2.0/bramley-v0.2.0-x86_64-unknown-linux-gnu.tar.gz
-	sha256sums_x86_64 = 7027b2e29eb73f197ac3253eb4d20996205a27aa585d0bc73562a3171cf631f5
+	source_x86_64 = https://github.com/natevick/bramley/releases/download/v0.2.1/bramley-v0.2.1-x86_64-unknown-linux-gnu.tar.gz
+	sha256sums_x86_64 = bf886c41f747e15c3b03c6da2b4a9482834cb267fa9f6179d7bb6d038739d8bb
 
 pkgname = bramley-bin
