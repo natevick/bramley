@@ -1377,3 +1377,32 @@ fn a_403_on_revalidation_reloads_the_list_live_and_the_403_rules_end_in_sign_out
     refused_thrice(&mut lib, &ctx, &Route::Songs);
     assert!(lib.denied);
 }
+
+#[test]
+fn warm_asks_for_the_urls_and_sizes_the_library_view_asks_for() {
+    let template = "https://a1.mzstatic.com/us/r/{w}x{h}bb.jpg";
+    let item = Item {
+        artwork: Some(template.into()),
+        ..item(0)
+    };
+    for scale in [1.0, 1.25, 1.5, 2.0] {
+        let ctx = egui::Context::default();
+        ctx.set_pixels_per_point(scale);
+        ctx.run_ui(RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        assert_eq!(ctx.pixels_per_point(), scale);
+        let mut lib = Library::default();
+        lib.art.get(&ctx, &item, ROW_PT);
+        lib.art.get(&ctx, &item, super::CELL_PT);
+        let asked: Vec<(String, u32)> = lib
+            .art
+            .wanted
+            .iter()
+            .map(|(_, url, px)| (url.clone(), *px))
+            .collect();
+        let sizes = crate::warm::sizes(scale);
+        let warm = |px| (bramley_api::art_url(template, px).unwrap(), px);
+        assert_eq!(asked, [warm(sizes.row), warm(sizes.cell)], "{scale}");
+    }
+}

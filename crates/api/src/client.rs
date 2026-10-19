@@ -8,6 +8,7 @@ use serde::de::DeserializeOwned;
 
 use crate::models::{Detail, Envelope, Item, Page, SearchResults, Searched, WithTracks};
 use crate::store::{Store, digest};
+use crate::warm::Limiter;
 
 pub const API_BASE: &str = "https://api.music.apple.com";
 const MAX_BODY_BYTES: u64 = 2 << 20;
@@ -84,6 +85,7 @@ pub struct Client {
     storefront: Storefront,
     hasher: RandomState,
     cache: Option<Arc<Store>>,
+    limiter: Option<Arc<Limiter>>,
 }
 
 pub(crate) struct Scoped {
@@ -105,6 +107,14 @@ impl Scoped {
     fn forget(&self, request: &str) {
         self.store.remove(&["api", &self.scope, request]);
     }
+
+    fn peek(&self, request: &str) -> Option<Vec<u8>> {
+        self.store.peek(&["api", &self.scope, request])
+    }
+
+    fn age(&self, request: &str) -> Option<Duration> {
+        self.store.age(&["api", &self.scope, request])
+    }
 }
 
 pub struct Session<'a> {
@@ -112,6 +122,7 @@ pub struct Session<'a> {
     pub(crate) tokens: Tokens,
     user_key: Option<u64>,
     pub(crate) offline: bool,
+    pub(crate) reuse: Option<Duration>,
     cached: Option<Scoped>,
 }
 
@@ -142,11 +153,17 @@ impl Client {
             storefront: Storefront::default(),
             hasher: RandomState::new(),
             cache: None,
+            limiter: None,
         }
     }
 
     pub fn caching(mut self, store: Arc<Store>) -> Self {
         self.cache = Some(store);
+        self
+    }
+
+    pub fn warming(mut self, limiter: Arc<Limiter>) -> Self {
+        self.limiter = Some(limiter);
         self
     }
 
@@ -179,12 +196,18 @@ impl Client {
             tokens,
             user_key,
             offline: false,
+            reuse: None,
             cached,
         })
     }
 }
 
 impl Session<'_> {
+    fn live(&self) -> bool {
+        let limiter = self.client.limiter.as_deref();
+        limiter.is_none_or(|limiter| limiter.check().is_ok())
+    }
+
     pub(crate) fn cached(&self) -> bool {
         self.cached.is_some()
     }
@@ -277,10 +300,21 @@ impl Session<'_> {
         self.json("/v1/me/recent/played", &[])
     }
 
+    pub(crate) fn tracks_age(&self, kind: &str, id: &str) -> Option<Duration> {
+        let path = related_path(kind, id, "tracks").ok()?;
+        self.cached
+            .as_ref()?
+            .age(&request_key(&path, &RELATED_QUERY))
+    }
+
     fn related(&self, kind: &str, id: &str, relationship: &str) -> Result<Page> {
-        let path = format!("{LIBRARY}{kind}/{}/{relationship}", id_segment(id)?);
-        match self.json(&path, &[("limit", LIBRARY_LIMIT)]) {
+        let path = related_path(kind, id, relationship)?;
+        match self.json(&path, &RELATED_QUERY) {
             Err(Error::Http(404, why)) if why.strip_prefix(NO_RELATED) == Some(relationship) => {
+                let cached = self.cached.as_ref().filter(|_| self.live());
+                if let Some(c) = cached {
+                    c.write(&request_key(&path, &RELATED_QUERY), EMPTY_PAGE);
+                }
                 Ok(Page {
                     total: Some(0),
                     ..Page::default()
@@ -324,11 +358,17 @@ impl Session<'_> {
                 "{path:?} is not an allowed API path"
             )));
         }
-        let pairs: Vec<String> = query.iter().map(|(k, v)| format!("{k}={v}")).collect();
-        let request = format!("{target}?{}", pairs.join("&"));
+        let request = request_key(target, query);
         let cached = self.cached.as_ref().filter(|_| browse(path));
         if self.offline {
             return cached.and_then(|c| c.read(&request)).ok_or_else(not_cached);
+        }
+        let fresh = |c: &Scoped, max: Duration| c.age(&request).filter(|age| *age < max);
+        let reused = cached
+            .zip(self.reuse)
+            .filter(|(c, max)| fresh(c, *max).is_some());
+        if let Some(body) = reused.and_then(|(c, _)| c.peek(&request)) {
+            return Ok(body);
         }
         let tokens = &self.tokens;
         let me = path.starts_with("/v1/me/");
@@ -344,6 +384,11 @@ impl Session<'_> {
             ureq::Error::BodyExceedsLimit(_) => Error::TooLarge,
             e => Error::Network(redact(&e.to_string(), &secrets)),
         };
+        let limiter = self.client.limiter.as_deref();
+        let spend = || {
+            let spent = limiter.map_or(Ok(()), |limiter| limiter.spend(true));
+            spent.map_err(|stop| Error::Refused(format!("warm stopped: {}", stop.name())))
+        };
         let (mut budget, mut retries) = (RETRY_BUDGET, 0);
         let bearer = format!("Bearer {}", tokens.developer);
         let send = |agent: &ureq::Agent| {
@@ -358,9 +403,13 @@ impl Session<'_> {
             request.call()
         };
         loop {
+            spend()?;
             let pooled = self.client.agent.lock().unwrap().clone();
-            let called = send(&pooled).or_else(|_| {
+            let called = send(&pooled).or_else(|first| {
                 *self.client.agent.lock().unwrap() = agent(true);
+                if spend().is_err() {
+                    return Err(first);
+                }
                 send(&agent(false))
             });
             let mut response = called.map_err(hide)?;
@@ -379,9 +428,12 @@ impl Session<'_> {
             if body.len() as u64 > MAX_BODY_BYTES {
                 return Err(Error::TooLarge);
             }
+            if let Some(limiter) = limiter {
+                limiter.observe(status, wait);
+            }
             match status {
                 200 => {
-                    if let Some(c) = cached {
+                    if let Some(c) = cached.filter(|_| self.live()) {
                         c.write(&request, &body);
                     }
                     return Ok(body);
@@ -392,7 +444,7 @@ impl Session<'_> {
             match status {
                 401 => return Err(Error::DeveloperToken),
                 403 if me => {
-                    if let Some(c) = cached {
+                    if let Some(c) = cached.filter(|_| limiter.is_none()) {
                         c.forget(&request);
                     }
                     return Err(Error::SignInNeeded);
@@ -411,6 +463,21 @@ impl Session<'_> {
             }
         }
     }
+}
+
+const EMPTY_PAGE: &[u8] = br#"{"data":[],"meta":{"total":0}}"#;
+const RELATED_QUERY: [(&str, &str); 1] = [("limit", LIBRARY_LIMIT)];
+
+fn request_key(target: &str, query: &[(&str, &str)]) -> String {
+    let pairs: Vec<String> = query.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    format!("{target}?{}", pairs.join("&"))
+}
+
+fn related_path(kind: &str, id: &str, relationship: &str) -> Result<String> {
+    Ok(format!(
+        "{LIBRARY}{kind}/{}/{relationship}",
+        id_segment(id)?
+    ))
 }
 
 fn not_cached() -> Error {

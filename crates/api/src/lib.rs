@@ -3,6 +3,7 @@ mod models;
 pub mod store;
 #[cfg(test)]
 mod tests;
+pub mod warm;
 
 use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};

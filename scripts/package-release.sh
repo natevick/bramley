@@ -37,7 +37,7 @@ STAGE="$OUT/$NAME"
 rm -rf "$STAGE" "$OUT/$NAME.tar.gz" "$OUT/$NAME.tar.gz.sha256"
 mkdir -p "$STAGE"
 install -m 755 "$BIN" "$STAGE/bramley"
-(cd "$ROOT" && cp --parents LICENSE README.md packaging/applications/bramley.desktop packaging/icons/bramley.svg "$STAGE/")
+(cd "$ROOT" && cp --parents LICENSE README.md packaging/applications/bramley.desktop packaging/icons/bramley.svg packaging/systemd/bramley-warm.service packaging/systemd/bramley-warm.timer "$STAGE/")
 tar --sort=name --owner=0 --group=0 --numeric-owner -C "$OUT" -cf - "$NAME" | gzip -n >"$OUT/$NAME.tar.gz"
 rm -rf "$STAGE"
 (cd "$OUT" && sha256sum "$NAME.tar.gz" >"$NAME.tar.gz.sha256")

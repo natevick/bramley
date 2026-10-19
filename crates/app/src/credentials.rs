@@ -178,6 +178,41 @@ impl Credentials {
     }
 }
 
+#[cfg(target_os = "linux")]
+pub fn keyring_locked() -> bool {
+    let collection = || {
+        let locked = || -> zbus::Result<bool> {
+            let bus = zbus::blocking::Connection::session()?;
+            let collection = zbus::blocking::Proxy::new(
+                &bus,
+                "org.freedesktop.secrets",
+                "/org/freedesktop/secrets/aliases/default",
+                "org.freedesktop.Secret.Collection",
+            )?;
+            collection.get_property("Locked")
+        };
+        bounded(OPEN_WAIT, locked).and_then(Result::ok)
+    };
+    locked_by(
+        bounded(OPEN_WAIT, secret_service_on_bus).flatten(),
+        collection,
+    )
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn locked_by(on_bus: Option<bool>, collection: impl FnOnce() -> Option<bool>) -> bool {
+    match on_bus {
+        Some(false) => false,
+        Some(true) => collection().unwrap_or(true),
+        None => true,
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn keyring_locked() -> bool {
+    false
+}
+
 fn remove(path: &Path) -> Result<(), &'static str> {
     match std::fs::remove_file(path) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => {

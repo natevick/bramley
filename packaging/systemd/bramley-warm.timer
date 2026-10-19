@@ -1,0 +1,10 @@
+[Unit]
+Description=Warm Bramley's cache every few minutes while the app is closed
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+
+[Install]
+WantedBy=timers.target

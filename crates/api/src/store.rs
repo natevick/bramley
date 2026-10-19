@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering::SeqCst};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use sha2::{Digest, Sha256};
 
@@ -32,23 +32,37 @@ pub fn cache_dir() -> Option<PathBuf> {
 }
 
 pub fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    write_file(path, contents, true)
+    write_file(path, &path.with_extension("partial"), contents, true)
 }
 
-fn write_file(path: &Path, contents: &[u8], durable: bool) -> std::io::Result<()> {
-    let partial = path.with_extension("partial");
+static WRITES: AtomicU64 = AtomicU64::new(0);
+
+fn unique(path: &Path) -> PathBuf {
+    let writer = format!(
+        "{}-{}.partial",
+        std::process::id(),
+        WRITES.fetch_add(1, SeqCst)
+    );
+    path.with_extension(writer)
+}
+
+pub fn write_shared(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    write_file(path, &unique(path), contents, true)
+}
+
+fn write_file(path: &Path, partial: &Path, contents: &[u8], durable: bool) -> std::io::Result<()> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file = options.open(&partial)?;
+    let mut file = options.open(partial)?;
     #[cfg(unix)]
     file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
     file.write_all(contents)?;
     if durable {
         file.sync_all()?;
     }
-    std::fs::rename(&partial, path)
+    std::fs::rename(partial, path)
 }
 
 fn private_dir(dir: &Path) -> std::io::Result<()> {
@@ -62,7 +76,8 @@ fn files(dir: &Path) -> Vec<(PathBuf, u64, SystemTime)> {
     let entries = std::fs::read_dir(dir).into_iter().flatten().flatten();
     let stat = |e: std::fs::DirEntry| {
         let meta = e.metadata().ok().filter(|m| m.is_file())?;
-        Some((e.path(), meta.len(), meta.modified().ok()?))
+        let used = meta.accessed().ok().max(meta.modified().ok())?;
+        Some((e.path(), meta.len(), used))
     };
     entries.filter_map(stat).collect()
 }
@@ -119,13 +134,24 @@ impl Store {
         let mut file = options.read(true).write(true).open(self.path(parts)).ok()?;
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).ok()?;
-        let _ = file.set_modified(SystemTime::now());
+        let _ = file.set_times(std::fs::FileTimes::new().set_accessed(SystemTime::now()));
         Some(bytes)
+    }
+
+    pub fn peek(&self, parts: &[&str]) -> Option<Vec<u8>> {
+        std::fs::read(self.path(parts)).ok()
+    }
+
+    pub fn age(&self, parts: &[&str]) -> Option<Duration> {
+        let modified = std::fs::metadata(self.path(parts)).ok()?.modified().ok()?;
+        Some(modified.elapsed().unwrap_or_default())
     }
 
     pub fn put(&self, parts: &[&str], bytes: &[u8], epoch: u64) {
         let mut state = self.state();
-        if state.epoch != epoch || write_file(&self.path(parts), bytes, false).is_err() {
+        if state.epoch != epoch
+            || write_file(&self.path(parts), &unique(&self.path(parts)), bytes, false).is_err()
+        {
             return;
         }
         state.bytes = state.bytes.saturating_add(bytes.len() as u64);
