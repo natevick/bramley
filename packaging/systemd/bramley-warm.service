@@ -1,0 +1,9 @@
+[Unit]
+Description=Warm Bramley's cache while the app is not running
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bramley warm
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=5min
