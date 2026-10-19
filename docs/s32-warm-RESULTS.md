@@ -1,6 +1,6 @@
 # S32 cache warmer: results (2026-10-19)
 
-Judged against `docs/s32-warm-PREREG.md` (final text d4486b2, committed 10:52:39). First measurement: the seed launch, spawned 10:53:52, 73 s later. Build: tree `c827be5f`, clean, `--release --features dev`, sha256 `623305c8`. 6 warm runs and 8 launches, every spawn at least 70 s after the last, no playback, isolated config and cache; the real `~/.cache/bramley` was never created.
+Judged against `docs/s32-warm-PREREG.md` (final text d4486b2, committed 10:52:39). First measurement: the seed launch, spawned 10:53:52, 73 s later. Build: tree `c827be5f`, clean, `--release --features dev`, sha256 `623305c8`. 6 warm runs and 8 launches, no playback; every spawn was at least 70 s after the last except T, which by design spawned 2 s into the 6th warm run, isolated config and cache; the real `~/.cache/bramley` was never created.
 
 **Verdict: bar met on the albums warm had reached, not on the library.** No run printed `complete`, so per the conflict rule the bar is judged on P (134 of 376 library albums, 36%) and the coverage goes to the lead.
 
@@ -14,7 +14,7 @@ Judged against `docs/s32-warm-PREREG.md` (final text d4486b2, committed 10:52:39
 3. T: the app spawned 2 s into a warm run reached its first frame at 0.1 s against a limit of 0.24 s (1.2 times the S, C and W median of 0.2 s). It held the slot. The warm run printed `requests=2 stopped=app-running`.
 
 **Did it run.**
-- Every warm run printed `cached` at least 59 until it stopped on the budget.
+- The five measured warm runs printed `cached` 59 or 60 and stopped on the budget; T printed 2 and stopped for the app.
 - All three W launches had their track list and covers in the cache beforehand and showed `artMisses` 0, `artHits` 51 to 64.
 - All three C launches had neither, and showed `apiMisses` 2.
 - Albums were drawn from P with `random.Random(32)`; ids stay in scratch.
@@ -36,4 +36,5 @@ Judged against `docs/s32-warm-PREREG.md` (final text d4486b2, committed 10:52:39
 - Stop latency on an app start is bounded by the request in flight (15 s API, 30 s art timeouts); here it stopped before the third request.
 - Not exercised against Apple: a 429, 5xx, 401 or 403 stop, the keyring-locked path, and the timer itself. Those are covered by unit tests, the mock servers and `systemd-analyze verify` only.
 - The art tier needs the display scale the app records. A user who has never run this build gets lists and track lists but no covers until the app has run once.
-- Windows and macOS compilation was not checked: only the Linux target is installed.
+- Windows and macOS compilation is unverified: only the Linux target is installed and no CI job builds those targets.
+- T's first-frame bar (0.1 s against a 0.24 s limit) cannot resolve 20% on a 0.1 s clock; it shows the same reading, not a measured ratio.
