@@ -4,7 +4,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use bramley_api::{Call, Error, Item, Job, Reply, Shelf};
-use bramley_engine::{Queue, Snapshot};
+use bramley_engine::{Queue, STOREFRONT_BACKOFF, Snapshot};
 use egui::{ColorImage, RichText, TextureHandle, WidgetType};
 use serde_json::{Value, json};
 
@@ -69,6 +69,7 @@ pub struct Paged {
     asked: u64,
     wanted: bool,
     failed: bool,
+    refused: usize,
     read: usize,
     skipped: usize,
 }
@@ -289,10 +290,11 @@ impl Library {
                         paged.total = page.total.or(paged.total);
                     }
                     (paged.next, paged.busy_until, paged.failed) = (page.next, None, false);
+                    paged.refused = 0;
                     paged.wanted = false;
                     paged.pages += 1;
                 }
-                Err(Error::SignInNeeded) => {
+                Err(Error::SignInNeeded) if paged.refused >= STOREFRONT_BACKOFF.len() => {
                     (paged.busy_until, paged.failed, self.denied) = (None, true, true);
                 }
                 Err(e) if list == List::ArtistSongs && permanent(&e) => {
@@ -301,6 +303,10 @@ impl Library {
                 }
                 failed => {
                     let wait = match failed {
+                        Err(Error::SignInNeeded) => {
+                            paged.refused += 1;
+                            STOREFRONT_BACKOFF[paged.refused - 1]
+                        }
                         Err(Error::RateLimited(s)) => RETRY.max(Duration::from_secs(s)),
                         _ => RETRY,
                     };

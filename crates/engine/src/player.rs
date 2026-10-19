@@ -11,6 +11,9 @@ const MUSICKIT_URL: &str = "https://js-cdn.music.apple.com/musickit/v3/musickit.
 const PLAYER_STACK: usize = 8 * 1024 * 1024;
 const COMMAND_WAIT_MS: u64 = 5000;
 const STOREFRONT_DEADLINE_MS: u64 = 10_000;
+pub const STOREFRONT_DEADLINE: Duration = Duration::from_millis(STOREFRONT_DEADLINE_MS);
+pub const STOREFRONT_BACKOFF: [Duration; 2] =
+    [Duration::from_millis(250), Duration::from_millis(750)];
 pub const QUEUE_SHOWN: usize = 50;
 pub const COMMAND_WAIT: Duration = Duration::from_millis(COMMAND_WAIT_MS);
 const HEARTBEAT: Duration = Duration::from_secs(1);
@@ -252,7 +255,7 @@ impl Player {
             .extend([tokens.developer.clone(), tokens.user.clone()]);
         let secrets = cfg.engine.redact.clone();
         let every = cfg.snapshot_interval;
-        let setup = json!({"developerToken": tokens.developer, "userToken": tokens.user, "musickitUrl": MUSICKIT_URL, "build": env!("CARGO_PKG_VERSION"), "commandWaitMs": COMMAND_WAIT_MS, "storefrontDeadlineMs": STOREFRONT_DEADLINE_MS, "queueShown": QUEUE_SHOWN});
+        let setup = json!({"developerToken": tokens.developer, "userToken": tokens.user, "musickitUrl": MUSICKIT_URL, "build": env!("CARGO_PKG_VERSION"), "commandWaitMs": COMMAND_WAIT_MS, "storefrontDeadlineMs": STOREFRONT_DEADLINE_MS, "storefrontBackoffMs": STOREFRONT_BACKOFF.map(|wait| wait.as_millis() as u64), "queueShown": QUEUE_SHOWN});
         spawn_with(
             move || {
                 let engine = Engine::new(cfg.engine)?;

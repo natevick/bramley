@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 pub use bramley_api::art_url;
-use bramley_engine::{redact, user_agent};
+use bramley_engine::{STOREFRONT_BACKOFF, STOREFRONT_DEADLINE, redact, user_agent};
 use egui::{ColorImage, TextureHandle, TextureOptions};
 use serde_json::Value;
 
@@ -182,18 +182,19 @@ fn signed_in(
     tally: &Tally,
 ) -> Result<Option<Vec<u8>>> {
     let headers = [("Authorization", bearer), ("Music-User-Token", user)];
-    match get(
-        agent,
-        &format!("{}{STOREFRONT}", source.api),
-        &headers,
-        tally,
-    )
-    .context("sign-in check")?
-    {
-        (200, body, _) => Ok(Some(body)),
-        (401, ..) => Err(anyhow!(DeveloperTokenRejected)),
-        (403, ..) => Ok(None),
-        refused => Err(apple_error(refused).context("sign-in check")),
+    let url = format!("{}{STOREFRONT}", source.api);
+    let until = Instant::now() + STOREFRONT_DEADLINE;
+    let mut waits = STOREFRONT_BACKOFF.into_iter();
+    loop {
+        match get(agent, &url, &headers, tally).context("sign-in check")? {
+            (200, body, _) => return Ok(Some(body)),
+            (401, ..) => return Err(anyhow!(DeveloperTokenRejected)),
+            (403, ..) => match waits.next().filter(|wait| Instant::now() + *wait < until) {
+                Some(wait) => std::thread::sleep(wait),
+                None => return Ok(None),
+            },
+            refused => return Err(apple_error(refused).context("sign-in check")),
+        }
     }
 }
 

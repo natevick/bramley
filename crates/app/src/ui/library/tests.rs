@@ -77,6 +77,15 @@ fn answer(lib: &mut Library, ctx: &egui::Context, now: Instant, reply: Reply) ->
     call
 }
 
+fn refused_thrice(lib: &mut Library, ctx: &egui::Context, route: &Route) {
+    for n in 1..=3 {
+        let job = lib.tick(Instant::now() + RETRY * n, true, || {}).remove(0);
+        (job.done)(Err(Error::SignInNeeded));
+        lib.receive(ctx);
+        frame(ctx, lib, route, 600.0, vec![]);
+    }
+}
+
 #[test]
 fn songs_page_in_as_the_list_nears_its_end_and_250_items_give_250_rows() {
     let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
@@ -312,10 +321,7 @@ fn an_error_waits_the_retry_and_a_403_stops_paging_until_signed_out() {
         "no retry inside 5 s"
     );
     assert_eq!(lib.status()["songs"]["failed"], true);
-    let job = lib.tick(Instant::now() + RETRY, true, || {}).remove(0);
-    (job.done)(Err(Error::SignInNeeded));
-    lib.receive(&ctx);
-    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+    refused_thrice(&mut lib, &ctx, &Route::Songs);
     assert!(lib.denied);
     assert!(
         lib.tick(Instant::now() + RETRY * 2, true, || {}).is_empty(),
@@ -548,10 +554,28 @@ fn signing_out_clears_the_artists_and_a_403_on_an_artist_asks_for_sign_in() {
         assert_eq!(lib.list(list).items.len(), 0, "{list:?} survived sign-out");
     }
     frame(&ctx, &mut lib, &route, 600.0, vec![]);
-    let job = lib.tick(now, true, || {}).remove(0);
-    (job.done)(Err(Error::SignInNeeded));
-    lib.receive(&ctx);
+    refused_thrice(&mut lib, &ctx, &route);
     assert!(lib.denied && lib.tick(now + RETRY, true, || {}).is_empty());
+}
+
+#[test]
+fn a_library_403_that_clears_on_retry_is_not_a_sign_out() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+    for n in 1..=2 {
+        let job = lib.tick(Instant::now() + RETRY * n, true, || {}).remove(0);
+        (job.done)(Err(Error::SignInNeeded));
+        lib.receive(&ctx);
+        frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+        assert!(!lib.denied, "refusal {n}");
+    }
+    answer(
+        &mut lib,
+        &ctx,
+        Instant::now() + RETRY * 3,
+        page(0..10, None),
+    );
+    assert!(!lib.denied && lib.list(List::Songs).items.len() == 10);
 }
 
 fn texts(ctx: &egui::Context, lib: &mut Library, route: &Route) -> Vec<String> {

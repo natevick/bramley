@@ -41,7 +41,7 @@ fn player_with_deadline(wait_ms: u32, storefront_deadline_ms: u32) -> (Engine, F
     let (e, sink) = engine();
     e.eval_script("fake.js", FAKE_MK).unwrap();
     let config = format!(
-        "globalThis.__bramley_player = {{ developerToken: 'x.' + btoa('{{\"iss\":\"T\"}}') + '.y', userToken: 'u', musickitUrl: 'http://127.0.0.1:9/none.js', build: '0', commandWaitMs: {wait_ms}, storefrontDeadlineMs: {storefront_deadline_ms}, queueShown: 4 }};"
+        "globalThis.__bramley_player = {{ developerToken: 'x.' + btoa('{{\"iss\":\"T\"}}') + '.y', userToken: 'u', musickitUrl: 'http://127.0.0.1:9/none.js', build: '0', commandWaitMs: {wait_ms}, storefrontDeadlineMs: {storefront_deadline_ms}, storefrontBackoffMs: [250, 750], queueShown: 4 }};"
     );
     e.eval_script("config.js", &config).unwrap();
     e.eval_script("player.js", PLAYER).unwrap();
@@ -403,19 +403,44 @@ fn a_storefront_failure_that_clears_on_retry_still_signs_in_and_plays() {
 }
 
 #[test]
-fn a_storefront_auth_rejection_asks_for_sign_in_without_retrying() {
-    let cases = [
-        ("UNAUTHORIZED_ERROR", 401, "engine-auth-401"),
-        ("ACCESS_DENIED", 403, "engine-auth-403"),
-    ];
-    for (code, status, reason) in cases {
-        let (mut e, _sink) = player(1000);
-        let reply = format!("async () => {{ throw mkError('{code}', {status}); }}");
-        boot_for(&mut e, &reply, 1600);
-        assert_eq!(e.eval_json("storefrontCalls").unwrap(), 1, "{code}");
-        assert_eq!(field(&e, "signInNeeded"), reason);
-        assert_eq!(field(&e, "loadFailed"), J::Null, "{code}");
-    }
+fn a_storefront_401_asks_for_sign_in_without_retrying() {
+    let (mut e, _sink) = player(1000);
+    boot_for(
+        &mut e,
+        "async () => { throw mkError('UNAUTHORIZED_ERROR', 401); }",
+        1600,
+    );
+    assert_eq!(e.eval_json("storefrontCalls").unwrap(), 1);
+    assert_eq!(field(&e, "signInNeeded"), "engine-auth-401");
+    assert_eq!(field(&e, "loadFailed"), J::Null);
+}
+
+#[test]
+fn a_persistent_storefront_403_asks_for_sign_in_after_three_calls() {
+    let (mut e, _sink) = player(1000);
+    boot_for(
+        &mut e,
+        "async () => { throw mkError('ACCESS_DENIED', 403); }",
+        1600,
+    );
+    assert_eq!(e.eval_json("storefrontCalls").unwrap(), 3);
+    assert_eq!(field(&e, "signInNeeded"), "engine-auth-403");
+    assert_eq!(field(&e, "loadFailed"), J::Null);
+}
+
+#[test]
+fn a_storefront_403_that_clears_on_retry_still_signs_in_and_plays() {
+    let (mut e, _sink) = player(1000);
+    let reply =
+        "async () => { if (storefrontCalls < 2) throw mkError('ACCESS_DENIED', 403); return {}; }";
+    boot_for(&mut e, reply, 600);
+    assert_eq!(e.eval_json("storefrontCalls").unwrap(), 2);
+    assert_eq!(field(&e, "signInNeeded"), J::Null);
+    send(&mut e, &[songs("A"), Command::Play], 300);
+    assert_eq!(
+        log(&e),
+        json!(["setQueue-start A", "setQueue-done A", "play q=A"])
+    );
 }
 
 #[test]
@@ -445,4 +470,17 @@ fn the_storefront_check_gives_up_at_one_overall_deadline_whether_it_hangs_or_kee
         let why = format!("the Apple Music storefront check failed ({seen})");
         assert_eq!(field(&e, "loadFailed"), why.as_str());
     }
+}
+
+#[test]
+fn a_storefront_403_that_outlasts_the_deadline_still_asks_for_sign_in() {
+    let (mut e, _sink) = player_with_deadline(1000, 600);
+    boot_for(
+        &mut e,
+        "async () => { throw mkError('ACCESS_DENIED', 403); }",
+        1000,
+    );
+    assert_eq!(e.eval_json("storefrontCalls").unwrap(), 2);
+    assert_eq!(field(&e, "signInNeeded"), "engine-auth-403");
+    assert_eq!(field(&e, "loadFailed"), J::Null);
 }
