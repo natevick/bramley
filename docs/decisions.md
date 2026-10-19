@@ -45,7 +45,7 @@
 - **2026-10-19: a cache warmer, `bramley warm` (Nate).**
   - Nate: "this would only be while the app is not running and I was thinking every few minutes. The cache should not go out of date that quickly and can background update while the app is open so the slowness feel just disappears."
   - A systemd user timer (shipped, not enabled) runs `bramley warm` every 5 minutes. While the app is open the existing stale-while-revalidate keeps the cache fresh, and warm exits at once.
-  - Order: the four library first pages; later Albums and Playlists pages and then each missing or 6 h old track list with its album-route covers; then grid covers. Budget 60 requests a run, API at 1 per second. Results: `docs/s32-warm-RESULTS.md`.
+  - Order: the four library first pages; later Albums and Playlists pages (list pages refetched after 30 minutes); then each missing or 6 h old track list with its album-route covers; then grid covers. Budget 60 requests a run, API at 1 per second. A 401 or 403 pauses runs until the app starts again; a 429 or 5xx backs off 5 minutes to 1 hour. Results: `docs/s32-warm-RESULTS.md`.
 - **2026-10-19: v0.2.1 ships over a failed acceptance check (Nate).**
   - `v021-counted-1` FAILed F7 (one MCP `library_playlists` call returned an error) and F9 (one of five MCP plays stayed silent), both in the same minute of one session. See `docs/v0.2.1-RESULTS.md`.
   - Neither touches v0.2.1's changes. The MCP library path is byte-identical to v0.2.0, which passed. The S28 engine code runs once at boot, before the first play succeeded. Both are first-ever failures in 22 counted runs. Their causes weren't recorded, because `drive.py` drops the error text (S31).

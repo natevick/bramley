@@ -38,3 +38,7 @@ Judged against `docs/s32-warm-PREREG.md` (final text d4486b2, committed 10:52:39
 - The art tier needs the display scale the app records. A user who has never run this build gets lists and track lists but no covers until the app has run once.
 - Windows and macOS compilation is unverified: only the Linux target is installed and no CI job builds those targets.
 - T's first-frame bar (0.1 s against a 0.24 s limit) cannot resolve 20% on a 0.1 s clock; it shows the same reading, not a measured ratio.
+
+## After review fixes (2026-10-19)
+
+No new measurement. The stage order and the set of things fetched are unchanged. What changed: a bad item is skipped, list pages refresh at most every 30 minutes, and a 401, 403, 429 or 5xx pauses later runs (`warm.state`). The `cached` count is gone from the summary line, which is now `requests=N skipped=N stopped=why`; `skipped` counts items that failed, not duplicates. The numbers above come from the earlier build (tree `c827be5f`).
