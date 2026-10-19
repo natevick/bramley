@@ -931,3 +931,244 @@ fn after_one_dead_pooled_socket_the_pool_is_dropped_so_its_dead_sibling_is_never
         "{fourth:?} {served:?}"
     );
 }
+
+mod disk_cache {
+    use std::path::PathBuf;
+    use std::time::SystemTime;
+
+    use super::*;
+    use crate::client::browse;
+    use crate::store::Store;
+
+    fn scratch(name: &str) -> PathBuf {
+        let tag = format!("cache-{}-{name}", std::process::id());
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp");
+        let dir = dir.join(tag);
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    fn songs(names: &[&str]) -> String {
+        let row = |(i, name): (usize, &&str)| {
+            let attributes = format!(r#"{{"name":"{name}"}}"#);
+            format!(r#"{{"id":"i.{i}","type":"library-songs","attributes":{attributes}}}"#)
+        };
+        let rows: Vec<String> = names.iter().enumerate().map(row).collect();
+        format!(
+            r#"{{"data":[{}],"meta":{{"total":{}}}}}"#,
+            rows.join(","),
+            rows.len()
+        )
+    }
+
+    fn caching(server: &Server, user: &str, store: &Arc<Store>) -> Client {
+        raw(&server.base, Some(user)).caching(store.clone())
+    }
+
+    fn names(reply: Reply) -> Vec<String> {
+        let Reply::Page(page) = reply else {
+            panic!("{reply:?}")
+        };
+        page.items.into_iter().filter_map(|i| i.name).collect()
+    }
+
+    const LIST: Call = Call::Library(Shelf::Songs);
+
+    fn age(store: &Store, parts: &[&str], seconds: u64) {
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(store.path(parts))
+            .unwrap();
+        file.set_modified(SystemTime::now() - Duration::from_secs(seconds))
+            .unwrap();
+    }
+
+    #[test]
+    fn another_accounts_key_misses_and_no_token_is_in_the_cache() {
+        let root = scratch("scope");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let server = serve(vec![("/v1/me/library/songs", vec![ok(&songs(&["one"]))])]);
+        let mine = caching(&server, USER, &store);
+        assert_eq!(mine.stale(&LIST), None);
+        mine.run(LIST).unwrap();
+        assert_eq!(names(mine.stale(&LIST).unwrap()), ["one"]);
+        assert_eq!(
+            caching(&server, "another-user-token-0123456789", &store).stale(&LIST),
+            None
+        );
+        for entry in std::fs::read_dir(root.join("api")).unwrap() {
+            let entry = entry.unwrap();
+            let text = std::fs::read(entry.path()).unwrap();
+            let name = entry.file_name().into_string().unwrap();
+            assert!(!name.contains(USER) && !String::from_utf8_lossy(&text).contains(USER));
+        }
+    }
+
+    #[test]
+    fn only_browse_paths_are_cached_never_search_recent_plays_or_the_storefront() {
+        for path in [
+            "/v1/me/storefront",
+            "/v1/me/recent/played",
+            "/v1/catalog/us/search",
+        ] {
+            assert!(!browse(path), "{path}");
+        }
+        for path in [
+            "/v1/me/library/songs",
+            "/v1/me/library/albums/l.1/tracks",
+            "/v1/catalog/us/albums/1",
+        ] {
+            assert!(browse(path), "{path}");
+        }
+        let root = scratch("never");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let server = serve(vec![
+            ("/v1/me/storefront", vec![ok(STOREFRONT)]),
+            ("/v1/catalog/us/search", vec![ok(SEARCH)]),
+            ("/v1/me/recent/played", vec![ok(&songs(&["one"]))]),
+        ]);
+        let client = caching(&server, USER, &store);
+        for call in [Call::Search("a".into()), Call::RecentlyPlayed] {
+            client.run(call.clone()).unwrap();
+            assert_eq!(client.stale(&call), None, "{call:?}");
+        }
+    }
+
+    #[test]
+    fn a_catalog_page_is_found_after_a_restart_through_the_remembered_storefront() {
+        let root = scratch("hint");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let server = serve(vec![
+            ("/v1/me/storefront", vec![ok(STOREFRONT)]),
+            (
+                "/v1/catalog/us/albums/2000001",
+                vec![ok(include_str!("fixtures/album.json"))],
+            ),
+        ]);
+        let call = Call::Album("2000001".into());
+        caching(&server, USER, &store).run(call.clone()).unwrap();
+        let restarted = caching(&server, USER, &store);
+        assert!(matches!(restarted.stale(&call), Some(Reply::Detail(_))));
+        assert_eq!(server.targets().len(), 2, "the restart asked nothing");
+    }
+
+    #[test]
+    fn a_stale_page_is_refreshed_only_when_the_fresh_one_differs() {
+        let root = scratch("swr");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let (old, new) = (ok(&songs(&["old"])), ok(&songs(&["new"])));
+        let server = serve(vec![("/v1/me/library/songs", vec![old.clone(), old, new])]);
+        let client = caching(&server, USER, &store);
+        client.run(LIST).unwrap();
+        let (tx, rx) = channel();
+        let refresh = |tx: std::sync::mpsc::Sender<Reply>| -> crate::Refresh {
+            Box::new(move |fresh| tx.send(fresh).unwrap())
+        };
+        let stale = client.stale(&LIST).unwrap();
+        client.revalidate(LIST, &stale, refresh(tx.clone()));
+        assert!(rx.try_recv().is_err(), "the same page is not sent again");
+        assert_eq!(server.targets().len(), 2, "the refetch did run");
+        client.revalidate(LIST, &stale, refresh(tx));
+        assert_eq!(names(rx.try_recv().unwrap()), ["new"]);
+        assert_eq!(
+            names(client.stale(&LIST).unwrap()),
+            ["new"],
+            "the cache moved on"
+        );
+    }
+
+    #[test]
+    fn the_worker_answers_from_cache_at_once_then_revalidates_off_its_thread() {
+        let root = scratch("worker");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let (old, new) = (ok(&songs(&["old"])), ok(&songs(&["new"])));
+        let server = serve(vec![("/v1/me/library/songs", vec![old, new])]);
+        let client = caching(&server, USER, &store);
+        client.run(LIST).unwrap();
+        let jobs = worker(client).unwrap();
+        let (done, answered) = channel();
+        let (refresh, refreshed) = channel();
+        let soon = Instant::now() + Duration::from_secs(10);
+        let job = Job::new(LIST, soon, move |found| done.send(found).unwrap());
+        jobs.send(job.revalidating(move |fresh| refresh.send(fresh).unwrap()))
+            .unwrap();
+        let first = answered.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_eq!(names(first.unwrap()), ["old"]);
+        let fresh = refreshed.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_eq!(names(fresh), ["new"]);
+    }
+
+    #[test]
+    fn a_job_that_did_not_ask_for_revalidation_always_goes_to_the_network() {
+        let root = scratch("live");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let server = serve(vec![("/v1/me/library/songs", vec![ok(&songs(&["one"]))])]);
+        let client = caching(&server, USER, &store);
+        client.run(LIST).unwrap();
+        let jobs = worker(client).unwrap();
+        let (done, answered) = channel();
+        let soon = Instant::now() + Duration::from_secs(10);
+        jobs.send(Job::new(LIST, soon, move |found| done.send(found).unwrap()))
+            .unwrap();
+        answered
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap()
+            .unwrap();
+        assert_eq!(server.targets().len(), 2);
+    }
+
+    #[test]
+    fn eviction_keeps_the_total_under_the_cap_and_drops_the_least_recently_used() {
+        let root = scratch("evict");
+        let store = Store::open(&root, "art", 300).unwrap();
+        let epoch = store.epoch();
+        for name in ["a", "b", "c"] {
+            store.put(&[name], &[0; 100], epoch);
+        }
+        age(&store, &["a"], 30);
+        age(&store, &["b"], 20);
+        age(&store, &["c"], 10);
+        assert!(store.get(&["a"]).is_some());
+        store.put(&["d"], &[0; 100], epoch);
+        assert_eq!(store.get(&["b"]), None, "the oldest went");
+        for kept in ["a", "c", "d"] {
+            assert!(store.get(&[kept]).is_some(), "{kept}");
+        }
+        let total: u64 = std::fs::read_dir(root.join("art"))
+            .unwrap()
+            .map(|e| e.unwrap().metadata().unwrap().len())
+            .sum();
+        assert!(total <= 300, "{total}");
+    }
+
+    #[test]
+    fn a_wipe_empties_the_store_and_drops_a_write_begun_before_it() {
+        let root = scratch("wipe");
+        let store = Store::open(&root, "api", 1 << 20).unwrap();
+        let before = store.epoch();
+        store.put(&["kept"], b"library data", before);
+        store.wipe();
+        assert_eq!(store.get(&["kept"]), None);
+        store.put(&["in flight"], b"library data", before);
+        assert_eq!(
+            store.get(&["in flight"]),
+            None,
+            "a stale writer cannot refill the cache"
+        );
+        store.put(&["after"], b"library data", store.epoch());
+        assert!(store.get(&["after"]).is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_cache_directory_is_private_and_its_files_are_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = scratch("modes");
+        let store = Store::open(&root, "art", 1 << 20).unwrap();
+        store.put(&["x"], b"bytes", store.epoch());
+        let mode =
+            |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!((mode(&root), mode(&root.join("art"))), (0o700, 0o700));
+        assert_eq!(mode(&store.path(&["x"])), 0o600);
+    }
+}

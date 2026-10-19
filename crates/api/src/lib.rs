@@ -1,10 +1,12 @@
 mod client;
 mod models;
+pub mod store;
 #[cfg(test)]
 mod tests;
 
 use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::atomic::Ordering::SeqCst;
 use std::sync::mpsc::{Sender, channel};
 use std::time::Instant;
 
@@ -40,12 +42,14 @@ pub enum Reply {
 }
 
 pub type Done = Box<dyn FnOnce(Result<Reply>) + Send>;
+pub type Refresh = Box<dyn FnOnce(Reply) + Send>;
 
 pub struct Job {
     pub call: Call,
     pub deadline: Instant,
     pub done: Done,
     pub supersedable: bool,
+    pub refresh: Option<Refresh>,
 }
 
 impl Job {
@@ -59,6 +63,14 @@ impl Job {
             deadline,
             done: Box::new(done),
             supersedable: false,
+            refresh: None,
+        }
+    }
+
+    pub fn revalidating(self, refresh: impl FnOnce(Reply) + Send + 'static) -> Self {
+        Job {
+            refresh: Some(Box::new(refresh)),
+            ..self
         }
     }
 
@@ -78,6 +90,30 @@ impl Client {
                 self.session()?.run(call)
             }
             ran => ran,
+        }
+    }
+}
+
+impl Client {
+    fn stale(&self, call: &Call) -> Option<Reply> {
+        let mut api = self.session().ok().filter(|api| api.cached())?;
+        api.offline = true;
+        let found = api.run(call.clone()).ok();
+        let counter = if found.is_some() {
+            &store::API_HITS
+        } else {
+            &store::API_MISSES
+        };
+        counter.fetch_add(1, SeqCst);
+        found
+    }
+
+    fn revalidate(&self, call: Call, stale: &Reply, refresh: Refresh) {
+        store::API_REVALIDATIONS.fetch_add(1, SeqCst);
+        if let Ok(fresh) = self.run(call)
+            && fresh != *stale
+        {
+            refresh(fresh);
         }
     }
 }
@@ -116,9 +152,26 @@ pub fn worker(client: Client) -> std::io::Result<Sender<Job>> {
                 if Instant::now() >= job.deadline {
                     continue;
                 }
-                let ran = catch_unwind(AssertUnwindSafe(|| client.run(job.call)));
+                let Job {
+                    call,
+                    done,
+                    refresh,
+                    ..
+                } = job;
+                if let Some(refresh) = refresh
+                    && let Some(stale) = client.stale(&call)
+                {
+                    done(Ok(stale.clone()));
+                    let client = client.clone();
+                    let revalidate = move || client.revalidate(call, &stale, refresh);
+                    let _ = std::thread::Builder::new()
+                        .name("api-revalidate".into())
+                        .spawn(revalidate);
+                    continue;
+                }
+                let ran = catch_unwind(AssertUnwindSafe(|| client.run(call)));
                 let panicked = || Err(Error::Decode("the API call panicked".into()));
-                (job.done)(ran.unwrap_or_else(|_| panicked()));
+                done(ran.unwrap_or_else(|_| panicked()));
             }
         })?;
     Ok(tx)

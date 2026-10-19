@@ -7,6 +7,7 @@ use bramley_engine::{redact, user_agent};
 use serde::de::DeserializeOwned;
 
 use crate::models::{Detail, Envelope, Item, Page, SearchResults, Searched, WithTracks};
+use crate::store::Store;
 
 pub const API_BASE: &str = "https://api.music.apple.com";
 const MAX_BODY_BYTES: u64 = 2 << 20;
@@ -82,12 +83,33 @@ pub struct Client {
     renew: Renew,
     storefront: Storefront,
     hasher: RandomState,
+    cache: Option<Arc<Store>>,
+}
+
+pub(crate) struct Scoped {
+    store: Arc<Store>,
+    user: String,
+    epoch: u64,
+}
+
+impl Scoped {
+    fn read(&self, request: &str) -> Option<Vec<u8>> {
+        let scope = self.store.scope(&self.user);
+        self.store.get(&["api", &scope, request])
+    }
+
+    fn write(&self, request: &str, body: &[u8]) {
+        let scope = self.store.scope(&self.user);
+        self.store.put(&["api", &scope, request], body, self.epoch);
+    }
 }
 
 pub struct Session<'a> {
     client: &'a Client,
     pub(crate) tokens: Tokens,
     user_key: Option<u64>,
+    pub(crate) offline: bool,
+    cached: Option<Scoped>,
 }
 
 impl Client {
@@ -116,7 +138,13 @@ impl Client {
             renew: Arc::new(|_| false),
             storefront: Storefront::default(),
             hasher: RandomState::new(),
+            cache: None,
         }
+    }
+
+    pub fn caching(mut self, store: Arc<Store>) -> Self {
+        self.cache = Some(store);
+        self
     }
 
     pub fn renewing(mut self, renew: impl Fn(&str) -> bool + Send + Sync + 'static) -> Self {
@@ -134,26 +162,52 @@ impl Client {
         if user_key.is_none() {
             *self.storefront.lock().unwrap() = None;
         }
+        let scoped = |store: &Arc<Store>| {
+            let user = tokens.user.as_deref()?;
+            Some(Scoped {
+                store: store.clone(),
+                user: user.to_owned(),
+                epoch: store.epoch(),
+            })
+        };
+        let cached = self.cache.as_ref().and_then(scoped);
         Ok(Session {
             client: self,
             tokens,
             user_key,
+            offline: false,
+            cached,
         })
     }
 }
 
 impl Session<'_> {
+    pub(crate) fn cached(&self) -> bool {
+        self.cached.is_some()
+    }
+
     pub fn storefront(&self) -> Result<String> {
         let cached = self.client.storefront.lock().unwrap().clone();
         if let Some((_, id)) = cached.filter(|(key, _)| Some(*key) == self.user_key) {
             return Ok(id);
         }
+        if self.offline {
+            return self.hint().ok_or_else(not_cached);
+        }
         let found: Envelope<Item> = self.json("/v1/me/storefront", &[])?;
         let id = found.data.into_iter().next().map(|s| s.id);
         let id = id.filter(|id| segment(id));
         let id = id.ok_or_else(|| Error::Decode("no usable storefront".into()))?;
+        if let (Some(c), Some(user)) = (&self.cached, &self.tokens.user) {
+            c.store.remember_storefront(user, &id, c.epoch);
+        }
         *self.client.storefront.lock().unwrap() = self.user_key.map(|key| (key, id.clone()));
         Ok(id)
+    }
+
+    fn hint(&self) -> Option<String> {
+        let (c, user) = (self.cached.as_ref()?, self.tokens.user.as_ref()?);
+        c.store.storefront(user)
     }
 
     pub fn search(&self, term: &str) -> Result<SearchResults> {
@@ -267,6 +321,12 @@ impl Session<'_> {
                 "{path:?} is not an allowed API path"
             )));
         }
+        let pairs: Vec<String> = query.iter().map(|(k, v)| format!("{k}={v}")).collect();
+        let request = format!("{target}?{}", pairs.join("&"));
+        let cached = self.cached.as_ref().filter(|_| browse(path));
+        if self.offline {
+            return cached.and_then(|c| c.read(&request)).ok_or_else(not_cached);
+        }
         let tokens = &self.tokens;
         let me = path.starts_with("/v1/me/");
         let user = match me {
@@ -317,7 +377,12 @@ impl Session<'_> {
                 return Err(Error::TooLarge);
             }
             match status {
-                200 => return Ok(body),
+                200 => {
+                    if let Some(c) = cached {
+                        c.write(&request, &body);
+                    }
+                    return Ok(body);
+                }
                 401 | 403 => *self.client.storefront.lock().unwrap() = None,
                 _ => {}
             }
@@ -338,6 +403,10 @@ impl Session<'_> {
             }
         }
     }
+}
+
+fn not_cached() -> Error {
+    Error::Network("not cached".into())
 }
 
 fn agent(pooled: bool) -> ureq::Agent {
@@ -381,6 +450,24 @@ fn id_segment(id: &str) -> Result<&str> {
         true => Ok(id),
         false => Err(Error::Refused(format!("{id:?} is not an id"))),
     }
+}
+
+pub(crate) fn browse(path: &str) -> bool {
+    let parts: Vec<&str> = path.split('/').collect();
+    matches!(
+        parts[1..],
+        [
+            "v1",
+            "me",
+            "library",
+            "playlists" | "albums" | "songs" | "artists"
+        ] | ["v1", "me", "library", "artists", _]
+            | ["v1", "me", "library", "playlists" | "albums", _, "tracks"]
+            | ["v1", "me", "library", "artists", _, "albums"]
+            | ["v1", "catalog", _, "artists", _, "albums"]
+            | ["v1", "catalog", _, "albums" | "playlists", _]
+            | ["v1", "catalog", _, "albums" | "playlists", _, "tracks"]
+    )
 }
 
 pub(crate) fn allowed(path: &str) -> bool {
