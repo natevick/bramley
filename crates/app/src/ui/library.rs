@@ -107,7 +107,14 @@ impl Paged {
     }
 }
 
-type Found = (u64, List, bramley_api::Result<Reply>);
+#[derive(Clone, Copy)]
+struct Replace {
+    epoch: u64,
+    start: usize,
+    pages: usize,
+}
+
+type Found = (u64, List, bramley_api::Result<Reply>, Option<Replace>);
 
 struct Mailbox(Sender<Found>, Receiver<Found>);
 
@@ -137,6 +144,7 @@ pub struct Library {
     playlist: String,
     artist: String,
     sent: u64,
+    epoch: u64,
     mail: Mailbox,
     pub art: Art,
     built: (usize, usize, usize),
@@ -229,6 +237,7 @@ impl Library {
 
     pub fn reset(&mut self) {
         self.lists = Default::default();
+        self.epoch += 1;
         self.follow = None;
         self.denied = false;
         self.art.clear();
@@ -264,19 +273,49 @@ impl Library {
             (paged.wanted, paged.busy_until, paged.asked) =
                 (false, Some(now + DEADLINE), self.sent);
             let (tx, wake, asked) = (self.mail.0.clone(), wake.clone(), self.sent);
-            jobs.push(Job::new(call, now + DEADLINE, move |found| {
-                let _ = tx.send((asked, list, found));
+            let replace = Replace {
+                epoch: self.epoch,
+                start: paged.items.len(),
+                pages: paged.pages,
+            };
+            let (again, ping) = (tx.clone(), wake.clone());
+            let job = Job::new(call, now + DEADLINE, move |found| {
+                let _ = tx.send((asked, list, found, None));
                 wake();
-            }));
+            });
+            jobs.push(match list {
+                List::ArtistSongs => job,
+                _ => job.revalidating(move |fresh| {
+                    let _ = again.send((0, list, Ok(fresh), Some(replace)));
+                    ping();
+                }),
+            });
         }
         jobs
     }
 
     pub fn receive(&mut self, ctx: &egui::Context) -> bool {
         let mut any = false;
-        while let Ok((asked, list, found)) = self.mail.1.try_recv() {
+        while let Ok((asked, list, found, replace)) = self.mail.1.try_recv() {
             any = true;
             let paged = &mut self.lists[list as usize];
+            if let Some(Replace {
+                epoch,
+                start,
+                pages,
+            }) = replace
+            {
+                if let Ok(Reply::Page(page)) = found
+                    && epoch == self.epoch
+                    && paged.items.len() >= start
+                {
+                    paged.items.truncate(start);
+                    paged.items.extend(page.items);
+                    paged.total = page.total.or(paged.total);
+                    (paged.next, paged.pages) = (page.next, pages + 1);
+                }
+                continue;
+            }
             if paged.asked != asked {
                 continue;
             }

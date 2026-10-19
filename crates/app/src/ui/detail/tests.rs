@@ -139,7 +139,7 @@ fn tick(d: &mut Detail, now: Instant, signed_in: bool, route: &Route) -> Option<
 }
 
 fn answer(d: &mut Detail, ctx: &egui::Context, reply: bramley_api::Result<Reply>) {
-    d.tx.send((d.seq, reply)).unwrap();
+    d.tx.send((d.seq, reply, false)).unwrap();
     d.receive(ctx);
 }
 
@@ -210,5 +210,32 @@ fn signed_out_nothing_is_fetched_and_an_open_album_drops_its_tracks_and_art() {
     assert_eq!(
         (d.status()["tracks"].clone(), d.art.wanted()),
         (json!(0), 0)
+    );
+}
+
+#[test]
+fn a_fresh_album_replaces_the_stale_one_and_only_the_first_fetch_revalidates() {
+    let (ctx, mut d, t0) = (egui::Context::default(), Detail::new(None), Instant::now());
+    let album = Route::Album("1".into());
+    let mut first = d.tick(t0, true, &album, || {}).unwrap();
+    let refresh = first.refresh.take().expect("the album fetch revalidates");
+    let stale = page(&[("a", "songs")], Some("/v1/next"));
+    (first.done)(Ok(Reply::Detail(found(stale))));
+    d.receive(&ctx);
+    let next = d.tick(t0, true, &album, || {}).unwrap();
+    assert!(next.refresh.is_none(), "a paging fetch is always live");
+    refresh(Reply::Detail(found(page(
+        &[("a", "songs"), ("b", "songs")],
+        None,
+    ))));
+    d.receive(&ctx);
+    assert_eq!(d.status()["trackIds"], json!(["a", "b"]));
+    assert_eq!(d.status()["complete"], true);
+    (next.done)(Ok(Reply::Page(page(&[("z", "songs")], None))));
+    d.receive(&ctx);
+    assert_eq!(
+        d.status()["trackIds"],
+        json!(["a", "b"]),
+        "the old paging reply is dropped"
     );
 }

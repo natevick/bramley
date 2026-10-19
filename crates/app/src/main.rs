@@ -266,6 +266,7 @@ fn cover_source(args: &Args, user: &Credentials) -> Option<covers::Source> {
             .unwrap_or_else(|| covers::API_BASE.into()),
         art_prefix,
         user: user.clone(),
+        api_cache: covers::open_cache(),
     })
 }
 

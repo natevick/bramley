@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -198,17 +197,7 @@ fn bounded<T: Send + 'static>(
 }
 
 pub fn write_private(path: &Path, contents: &str) -> std::io::Result<()> {
-    let partial = path.with_extension("partial");
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file = options.open(&partial)?;
-    #[cfg(unix)]
-    file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
-    file.write_all(contents.as_bytes())?;
-    file.sync_all()?;
-    std::fs::rename(&partial, path)
+    bramley_api::store::write_private(path, contents.as_bytes())
 }
 
 fn open_native() -> Option<Backend> {

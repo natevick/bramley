@@ -91,6 +91,7 @@ struct Shot {
 
 pub struct App {
     pub(crate) api: Option<Sender<bramley_api::Job>>,
+    pub(crate) api_cache: Option<Arc<bramley_api::store::Store>>,
     #[cfg(feature = "dev")]
     api_port: Option<u16>,
     search: Search,
@@ -186,6 +187,7 @@ impl App {
         }
         App {
             api: None,
+            api_cache: source.as_ref().and_then(|s| s.api_cache.clone()),
             #[cfg(feature = "dev")]
             api_port: loopback_port(args.api_base.as_deref()),
             search,
@@ -288,6 +290,7 @@ impl App {
             "library": self.library.status(),
             "detail": self.detail.status(),
         });
+        status["cache"] = bramley_api::store::counts();
         status["signInReason"] = json!(self.playback.sign_in_reason());
         status["shuffleMode"] = json!(if shown.shuffle { "on" } else { "off" });
         status["repeatMode"] = json!(shown.repeat.as_str());
@@ -462,6 +465,10 @@ impl App {
                 };
                 #[cfg(not(feature = "dev"))]
                 let client = bramley_api::Client::new(tokens);
+                let client = match self.api_cache.clone() {
+                    Some(store) => client.caching(store),
+                    None => client,
+                };
                 bramley_api::worker(client.renewing(move |old| developer.refetch(old)))
             }
         };
@@ -540,6 +547,9 @@ impl App {
         self.playback.sign_out();
         self.covers.reset();
         self.library.reset();
+        if let Some(store) = &self.api_cache {
+            store.wipe();
+        }
         let user = self.user.clone();
         let waiting = self.clearing.take().map(|(_, waiting)| waiting);
         let job = worker(move || user.clear().map(|()| false));

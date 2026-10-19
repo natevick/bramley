@@ -21,7 +21,7 @@ pub const WINDOW: usize = 100;
 const ART_PT: f32 = 160.0;
 const ROW_PT: f32 = 26.0;
 
-type Found = (u64, bramley_api::Result<Reply>);
+type Found = (u64, bramley_api::Result<Reply>, bool);
 
 #[derive(Debug, PartialEq)]
 pub struct Model {
@@ -156,12 +156,21 @@ impl Detail {
         self.art.clear();
     }
 
-    fn job(&self, call: Call, deadline: Instant, wake: impl Fn() + Send + 'static) -> Job {
+    fn job(&self, call: Call, deadline: Instant, wake: impl Fn() + Clone + Send + 'static) -> Job {
         let (tx, seq) = (self.tx.clone(), self.seq);
-        Job::new(call, deadline, move |found| {
-            let _ = tx.send((seq, found));
+        let first = matches!(call, Call::Album(_) | Call::Playlist(_));
+        let (again, ping) = (tx.clone(), wake.clone());
+        let job = Job::new(call, deadline, move |found| {
+            let _ = tx.send((seq, found, false));
             wake();
-        })
+        });
+        match first {
+            true => job.revalidating(move |fresh| {
+                let _ = again.send((seq, Ok(fresh), true));
+                ping();
+            }),
+            false => job,
+        }
     }
 
     pub fn tick(
@@ -169,7 +178,7 @@ impl Detail {
         now: Instant,
         signed_in: bool,
         route: &Route,
-        wake: impl Fn() + Send + 'static,
+        wake: impl Fn() + Clone + Send + 'static,
     ) -> Option<Job> {
         let want = container(route).filter(|_| signed_in);
         if want != self.open {
@@ -205,13 +214,17 @@ impl Detail {
 
     pub fn receive(&mut self, ctx: &egui::Context) -> bool {
         let mut any = false;
-        for (seq, found) in self.rx.try_iter() {
+        for (seq, found, fresh) in self.rx.try_iter() {
             any = true;
             if seq != self.seq {
                 continue;
             }
             self.more = None;
             match (&mut self.state, found) {
+                (State::Loaded(_), Ok(Reply::Detail(detail))) if fresh => {
+                    self.state = State::Loaded(Box::new(Model::new(detail)));
+                    self.seq += 1;
+                }
                 (State::Loading(_), Ok(Reply::Detail(detail))) => {
                     self.state = State::Loaded(Box::new(Model::new(detail)));
                 }
