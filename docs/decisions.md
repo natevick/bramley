@@ -35,3 +35,7 @@
   - `v020-counted-1` FAILed one check, F4: one cold start of five got a transient HTTP 403 from Apple's storefront sign-in check at launch, and Bramley treated it as signed out. See `docs/v0.2.0-RESULTS.md`.
   - The 403 handling predates 0.2.0 and is in every release. 0.2.0's changes (version 0.2.0 for app and engine, `#[non_exhaustive]` public engine enums, type-to-jump matching) don't touch it.
   - 0.2.0 ships with it as a known issue. The fix is next: confirm a storefront 403 before signing the user out.
+- **2026-10-19: v0.2.1 ships over a failed acceptance check (Nate).**
+  - `v021-counted-1` FAILed F7 (one MCP `library_playlists` call returned an error) and F9 (one of five MCP plays stayed silent), both in the same minute of one session. See `docs/v0.2.1-RESULTS.md`.
+  - Neither touches v0.2.1's changes. The MCP library path is byte-identical to v0.2.0, which passed. The S28 engine code runs once at boot, before the first play succeeded. Both are first-ever failures in 22 counted runs. Their causes weren't recorded, because `drive.py` drops the error text (S31).
+  - v0.2.1 ships the S28 fix for the storefront 403 sign-out, which caused `v020-counted-1`'s F4 failure, and the de-flaked Home retry test. The disk cache follows as its own release.
