@@ -3729,6 +3729,11 @@ mod disk_cache {
         let counts = app.status_json()["cache"].clone();
         ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignOut);
         std::fs::remove_dir_all(&config).unwrap();
+        assert_eq!(
+            api.epoch(),
+            2,
+            "once on sign-out, once when the keyring clear finishes"
+        );
         assert_eq!(api.get(&["library"]), None);
         assert!(art.get(&["cover"]).is_some());
         let mut keys: Vec<_> = counts.as_object().unwrap().keys().cloned().collect();

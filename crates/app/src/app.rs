@@ -367,6 +367,7 @@ impl App {
             .collect();
         if cleared.is_some() {
             self.clearing = None;
+            self.wipe_api_cache();
         }
         if let Some(Err(why)) = cleared {
             self.notice = Some(why);
@@ -541,15 +542,19 @@ impl App {
         true
     }
 
+    fn wipe_api_cache(&self) {
+        if let Some(store) = &self.api_cache {
+            store.wipe();
+        }
+    }
+
     fn sign_out(&mut self) {
         self.generation.fetch_add(1, Ordering::SeqCst);
         (self.sign_in, self.checking, self.notice, self.api) = (None, None, None, None);
         self.playback.sign_out();
         self.covers.reset();
         self.library.reset();
-        if let Some(store) = &self.api_cache {
-            store.wipe();
-        }
+        self.wipe_api_cache();
         let user = self.user.clone();
         let waiting = self.clearing.take().map(|(_, waiting)| waiting);
         let job = worker(move || user.clear().map(|()| false));

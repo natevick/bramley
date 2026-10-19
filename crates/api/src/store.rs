@@ -32,13 +32,11 @@ pub fn cache_dir() -> Option<PathBuf> {
 }
 
 pub fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    static WRITES: AtomicU64 = AtomicU64::new(0);
-    let unique = format!(
-        "{}-{}.partial",
-        std::process::id(),
-        WRITES.fetch_add(1, SeqCst)
-    );
-    let partial = path.with_extension(unique);
+    write_file(path, contents, true)
+}
+
+fn write_file(path: &Path, contents: &[u8], durable: bool) -> std::io::Result<()> {
+    let partial = path.with_extension("partial");
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -47,7 +45,9 @@ pub fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     #[cfg(unix)]
     file.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
     file.write_all(contents)?;
-    file.sync_all()?;
+    if durable {
+        file.sync_all()?;
+    }
     std::fs::rename(&partial, path)
 }
 
@@ -123,7 +123,7 @@ impl Store {
 
     pub fn put(&self, parts: &[&str], bytes: &[u8], epoch: u64) {
         let mut state = self.state();
-        if state.epoch != epoch || write_private(&self.path(parts), bytes).is_err() {
+        if state.epoch != epoch || write_file(&self.path(parts), bytes, false).is_err() {
             return;
         }
         state.bytes += bytes.len() as u64;
