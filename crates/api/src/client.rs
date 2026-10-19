@@ -203,6 +203,11 @@ impl Client {
 }
 
 impl Session<'_> {
+    fn live(&self) -> bool {
+        let limiter = self.client.limiter.as_deref();
+        limiter.is_none_or(|limiter| limiter.check().is_ok())
+    }
+
     pub(crate) fn cached(&self) -> bool {
         self.cached.is_some()
     }
@@ -306,6 +311,10 @@ impl Session<'_> {
         let path = related_path(kind, id, relationship)?;
         match self.json(&path, &RELATED_QUERY) {
             Err(Error::Http(404, why)) if why.strip_prefix(NO_RELATED) == Some(relationship) => {
+                let cached = self.cached.as_ref().filter(|_| self.live());
+                if let Some(c) = cached {
+                    c.write(&request_key(&path, &RELATED_QUERY), EMPTY_PAGE);
+                }
                 Ok(Page {
                     total: Some(0),
                     ..Page::default()
@@ -376,6 +385,10 @@ impl Session<'_> {
             e => Error::Network(redact(&e.to_string(), &secrets)),
         };
         let limiter = self.client.limiter.as_deref();
+        let spend = || {
+            let spent = limiter.map_or(Ok(()), |limiter| limiter.spend(true));
+            spent.map_err(|stop| Error::Refused(format!("warm stopped: {}", stop.name())))
+        };
         let (mut budget, mut retries) = (RETRY_BUDGET, 0);
         let bearer = format!("Bearer {}", tokens.developer);
         let send = |agent: &ureq::Agent| {
@@ -390,14 +403,13 @@ impl Session<'_> {
             request.call()
         };
         loop {
-            if let Some(limiter) = limiter {
-                limiter
-                    .api()
-                    .map_err(|stop| Error::Refused(format!("warm stopped: {}", stop.name())))?;
-            }
+            spend()?;
             let pooled = self.client.agent.lock().unwrap().clone();
-            let called = send(&pooled).or_else(|_| {
+            let called = send(&pooled).or_else(|first| {
                 *self.client.agent.lock().unwrap() = agent(true);
+                if spend().is_err() {
+                    return Err(first);
+                }
                 send(&agent(false))
             });
             let mut response = called.map_err(hide)?;
@@ -417,11 +429,11 @@ impl Session<'_> {
                 return Err(Error::TooLarge);
             }
             if let Some(limiter) = limiter {
-                limiter.observe(status);
+                limiter.observe(status, wait);
             }
             match status {
                 200 => {
-                    if let Some(c) = cached.filter(|_| limiter.is_none_or(Limiter::live)) {
+                    if let Some(c) = cached.filter(|_| self.live()) {
                         c.write(&request, &body);
                     }
                     return Ok(body);
@@ -453,6 +465,7 @@ impl Session<'_> {
     }
 }
 
+const EMPTY_PAGE: &[u8] = br#"{"data":[],"meta":{"total":0}}"#;
 const RELATED_QUERY: [(&str, &str); 1] = [("limit", LIBRARY_LIMIT)];
 
 fn request_key(target: &str, query: &[(&str, &str)]) -> String {

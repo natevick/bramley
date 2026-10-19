@@ -1,10 +1,11 @@
+use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::SystemTime;
 
 use super::*;
 use crate::store::Store;
-use crate::warm::{Art, Limiter, Sizes, Stop, run};
+use crate::warm::{Limiter, Report, Sizes, Stop, run};
 
 const SIZES: Sizes = Sizes {
     cell: 140,
@@ -73,18 +74,21 @@ fn library_server(albums: usize, playlists: usize) -> Server {
 }
 
 struct Warmed {
+    root: PathBuf,
     store: Arc<Store>,
     limiter: Arc<Limiter>,
     client: Client,
 }
 
 fn warmed(server: &Server, name: &str, (budget, pace): (usize, Duration)) -> Warmed {
-    let store = Arc::new(Store::open(&scratch(name), "api", 1 << 20).unwrap());
+    let root = scratch(name);
+    let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
     let limiter = Arc::new(Limiter::new(budget, pace, || false));
     let client = raw(&server.base, Some(USER))
         .caching(store.clone())
         .warming(limiter.clone());
     Warmed {
+        root,
         store,
         limiter,
         client,
@@ -95,12 +99,44 @@ fn plain(server: &Server, warmed: &Warmed) -> Client {
     raw(&server.base, Some(USER)).caching(warmed.store.clone())
 }
 
-fn nothing(_: &str, _: u32) -> Art {
-    Art::Skipped
+fn nothing(_: &str, _: u32) {}
+
+fn go(w: &Warmed) -> Report {
+    run(&w.client, &w.limiter, None, &mut nothing)
 }
 
-fn go(w: &Warmed) -> crate::warm::Report {
-    run(&w.client, &w.limiter, None, &mut nothing)
+fn rerun(server: &Server, w: &Warmed) -> Report {
+    let limiter = Arc::new(Limiter::new(60, Duration::ZERO, || false));
+    let client = raw(&server.base, Some(USER))
+        .caching(w.store.clone())
+        .warming(limiter.clone());
+    run(&client, &limiter, None, &mut nothing)
+}
+
+fn backdate(w: &Warmed, seconds: u64) {
+    let then = SystemTime::now() - Duration::from_secs(seconds);
+    for entry in std::fs::read_dir(w.root.join("api")).unwrap() {
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(entry.unwrap().path())
+            .unwrap();
+        file.set_modified(then).unwrap();
+    }
+}
+
+fn serving(routes: &[(String, Vec<Response>)]) -> Server {
+    serve(
+        routes
+            .iter()
+            .map(|(p, r)| (p.as_str(), r.clone()))
+            .collect(),
+    )
+}
+
+fn paths(server: &Server) -> Vec<String> {
+    let found = server.targets();
+    let path = |t: &String| t.split('?').next().unwrap().to_owned();
+    found.iter().map(path).collect()
 }
 
 fn snapshot(store: &Store, server: &Server) -> Vec<(String, Option<Vec<u8>>)> {
@@ -216,6 +252,7 @@ fn a_401_or_403_stops_and_leaves_the_cache_as_it_was() {
         assert_eq!(go(&w).stop, Stop::Complete);
         let before = snapshot(&w.store, &server);
         assert!(before.iter().all(|(_, body)| body.is_some()));
+        backdate(&w, 3600);
 
         let mut routes = library(2, 1);
         routes[0].1 = vec![(status, String::new(), Vec::new())];
@@ -244,7 +281,7 @@ fn listening_history_is_never_requested() {
     let server = library_server(2, 1);
     let w = warmed(&server, "history", fast());
     let sizes = Some(SIZES);
-    run(&w.client, &w.limiter, sizes, &mut |_, _| Art::Cached);
+    run(&w.client, &w.limiter, sizes, &mut |_, _| {});
     let targets = server.targets();
     for target in &targets {
         for banned in [
@@ -275,7 +312,6 @@ fn a_run_stops_once_the_app_starts() {
         .warming(limiter.clone());
     let report = run(&client, &limiter, Some(SIZES), &mut |_, _| {
         started.store(true, Ordering::SeqCst);
-        Art::Cached
     });
     assert_eq!(report.stop, Stop::AppRunning);
     assert_eq!(
@@ -303,54 +339,124 @@ fn an_app_that_starts_mid_request_gets_no_write_from_warm() {
 }
 
 #[test]
-fn fresh_track_lists_are_skipped_and_the_oldest_are_refreshed_first() {
+fn fresh_entries_make_no_request_and_the_oldest_track_lists_are_refreshed_first() {
     let server = library_server(3, 0);
     let w = warmed(&server, "fresh", fast());
     go(&w);
     let tracks = |n: usize| format!("/v1/me/library/albums/l.{n}/tracks");
-    let key = |n: usize| {
-        [
-            "api".to_owned(),
-            digest(&[USER]),
-            format!("{}?limit=100", tracks(n)),
-        ]
-    };
+    let before = server.targets().len();
+    let steady = rerun(&server, &w);
+    assert_eq!(
+        (
+            server.targets().len() - before,
+            steady.requests,
+            steady.stop
+        ),
+        (0, 0, Stop::Complete)
+    );
+
     let age = |n: usize, seconds: u64| {
-        let key = key(n);
-        let parts: Vec<&str> = key.iter().map(String::as_str).collect();
+        let key = ["api", &digest(&[USER]), &format!("{}?limit=100", tracks(n))];
         let file = std::fs::OpenOptions::new()
             .write(true)
-            .open(w.store.path(&parts))
+            .open(w.store.path(&key))
             .unwrap();
         file.set_modified(SystemTime::now() - Duration::from_secs(seconds))
             .unwrap();
     };
-    let before = server.targets().len();
-    let limiter = Arc::new(Limiter::new(60, Duration::ZERO, || false));
-    let again = raw(&server.base, Some(USER))
-        .caching(w.store.clone())
-        .warming(limiter.clone());
-    let report = run(&again, &limiter, None, &mut nothing);
-    assert_eq!(
-        server.targets().len() - before,
-        4,
-        "only the lists: {report:?}"
-    );
-    assert_eq!(report.skipped, 3);
-
     age(2, 7 * 3600);
     age(3, 9 * 3600);
     let before = server.targets().len();
-    let limiter = Arc::new(Limiter::new(60, Duration::ZERO, || false));
-    let again = raw(&server.base, Some(USER))
-        .caching(w.store.clone())
-        .warming(limiter.clone());
-    run(&again, &limiter, None, &mut nothing);
-    let refreshed: Vec<String> = server.targets()[before + 4..]
-        .iter()
-        .map(|t| t.split('?').next().unwrap().to_owned())
-        .collect();
-    assert_eq!(refreshed, [tracks(3), tracks(2)]);
+    rerun(&server, &w);
+    assert_eq!(paths(&server)[before..], [tracks(3), tracks(2)]);
+}
+
+#[test]
+fn list_pages_are_refreshed_only_after_30_minutes() {
+    let server = library_server(2, 1);
+    let w = warmed(&server, "lists", fast());
+    go(&w);
+    backdate(&w, 25 * 60);
+    assert_eq!(rerun(&server, &w).requests, 0);
+    backdate(&w, 31 * 60);
+    let lists = paths(&server).len();
+    let report = rerun(&server, &w);
+    let refreshed = &paths(&server)[lists..];
+    assert_eq!(report.requests, 4, "{refreshed:?}");
+    assert!(
+        refreshed[..4]
+            .iter()
+            .all(|p| SHELVES.iter().any(|s| p.ends_with(s)))
+    );
+}
+
+#[test]
+fn one_broken_item_is_skipped_and_the_rest_are_still_warmed() {
+    let mut routes = library(3, 1);
+    let gone = routes
+        .iter_mut()
+        .find(|r| r.0.ends_with("l.1/tracks"))
+        .unwrap();
+    gone.1 = vec![(404, String::new(), Vec::new())];
+    let server = serving(&routes);
+    let w = warmed(&server, "broken", fast());
+    let report = go(&w);
+    let asked = paths(&server);
+    for tail in ["albums/l.2", "albums/l.3", "playlists/p.1"] {
+        let path = format!("/v1/me/library/{tail}/tracks");
+        assert!(asked.contains(&path), "{path} was not asked: {asked:?}");
+    }
+    assert_eq!((report.skipped, report.stop), (1, Stop::Complete));
+    let again = rerun(&server, &w);
+    assert_eq!(
+        (again.requests, again.skipped),
+        (1, 1),
+        "only the broken one is asked again"
+    );
+}
+
+#[test]
+fn an_empty_playlist_is_cached_as_empty_and_not_asked_for_every_run() {
+    let mut routes = library(1, 1);
+    let empty = r#"{"errors":[{"detail":"No related resources found for tracks"}]}"#;
+    let gone = routes
+        .iter_mut()
+        .find(|r| r.0.ends_with("p.1/tracks"))
+        .unwrap();
+    gone.1 = vec![(404, String::new(), empty.as_bytes().to_vec())];
+    let server = serving(&routes);
+    let w = warmed(&server, "empty", fast());
+    assert_eq!(go(&w).stop, Stop::Complete);
+    backdate(&w, 31 * 60);
+    rerun(&server, &w);
+    let asked = paths(&server);
+    let tracks = asked.iter().filter(|p| p.ends_with("p.1/tracks")).count();
+    assert_eq!(tracks, 1);
+    let page = plain(&server, &w).stale(&Call::PlaylistTracks("p.1".into()));
+    assert!(matches!(page, Some(Reply::Page(page)) if page.items.is_empty()));
+}
+
+#[test]
+fn a_transport_retry_spends_the_budget_too() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let accepted = Arc::new(AtomicUsize::new(0));
+    let counted = accepted.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            counted.fetch_add(1, Ordering::SeqCst);
+            drop(stream);
+        }
+    });
+    let limiter = Arc::new(Limiter::new(1, Duration::ZERO, || false));
+    let client = raw(&base, Some(USER)).warming(limiter.clone());
+    assert!(client.session().unwrap().library(Shelf::Albums).is_err());
+    assert_eq!(
+        accepted.load(Ordering::SeqCst),
+        1,
+        "the retry went out unpaid"
+    );
+    assert_eq!(limiter.requests(), 1);
 }
 
 #[test]
@@ -376,7 +482,6 @@ fn covers_are_asked_for_at_the_surface_sizes_each_once_and_not_without_a_scale()
     let mut asked: Vec<(String, u32)> = Vec::new();
     let report = run(&w.client, &w.limiter, Some(SIZES), &mut |url, px| {
         asked.push((url.to_owned(), px));
-        Art::Cached
     });
     let url = |id: &str, px: u32| format!("https://art.test/{id}/{px}x{px}.jpg");
     let expected = [
@@ -415,7 +520,7 @@ fn paged(routes: &mut [(String, Vec<Response>)], first: &str, second: &str) {
 }
 
 #[test]
-fn later_album_pages_are_followed_and_a_fresh_one_is_read_not_requested_again() {
+fn later_album_pages_are_followed_and_refreshed_with_the_first_page_after_30_minutes() {
     let mut routes = library(2, 0);
     let (first, second) = (
         rows("library-albums", "l", 1),
@@ -444,14 +549,9 @@ fn later_album_pages_are_followed_and_a_fresh_one_is_read_not_requested_again() 
             .is_some()
     );
 
-    let again = Arc::new(Limiter::new(60, Duration::ZERO, || false));
-    let client = raw(&server.base, Some(USER))
-        .caching(w.store.clone())
-        .warming(again.clone());
-    run(&client, &again, None, &mut nothing);
-    assert_eq!(
-        on_albums(&server),
-        3,
-        "only the first page, which is always refreshed"
-    );
+    rerun(&server, &w);
+    assert_eq!(on_albums(&server), 2, "fresh pages are read, not requested");
+    backdate(&w, 31 * 60);
+    rerun(&server, &w);
+    assert_eq!(on_albums(&server), 4, "both pages were past 30 minutes");
 }

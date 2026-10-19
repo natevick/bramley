@@ -7,9 +7,9 @@ use crate::client::{Client, Error, Session, Shelf};
 use crate::models::{Item, Kind, Page, art_url};
 
 const REFRESH: Duration = Duration::from_secs(6 * 3600);
+const LISTS: Duration = Duration::from_secs(30 * 60);
 const VISIBLE: usize = 24;
 const RESERVE: usize = 2;
-const MAX_PAGES: usize = 50;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Stop {
@@ -21,7 +21,7 @@ pub enum Stop {
     Refused,
     AppRunning,
     Network,
-    Failed,
+    Backoff,
     NoToken,
     Keyring,
     Busy,
@@ -37,7 +37,7 @@ impl Stop {
             Stop::Refused => "refused",
             Stop::AppRunning => "app-running",
             Stop::Network => "network",
-            Stop::Failed => "failed",
+            Stop::Backoff => "backoff",
             Stop::NoToken => "no-token",
             Stop::Keyring => "keyring",
             Stop::Busy => "busy",
@@ -50,6 +50,7 @@ struct Spent {
     requests: usize,
     last: Option<Instant>,
     stop: Option<Stop>,
+    wait: Duration,
 }
 
 pub struct Limiter {
@@ -69,6 +70,7 @@ impl Limiter {
             requests: 0,
             last: None,
             stop: None,
+            wait: Duration::ZERO,
         };
         Limiter {
             spent: Mutex::new(spent),
@@ -95,19 +97,7 @@ impl Limiter {
         self.halted(&mut self.spent())
     }
 
-    pub fn live(&self) -> bool {
-        self.check().is_ok()
-    }
-
-    pub fn api(&self) -> Result<(), Stop> {
-        self.spend(true)
-    }
-
-    pub fn art(&self) -> Result<(), Stop> {
-        self.spend(false)
-    }
-
-    fn spend(&self, paced: bool) -> Result<(), Stop> {
+    pub fn spend(&self, paced: bool) -> Result<(), Stop> {
         let mut spent = self.spent();
         if let Some(last) = spent.last.filter(|_| paced) {
             std::thread::sleep(self.pace.saturating_sub(last.elapsed()));
@@ -124,13 +114,14 @@ impl Limiter {
         Ok(())
     }
 
-    pub fn observe(&self, status: u16) {
+    pub fn observe(&self, status: u16, wait: Duration) {
         match status {
             429 => self.stop(Stop::RateLimited),
             500..=599 => self.stop(Stop::ServerError),
             401 | 403 => self.stop(Stop::Refused),
-            _ => {}
+            _ => return,
         }
+        self.spent().wait = wait;
     }
 
     pub fn stop(&self, stop: Stop) {
@@ -143,6 +134,10 @@ impl Limiter {
 
     pub fn requests(&self) -> usize {
         self.spent().requests
+    }
+
+    pub fn retry_after(&self) -> Duration {
+        self.spent().wait
     }
 
     fn remaining(&self) -> usize {
@@ -160,7 +155,6 @@ pub struct Sizes {
 #[derive(Debug, Default, PartialEq)]
 pub struct Report {
     pub requests: usize,
-    pub cached: usize,
     pub skipped: usize,
     pub stop: Stop,
 }
@@ -169,30 +163,21 @@ impl Report {
     pub fn line(&self) -> String {
         let Report {
             requests,
-            cached,
             skipped,
             stop,
         } = self;
-        format!(
-            "requests={requests} cached={cached} skipped={skipped} stopped={}",
-            stop.name()
-        )
+        let stop = stop.name();
+        format!("requests={requests} skipped={skipped} stopped={stop}")
     }
 }
 
-pub enum Art {
-    Cached,
-    Skipped,
-}
-
-type Fetch<'a> = &'a mut dyn FnMut(&str, u32) -> Art;
+type Fetch<'a> = &'a mut dyn FnMut(&str, u32);
 
 struct Pass<'a> {
     limiter: &'a Limiter,
     sizes: Option<Sizes>,
     art: Fetch<'a>,
     seen: HashSet<String>,
-    cached: usize,
     skipped: usize,
 }
 
@@ -202,56 +187,48 @@ pub fn run(client: &Client, limiter: &Limiter, sizes: Option<Sizes>, art: Fetch)
         sizes,
         art,
         seen: HashSet::new(),
-        cached: 0,
         skipped: 0,
     };
     let ended = pass.all(client);
     Report {
         requests: limiter.requests(),
-        cached: pass.cached,
         skipped: pass.skipped,
         stop: ended.err().unwrap_or_default(),
     }
 }
 
 impl Pass<'_> {
-    fn failed(&self, error: Error) -> Stop {
-        self.limiter.stopped().unwrap_or(match error {
-            Error::Network(_) | Error::Config(_) => Stop::Network,
-            _ => Stop::Failed,
-        })
+    fn call<T>(&mut self, call: impl FnOnce() -> Result<T, Error>) -> Result<Option<T>, Stop> {
+        match call() {
+            Ok(found) => Ok(Some(found)),
+            Err(Error::Network(_) | Error::Config(_)) => {
+                Err(self.limiter.stopped().unwrap_or(Stop::Network))
+            }
+            Err(_) => {
+                self.limiter.check()?;
+                self.skipped += 1;
+                Ok(None)
+            }
+        }
     }
 
-    fn call<T>(&mut self, call: impl FnOnce() -> Result<T, Error>) -> Result<T, Stop> {
-        let before = self.limiter.requests();
-        let found = call().map_err(|e| self.failed(e))?;
-        match self.limiter.requests() - before {
-            0 => self.skipped += 1,
-            sent => self.cached += sent,
-        }
-        Ok(found)
-    }
-
-    fn rest(&mut self, api: &Session, mut page: Page) -> Result<Vec<Item>, Stop> {
-        let mut items = std::mem::take(&mut page.items);
-        for _ in 0..MAX_PAGES {
-            let Some(next) = page.next.take() else { break };
-            self.limiter.check()?;
-            page = self.call(|| api.next(&next))?;
-            items.append(&mut page.items);
-        }
-        Ok(items)
+    fn every(&mut self, api: &Session, first: Option<Page>) -> Result<Vec<Item>, Stop> {
+        let Some(first) = first else {
+            return Ok(Vec::new());
+        };
+        let found = self.call(|| api.all(first))?;
+        Ok(found.map(|(items, _)| items).unwrap_or_default())
     }
 
     fn all(&mut self, client: &Client) -> Result<(), Stop> {
-        let mut api = client.session().map_err(|e| self.failed(e))?;
+        let mut api = client.session().map_err(|_| Stop::Network)?;
+        api.reuse = Some(LISTS);
         let albums = self.call(|| api.library(Shelf::Albums))?;
         self.call(|| api.library(Shelf::Artists))?;
-        let songs = self.call(|| api.library(Shelf::Songs))?;
+        let songs = self.call(|| api.library(Shelf::Songs))?.unwrap_or_default();
         let playlists = self.call(|| api.library(Shelf::Playlists))?;
-        api.reuse = Some(REFRESH);
-        let albums = self.rest(&api, albums)?;
-        let playlists = self.rest(&api, playlists)?;
+        let albums = self.every(&api, albums)?;
+        let playlists = self.every(&api, playlists)?;
         api.reuse = None;
         let owned =
             |item: &&Item| matches!(item.kind, Kind::LibraryAlbums | Kind::LibraryPlaylists);
@@ -261,9 +238,7 @@ impl Pass<'_> {
             .filter(owned)
             .map(|item| (item, api.tracks_age(tracks_of(item.kind), &item.id)))
             .collect();
-        let before = units.len();
         units.retain(|(_, age)| age.is_none_or(|age| age >= REFRESH));
-        self.skipped += before - units.len();
         units.sort_by_key(|(_, age)| Reverse(age.unwrap_or(Duration::MAX)));
         for (item, _) in units {
             self.limiter.check()?;
@@ -274,7 +249,9 @@ impl Pass<'_> {
                 Kind::LibraryAlbums => self.call(|| api.album_tracks(&item.id))?,
                 _ => self.call(|| api.playlist_tracks(&item.id))?,
             };
-            self.covers(&page.items, |sizes| sizes.row)?;
+            if let Some(page) = page {
+                self.covers(&page.items, |sizes| sizes.row)?;
+            }
         }
         self.covers(&albums, |sizes| sizes.cell)?;
         self.covers(&albums, |sizes| sizes.home)?;
@@ -292,14 +269,8 @@ impl Pass<'_> {
             .filter_map(|i| i.artwork.as_deref())
         {
             self.limiter.check()?;
-            let Some(url) = art_url(template, px).filter(|url| self.seen.insert(url.clone()))
-            else {
-                self.skipped += 1;
-                continue;
-            };
-            match (self.art)(&url, px) {
-                Art::Cached => self.cached += 1,
-                Art::Skipped => self.skipped += 1,
+            if let Some(url) = art_url(template, px).filter(|url| self.seen.insert(url.clone())) {
+                (self.art)(&url, px);
             }
         }
         self.limiter.check()

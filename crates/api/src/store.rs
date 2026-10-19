@@ -37,13 +37,17 @@ pub fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
 
 static WRITES: AtomicU64 = AtomicU64::new(0);
 
-fn write_entry(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+fn unique(path: &Path) -> PathBuf {
     let writer = format!(
         "{}-{}.partial",
         std::process::id(),
         WRITES.fetch_add(1, SeqCst)
     );
-    write_file(path, &path.with_extension(writer), contents, false)
+    path.with_extension(writer)
+}
+
+pub fn write_shared(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    write_file(path, &unique(path), contents, true)
 }
 
 fn write_file(path: &Path, partial: &Path, contents: &[u8], durable: bool) -> std::io::Result<()> {
@@ -72,7 +76,8 @@ fn files(dir: &Path) -> Vec<(PathBuf, u64, SystemTime)> {
     let entries = std::fs::read_dir(dir).into_iter().flatten().flatten();
     let stat = |e: std::fs::DirEntry| {
         let meta = e.metadata().ok().filter(|m| m.is_file())?;
-        Some((e.path(), meta.len(), meta.modified().ok()?))
+        let used = meta.accessed().ok().max(meta.modified().ok())?;
+        Some((e.path(), meta.len(), used))
     };
     entries.filter_map(stat).collect()
 }
@@ -129,7 +134,7 @@ impl Store {
         let mut file = options.read(true).write(true).open(self.path(parts)).ok()?;
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).ok()?;
-        let _ = file.set_modified(SystemTime::now());
+        let _ = file.set_times(std::fs::FileTimes::new().set_accessed(SystemTime::now()));
         Some(bytes)
     }
 
@@ -144,7 +149,9 @@ impl Store {
 
     pub fn put(&self, parts: &[&str], bytes: &[u8], epoch: u64) {
         let mut state = self.state();
-        if state.epoch != epoch || write_entry(&self.path(parts), bytes).is_err() {
+        if state.epoch != epoch
+            || write_file(&self.path(parts), &unique(&self.path(parts)), bytes, false).is_err()
+        {
             return;
         }
         state.bytes = state.bytes.saturating_add(bytes.len() as u64);

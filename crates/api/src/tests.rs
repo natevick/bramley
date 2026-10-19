@@ -982,8 +982,11 @@ mod disk_cache {
             .write(true)
             .open(store.path(parts))
             .unwrap();
-        file.set_modified(SystemTime::now() - Duration::from_secs(seconds))
-            .unwrap();
+        let then = SystemTime::now() - Duration::from_secs(seconds);
+        let times = std::fs::FileTimes::new()
+            .set_accessed(then)
+            .set_modified(then);
+        file.set_times(times).unwrap();
     }
 
     #[test]
@@ -1338,14 +1341,21 @@ mod disk_cache {
     }
 
     #[test]
-    fn age_reads_the_modified_time_without_refreshing_it() {
+    fn age_is_the_time_since_the_fetch_and_a_read_does_not_reset_it() {
         let store = Store::open(&scratch("age"), "api", 1 << 20).unwrap();
         assert_eq!(store.age(&["k"]), None);
         store.put(&["k"], b"x", store.epoch());
-        age(&store, &["k"], 7200);
-        assert!(store.age(&["k"]).unwrap() >= Duration::from_secs(7200));
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(store.path(&["k"]))
+            .unwrap();
+        let fetched = SystemTime::now() - Duration::from_secs(7200);
+        file.set_modified(fetched).unwrap();
         assert!(store.age(&["k"]).unwrap() >= Duration::from_secs(7200));
         store.get(&["k"]).unwrap();
+        store.peek(&["k"]).unwrap();
+        assert!(store.age(&["k"]).unwrap() >= Duration::from_secs(7200));
+        store.put(&["k"], b"y", store.epoch());
         assert!(store.age(&["k"]).unwrap() < Duration::from_secs(60));
     }
 
@@ -1356,10 +1366,13 @@ mod disk_cache {
         std::fs::write(&other, b"another process, half written").unwrap();
         store.put(&["k"], b"whole", store.epoch());
         assert_eq!(store.get(&["k"]).unwrap(), b"whole");
-        assert_eq!(
-            std::fs::read(&other).unwrap(),
-            b"another process, half written"
-        );
+        let shared = store.path(&["s"]);
+        std::fs::write(shared.with_extension("partial"), b"half").unwrap();
+        crate::store::write_shared(&shared, b"whole").unwrap();
+        assert_eq!(std::fs::read(&shared).unwrap(), b"whole");
+        for path in [other, shared.with_extension("partial")] {
+            assert!(!std::fs::read(&path).unwrap().starts_with(b"whole"));
+        }
     }
 
     #[cfg(unix)]
