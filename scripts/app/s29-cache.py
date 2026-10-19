@@ -130,7 +130,7 @@ def run(a):
         base = f'http://127.0.0.1:{server.server_address[1]}'
         extra = ['--api-base', base, '--developer-token-url', base + '/developer-token.json']
     os.makedirs(a.out, exist_ok=True)
-    plan = (a.only or PLAN) + (EXTRA if a.extra else [])
+    plan = EXTRA if a.extra else (a.only or PLAN)
     rows, homes = [], {}
     with contextlib.ExitStack() as stack:
         for n, name in enumerate(plan, 1):
