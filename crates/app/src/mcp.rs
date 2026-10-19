@@ -337,7 +337,7 @@ pub fn disclose(config: &Path, err: &mut impl std::io::Write) {
 
 pub fn record_disclosed(config: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(config)?;
-    crate::credentials::write_private(&config.join(DISCLOSED), "dismissed\n")
+    bramley_api::store::write_private(&config.join(DISCLOSED), b"dismissed\n")
 }
 
 pub fn notice(ui: &mut egui::Ui) -> egui::Response {

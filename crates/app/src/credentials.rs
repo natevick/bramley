@@ -154,8 +154,11 @@ impl Credentials {
     pub fn save(&self, token: &str, current: impl Fn() -> bool) -> Result<(), &'static str> {
         self.locked(|backend| match backend {
             _ if !current() => Err(STALE),
-            Backend::File => write_private(&self.dir.join(USER_TOKEN), &format!("{token}\n"))
-                .map_err(|_| "the sign-in file could not be written"),
+            Backend::File => bramley_api::store::write_private(
+                &self.dir.join(USER_TOKEN),
+                format!("{token}\n").as_bytes(),
+            )
+            .map_err(|_| "the sign-in file could not be written"),
             Backend::Keyring(store) => self.keep_in(store, token),
         })
     }
@@ -194,10 +197,6 @@ fn bounded<T: Send + 'static>(
         .spawn(move || drop(tx.send(job())))
         .ok()?;
     rx.recv_timeout(wait).ok()
-}
-
-pub fn write_private(path: &Path, contents: &str) -> std::io::Result<()> {
-    bramley_api::store::write_private(path, contents.as_bytes())
 }
 
 fn open_native() -> Option<Backend> {

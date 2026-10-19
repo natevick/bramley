@@ -1340,7 +1340,7 @@ fn a_changed_first_page_replaces_the_stale_one_in_place_and_an_old_session_is_ig
     lib.lists[List::Songs as usize].wanted = true;
     answer(&mut lib, &ctx, now + DEADLINE, page(100..150, None));
     assert_eq!(lib.list(List::Songs).items.len(), 150);
-    refresh(page(500..600, Some("/v1/me/library/songs?offset=100")));
+    refresh(Ok(page(500..600, Some("/v1/me/library/songs?offset=100"))));
     lib.receive(&ctx);
     let songs = lib.list(List::Songs);
     let ids: Vec<_> = songs.items.iter().map(|i| i.id.as_str()).collect();
@@ -1351,10 +1351,29 @@ fn a_changed_first_page_replaces_the_stale_one_in_place_and_an_old_session_is_ig
     frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
     let late = lib.tick(now, true, || {}).remove(0).refresh.unwrap();
     lib.reset();
-    late(page(0..100, None));
+    late(Ok(page(0..100, None)));
     lib.receive(&ctx);
     assert!(
         lib.list(List::Songs).items.is_empty(),
         "a refresh from before sign-out landed"
     );
+}
+
+#[test]
+fn a_403_on_revalidation_reloads_the_list_live_and_the_403_rules_end_in_sign_out() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+    let mut job = lib.tick(now, true, || {}).remove(0);
+    let refresh = job.refresh.take().unwrap();
+    (job.done)(Ok(page(0..100, None)));
+    lib.receive(&ctx);
+    assert_eq!(lib.list(List::Songs).items.len(), 100);
+    refresh(Err(Error::SignInNeeded));
+    lib.receive(&ctx);
+    assert!(
+        lib.list(List::Songs).items.is_empty(),
+        "the revoked page was dropped"
+    );
+    refused_thrice(&mut lib, &ctx, &Route::Songs);
+    assert!(lib.denied);
 }

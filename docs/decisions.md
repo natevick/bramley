@@ -40,5 +40,5 @@
   - This supersedes "2026-10-10: artwork cache (Nate)", which kept artwork in memory only. See the compliance interpretation log for the matching amendments.
   - **Where:** `$XDG_CACHE_HOME/bramley` (default `~/.cache/bramley`), directories 0700, files 0600.
   - **Art:** the encoded image bytes as fetched, keyed by URL including size. Capped at 512 MB with least-recently-used eviction. Kept at sign-out.
-  - **API:** browse responses only (library lists, track lists, the Home ranking inputs), served stale while a background refetch runs. Scoped to the account and wiped at sign-out. Capped at 64 MB.
+  - **API:** browse responses only (library lists and album, playlist and artist track lists), served stale while one background worker refetches. Scoped to the account and wiped at sign-out. Capped at 64 MB. Listening history (recent plays, heavy rotation, replay summaries, recently added) is never cached on disk.
   - **Unchanged:** compliance rule 6. Nothing from the playback or license path, and nothing musickit.js fetches, is cached.

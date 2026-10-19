@@ -3,6 +3,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+use bramley_api::store::Store;
 use bramley_api::{Call, Error, Item, Job, Reply, Shelf};
 use bramley_engine::{Queue, STOREFRONT_BACKOFF, Snapshot};
 use egui::{ColorImage, RichText, TextureHandle, WidgetType};
@@ -170,6 +171,10 @@ impl Library {
         }
     }
 
+    pub fn art_cache(&mut self, cache: Option<Arc<Store>>) {
+        self.art.cache = cache;
+    }
+
     pub fn list(&self, list: List) -> &Paged {
         &self.lists[list as usize]
     }
@@ -286,7 +291,7 @@ impl Library {
             jobs.push(match list {
                 List::ArtistSongs => job,
                 _ => job.revalidating(move |fresh| {
-                    let _ = again.send((0, list, Ok(fresh), Some(replace)));
+                    let _ = again.send((0, list, fresh, Some(replace)));
                     ping();
                 }),
             });
@@ -296,6 +301,7 @@ impl Library {
 
     pub fn receive(&mut self, ctx: &egui::Context) -> bool {
         let mut any = false;
+        let now = self.epoch;
         while let Ok((asked, list, found, replace)) = self.mail.1.try_recv() {
             any = true;
             let paged = &mut self.lists[list as usize];
@@ -305,14 +311,20 @@ impl Library {
                 pages,
             }) = replace
             {
-                if let Ok(Reply::Page(page)) = found
-                    && epoch == self.epoch
-                    && paged.items.len() >= start
-                {
-                    paged.items.truncate(start);
-                    paged.items.extend(page.items);
-                    paged.total = page.total.or(paged.total);
-                    (paged.next, paged.pages) = (page.next, pages + 1);
+                match found {
+                    Ok(Reply::Page(page)) if epoch == now && paged.items.len() >= start => {
+                        paged.items.truncate(start);
+                        paged.items.extend(page.items);
+                        paged.total = page.total.or(paged.total);
+                        (paged.next, paged.pages) = (page.next, pages + 1);
+                    }
+                    Err(Error::SignInNeeded) if epoch == now => {
+                        *paged = Paged {
+                            wanted: true,
+                            ..Paged::default()
+                        };
+                    }
+                    _ => {}
                 }
                 continue;
             }
@@ -528,6 +540,7 @@ type Decoded = (String, Option<ColorImage>);
 #[derive(Default)]
 pub struct Art {
     prefix: Option<String>,
+    cache: Option<Arc<Store>>,
     textures: HashMap<String, (TextureHandle, u64)>,
     frame: u64,
     wanted: Vec<Want>,
@@ -575,7 +588,10 @@ impl Art {
         if self.wanted.is_empty() && self.queue.is_none() {
             return;
         }
-        let (queued, _) = self.queue.get_or_insert_with(|| fetcher(ctx.clone()));
+        let cache = self.cache.clone();
+        let (queued, _) = self
+            .queue
+            .get_or_insert_with(|| fetcher(ctx.clone(), cache));
         let mut jobs = queued.0.lock().unwrap();
         let (queue, busy) = &mut *jobs;
         *queue = std::mem::take(&mut self.wanted);
@@ -623,11 +639,11 @@ impl Art {
     }
 }
 
-fn fetcher(waker: egui::Context) -> (Queued, Receiver<Decoded>) {
+fn fetcher(waker: egui::Context, cache: Option<Arc<Store>>) -> (Queued, Receiver<Decoded>) {
     let (queued, (tx, rx)) = (Queued::default(), channel());
     let jobs = queued.clone();
     let fetch = move || {
-        let (mut agent, tally) = (covers::agent(), Tally::default());
+        let (mut agent, tally) = (covers::agent(), Tally::caching(cache));
         loop {
             let mut waiting = jobs
                 .1

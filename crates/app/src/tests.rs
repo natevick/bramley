@@ -1052,8 +1052,6 @@ struct Serve {
     chart_fails: usize,
     albums: usize,
     listening: bool,
-    shrink_after: usize,
-    fail_after: usize,
 }
 
 const SERVE: Serve = Serve {
@@ -1068,8 +1066,6 @@ const SERVE: Serve = Serve {
     chart_fails: usize::MAX,
     albums: 50,
     listening: false,
-    shrink_after: usize::MAX,
-    fail_after: usize::MAX,
 };
 
 struct Fixture {
@@ -1195,9 +1191,7 @@ fn fixture(serve: Serve) -> Fixture {
                     3 if serve.bad_albums => format!("{art_base}/art/3/{{w}}x{{h}}{{c}}.jpg"),
                     _ => format!("{art_base}/art/{i}/{{w}}x{{h}}bb.jpg"),
                 };
-                let charts = seen.lock().unwrap().iter().filter(|r| r.0 == path).count();
-                let shown = serve.albums - 10 * usize::from(charts > serve.shrink_after);
-                let albums: Vec<_> = (0..shown)
+                let albums: Vec<_> = (0..serve.albums)
                     .map(|i| match i {
                         4 if serve.bad_albums => json!({"id": "l.1004", "attributes": {}}),
                         _ => json!({"id": format!("l.{}", 1000 + i), "attributes": {"artwork": {"url": url(i)}},
@@ -1205,9 +1199,8 @@ fn fixture(serve: Serve) -> Fixture {
                     })
                     .collect();
                 let chart = json!({"data": albums});
-                let status = if charts > serve.fail_after {
-                    500
-                } else if charts > serve.chart_fails {
+                let charts = seen.lock().unwrap().iter().filter(|r| r.0 == path).count();
+                let status = if charts > serve.chart_fails {
                     200
                 } else {
                     serve.chart
@@ -1279,6 +1272,7 @@ fn fixture_source(fx: &Fixture, art_prefix: bool) -> (Source, std::path::PathBuf
         api,
         art_prefix: art_prefix.then(|| fx.base.clone()),
         user: mock_user(&config),
+        art_cache: None,
         api_cache: None,
     };
     (source, config)
@@ -3612,32 +3606,21 @@ mod disk_cache {
         dir
     }
 
-    fn open(name: &str) -> Arc<Store> {
-        Arc::new(Store::open(&root(name), "api", 1 << 24).unwrap())
-    }
-
     fn arts(fx: &Fixture) -> usize {
         fx.paths().iter().filter(|p| p.starts_with("/art/")).count()
     }
 
-    fn charts(fx: &Fixture) -> usize {
-        let chart = |p: &&String| p.starts_with("/v1/me/library/albums?");
-        fx.paths().iter().filter(chart).count()
+    fn cached(store: &Arc<Store>) -> covers::Tally {
+        covers::Tally::caching(Some(store.clone()))
     }
 
-    fn open_home(fx: &Fixture, store: &Arc<Store>, until: impl Fn(&Grid) -> bool) -> Grid {
+    fn open_home(fx: &Fixture, store: &Arc<Store>) -> Grid {
         let (mut source, config) = fixture_source(fx, true);
-        source.api_cache = Some(store.clone());
+        source.art_cache = Some(store.clone());
         let ctx = egui::Context::default();
         let mut grid = Grid::new(Some(source));
         grid.follow(&ctx, true);
-        let deadline = Instant::now() + Duration::from_secs(20);
-        while !until(&grid) && Instant::now() < deadline {
-            grid.receive(&ctx);
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        std::thread::sleep(Duration::from_millis(300));
-        grid.receive(&ctx);
+        settle(&mut grid, &ctx);
         std::fs::remove_dir_all(&config).unwrap();
         grid
     }
@@ -3647,13 +3630,12 @@ mod disk_cache {
         let fx = fixture(SERVE);
         let dir = root("art");
         let url = format!("{}/art/3/96x96bb.jpg", fx.base);
-        let tally = covers::Tally::default();
         let mut agent = covers::agent();
-        let store = Store::open(&dir, "art", 1 << 20).unwrap();
-        let fetched = covers::cover_in(Some(&store), &mut agent, &url, 96, &tally).unwrap();
-        let hit = covers::cover_in(Some(&store), &mut agent, &url, 96, &tally).unwrap();
-        let restarted = Store::open(&dir, "art", 1 << 20).unwrap();
-        let again = covers::cover_in(Some(&restarted), &mut agent, &url, 96, &tally).unwrap();
+        let store = Arc::new(Store::open(&dir, "art", 1 << 20).unwrap());
+        let fetched = covers::cover(&mut agent, &url, 96, &cached(&store)).unwrap();
+        let hit = covers::cover(&mut agent, &url, 96, &cached(&store)).unwrap();
+        let restarted = Arc::new(Store::open(&dir, "art", 1 << 20).unwrap());
+        let again = covers::cover(&mut agent, &url, 96, &cached(&restarted)).unwrap();
         assert_eq!((arts(&fx), hit.pixels == fetched.pixels), (1, true));
         assert_eq!(again.pixels, fetched.pixels);
     }
@@ -3662,59 +3644,20 @@ mod disk_cache {
     fn a_corrupt_art_entry_is_refetched_not_trusted() {
         let fx = fixture(SERVE);
         let url = format!("{}/art/3/96x96bb.jpg", fx.base);
-        let store = Store::open(&root("corrupt"), "art", 1 << 20).unwrap();
+        let store = Arc::new(Store::open(&root("corrupt"), "art", 1 << 20).unwrap());
         store.put(&["art", &url], b"not a jpeg", store.epoch());
-        let image = covers::cover_in(
-            Some(&store),
-            &mut covers::agent(),
-            &url,
-            96,
-            &covers::Tally::default(),
-        );
+        let image = covers::cover(&mut covers::agent(), &url, 96, &cached(&store));
         assert_eq!((image.is_ok(), arts(&fx)), (true, 1));
     }
 
     #[test]
-    fn home_shows_the_cached_ranking_while_the_refetch_fails_and_keeps_it() {
-        let (store, fx) = (
-            open("down"),
-            fixture(Serve {
-                fail_after: 1,
-                ..SERVE
-            }),
-        );
-        assert_eq!(
-            open_home(&fx, &store, |g| g.uploaded() == 50).uploaded(),
-            50
-        );
-        let grid = open_home(&fx, &store, |g| g.uploaded() == 50 && charts(&fx) > 1);
-        assert_eq!((grid.uploaded(), grid.failed(), charts(&fx)), (50, None, 2));
-    }
-
-    #[test]
-    fn home_does_not_reload_its_covers_when_the_refetched_ranking_is_unchanged() {
-        let (store, fx) = (open("same"), fixture(SERVE));
-        open_home(&fx, &store, |g| g.uploaded() == 50);
-        assert_eq!((arts(&fx), charts(&fx)), (50, 1));
-        let grid = open_home(&fx, &store, |g| g.uploaded() == 50 && charts(&fx) > 1);
-        assert_eq!((grid.uploaded(), charts(&fx), arts(&fx)), (50, 2, 100));
-    }
-
-    #[test]
-    fn home_replaces_a_changed_ranking_and_drops_the_covers_that_left() {
-        let (store, fx) = (
-            open("changed"),
-            fixture(Serve {
-                shrink_after: 1,
-                ..SERVE
-            }),
-        );
-        assert_eq!(
-            open_home(&fx, &store, |g| g.uploaded() == 50).uploaded(),
-            50
-        );
-        let grid = open_home(&fx, &store, |g| g.uploaded() == 40 && charts(&fx) > 1);
-        assert_eq!((grid.uploaded(), grid.failed(), charts(&fx)), (40, None, 2));
+    fn the_home_grid_fills_from_the_art_cache_on_a_second_open() {
+        let fx = fixture(SERVE);
+        let store = Arc::new(Store::open(&root("home"), "art", 1 << 24).unwrap());
+        assert_eq!(open_home(&fx, &store).uploaded(), 50);
+        assert_eq!(arts(&fx), 50);
+        assert_eq!(open_home(&fx, &store).uploaded(), 50);
+        assert_eq!(arts(&fx), 50, "the second open fetched no art");
     }
 
     #[test]

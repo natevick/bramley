@@ -190,7 +190,7 @@ pub fn redirect_file(dir: &std::path::Path, url: &str) -> std::io::Result<std::p
     let page = format!(
         "<!doctype html><meta http-equiv=\"refresh\" content=\"0;url={url}\"><a href=\"{url}\">Continue to Bramley sign-in</a>\n"
     );
-    crate::credentials::write_private(&path, &page)?;
+    bramley_api::store::write_private(&path, page.as_bytes())?;
     Ok(path)
 }
 

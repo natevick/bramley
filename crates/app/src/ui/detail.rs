@@ -133,6 +133,10 @@ pub struct Detail {
 }
 
 impl Detail {
+    pub fn art_cache(&mut self, cache: Option<std::sync::Arc<bramley_api::store::Store>>) {
+        self.art.set_cache(cache);
+    }
+
     pub fn new(art_prefix: Option<String>) -> Self {
         let (tx, rx) = channel();
         Detail {
@@ -166,7 +170,7 @@ impl Detail {
         });
         match first {
             true => job.revalidating(move |fresh| {
-                let _ = again.send((seq, Ok(fresh), true));
+                let _ = again.send((seq, fresh, true));
                 ping();
             }),
             false => job,
@@ -223,6 +227,10 @@ impl Detail {
             match (&mut self.state, found) {
                 (State::Loaded(_), Ok(Reply::Detail(detail))) if fresh => {
                     self.state = State::Loaded(Box::new(Model::new(detail)));
+                    self.seq += 1;
+                }
+                (State::Loaded(_), Err(bramley_api::Error::SignInNeeded)) if fresh => {
+                    self.open = None;
                     self.seq += 1;
                 }
                 (State::Loading(_), Ok(Reply::Detail(detail))) => {

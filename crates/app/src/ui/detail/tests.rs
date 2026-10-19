@@ -224,10 +224,10 @@ fn a_fresh_album_replaces_the_stale_one_and_only_the_first_fetch_revalidates() {
     d.receive(&ctx);
     let next = d.tick(t0, true, &album, || {}).unwrap();
     assert!(next.refresh.is_none(), "a paging fetch is always live");
-    refresh(Reply::Detail(found(page(
+    refresh(Ok(Reply::Detail(found(page(
         &[("a", "songs"), ("b", "songs")],
         None,
-    ))));
+    )))));
     d.receive(&ctx);
     assert_eq!(d.status()["trackIds"], json!(["a", "b"]));
     assert_eq!(d.status()["complete"], true);
@@ -238,4 +238,21 @@ fn a_fresh_album_replaces_the_stale_one_and_only_the_first_fetch_revalidates() {
         json!(["a", "b"]),
         "the old paging reply is dropped"
     );
+}
+
+#[test]
+fn a_403_on_revalidating_an_album_reopens_it_live() {
+    let (ctx, mut d, t0) = (egui::Context::default(), Detail::new(None), Instant::now());
+    let album = Route::Album("1".into());
+    let mut first = d.tick(t0, true, &album, || {}).unwrap();
+    let refresh = first.refresh.take().unwrap();
+    (first.done)(Ok(Reply::Detail(found(page(&[("a", "songs")], None)))));
+    d.receive(&ctx);
+    refresh(Err(Error::SignInNeeded));
+    d.receive(&ctx);
+    let again = d
+        .tick(t0, true, &album, || {})
+        .expect("it asks again, live");
+    assert_eq!(again.call, Call::Album("1".into()));
+    assert!(matches!(d.state, State::Loading(_)));
 }

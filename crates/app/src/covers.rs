@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Cursor;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::atomic::Ordering::SeqCst as Seq;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -8,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 pub use bramley_api::art_url;
+use bramley_api::store::{API_CAP, ART_CAP, ART_HITS, ART_MISSES, Store};
 use bramley_engine::{STOREFRONT_BACKOFF, STOREFRONT_DEADLINE, redact, user_agent};
 use egui::{ColorImage, TextureHandle, TextureOptions};
 use serde_json::Value;
@@ -80,6 +82,16 @@ pub struct Tally {
     in_flight: AtomicUsize,
     requested: AtomicUsize,
     cancel: AtomicBool,
+    art: Option<Arc<Store>>,
+}
+
+impl Tally {
+    pub fn caching(art: Option<Arc<Store>>) -> Self {
+        Tally {
+            art,
+            ..Tally::default()
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -87,6 +99,22 @@ pub struct Source {
     pub api: String,
     pub art_prefix: Option<String>,
     pub user: crate::credentials::Credentials,
+    pub art_cache: Option<Arc<Store>>,
+    pub api_cache: Option<Arc<Store>>,
+}
+
+pub fn open_caches() -> (Option<Arc<Store>>, Option<Arc<Store>>) {
+    let open = |root: &std::path::Path, name, cap| {
+        let opened = Store::open(root, name, cap);
+        opened
+            .inspect_err(|e| eprintln!("bramley: the {name} cache is off: {e}"))
+            .ok()
+            .map(Arc::new)
+    };
+    match bramley_api::store::cache_dir() {
+        Some(root) => (open(&root, "art", ART_CAP), open(&root, "api", API_CAP)),
+        None => (None, None),
+    }
 }
 
 pub fn px(points: f32, pixels_per_point: f32) -> u32 {
@@ -525,12 +553,30 @@ pub(crate) fn cover(
     px: u32,
     tally: &Tally,
 ) -> Result<ColorImage> {
+    let key = ["art", url];
+    let store = tally.art.as_deref();
+    let kept = store
+        .and_then(|s| s.get(&key))
+        .and_then(|b| decode(&b, px).ok());
+    if let Some(image) = kept {
+        ART_HITS.fetch_add(1, Seq);
+        return Ok(image);
+    }
+    ART_MISSES.fetch_add(1, Seq);
     let (status, bytes, _) = get(agent, url, &[], tally)?;
     match status {
         200 => {}
         300..=399 => bail!("redirected (HTTP {status}); redirects are not followed"),
         _ => bail!("HTTP {status}"),
     }
+    let image = decode(&bytes, px)?;
+    if let Some(store) = store {
+        store.put(&key, &bytes, store.epoch());
+    }
+    Ok(image)
+}
+
+fn decode(bytes: &[u8], px: u32) -> Result<ColorImage> {
     let side = px.saturating_mul(2);
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(side);
@@ -685,8 +731,10 @@ pub struct Grid {
 
 impl Grid {
     pub fn new(source: Option<Source>) -> Self {
+        let art = source.as_ref().and_then(|s| s.art_cache.clone());
         Grid {
             source,
+            tally: Arc::new(Tally::caching(art)),
             ..Grid::default()
         }
     }

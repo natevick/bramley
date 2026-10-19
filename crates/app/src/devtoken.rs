@@ -109,7 +109,7 @@ impl DeveloperToken {
         let dir = self.cache.parent().unwrap_or(Path::new("."));
         let text = String::from_utf8_lossy(&body);
         std::fs::create_dir_all(dir)
-            .and_then(|()| crate::credentials::write_private(&self.cache, &text))
+            .and_then(|()| bramley_api::store::write_private(&self.cache, text.as_bytes()))
             .map_err(|e| format!("the token cache could not be written: {e}"))?;
         Ok(published)
     }

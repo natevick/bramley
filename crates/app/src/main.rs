@@ -260,13 +260,15 @@ fn cover_source(args: &Args, user: &Credentials) -> Option<covers::Source> {
     let art_prefix = args.api_base.clone();
     #[cfg(not(feature = "dev"))]
     let (art_prefix, _) = (None, args);
+    let (art_cache, api_cache) = covers::open_caches();
     Some(covers::Source {
         api: art_prefix
             .clone()
             .unwrap_or_else(|| covers::API_BASE.into()),
         art_prefix,
         user: user.clone(),
-        api_cache: covers::open_cache(),
+        art_cache,
+        api_cache,
     })
 }
 

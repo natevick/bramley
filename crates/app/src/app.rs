@@ -61,7 +61,7 @@ impl StatusWriter {
         let thread = std::thread::spawn(move || {
             while let Ok(mut status) = rx.recv() {
                 status = rx.try_iter().last().unwrap_or(status);
-                if let Err(e) = crate::credentials::write_private(&path, &status) {
+                if let Err(e) = bramley_api::store::write_private(&path, status.as_bytes()) {
                     eprintln!("bramley: status not written to {}: {e}", path.display());
                 }
             }
@@ -185,6 +185,10 @@ impl App {
             }
             search.click_first_song = args.click_first_song;
         }
+        let art_cache = source.as_ref().and_then(|s| s.art_cache.clone());
+        search.art_cache(art_cache.clone());
+        library.art_cache(art_cache.clone());
+        detail.art_cache(art_cache);
         App {
             api: None,
             api_cache: source.as_ref().and_then(|s| s.api_cache.clone()),
