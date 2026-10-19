@@ -7,7 +7,7 @@ use bramley_engine::{redact, user_agent};
 use serde::de::DeserializeOwned;
 
 use crate::models::{Detail, Envelope, Item, Page, SearchResults, Searched, WithTracks};
-use crate::store::Store;
+use crate::store::{Store, digest};
 
 pub const API_BASE: &str = "https://api.music.apple.com";
 const MAX_BODY_BYTES: u64 = 2 << 20;
@@ -88,19 +88,22 @@ pub struct Client {
 
 pub(crate) struct Scoped {
     store: Arc<Store>,
-    user: String,
+    scope: String,
     epoch: u64,
 }
 
 impl Scoped {
     fn read(&self, request: &str) -> Option<Vec<u8>> {
-        let scope = self.store.scope(&self.user);
-        self.store.get(&["api", &scope, request])
+        self.store.get(&["api", &self.scope, request])
     }
 
     fn write(&self, request: &str, body: &[u8]) {
-        let scope = self.store.scope(&self.user);
-        self.store.put(&["api", &scope, request], body, self.epoch);
+        self.store
+            .put(&["api", &self.scope, request], body, self.epoch);
+    }
+
+    fn forget(&self, request: &str) {
+        self.store.remove(&["api", &self.scope, request]);
     }
 }
 
@@ -166,7 +169,7 @@ impl Client {
             let user = tokens.user.as_deref()?;
             Some(Scoped {
                 store: store.clone(),
-                user: user.to_owned(),
+                scope: digest(&[user]),
                 epoch: store.epoch(),
             })
         };
@@ -388,7 +391,12 @@ impl Session<'_> {
             }
             match status {
                 401 => return Err(Error::DeveloperToken),
-                403 if me => return Err(Error::SignInNeeded),
+                403 if me => {
+                    if let Some(c) = cached {
+                        c.forget(&request);
+                    }
+                    return Err(Error::SignInNeeded);
+                }
                 429 if wait <= budget && retries < MAX_RETRIES => {
                     (budget, retries) = (budget - wait, retries + 1);
                     std::thread::sleep(wait);

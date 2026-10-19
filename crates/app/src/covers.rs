@@ -1,15 +1,13 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Cursor;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::atomic::Ordering::SeqCst as Seq;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 pub use bramley_api::art_url;
-use bramley_api::store::{API_CAP, ART_CAP, ART_HITS, ART_MISSES, Store};
 use bramley_engine::{STOREFRONT_BACKOFF, STOREFRONT_DEADLINE, redact, user_agent};
 use egui::{ColorImage, TextureHandle, TextureOptions};
 use serde_json::Value;
@@ -70,7 +68,6 @@ impl std::error::Error for Refused {}
 
 pub enum Loaded {
     Cover(usize, String, ColorImage),
-    Keep(usize),
     Failed(String, usize),
     Retry(Duration),
     SignInNeeded,
@@ -83,15 +80,6 @@ pub struct Tally {
     in_flight: AtomicUsize,
     requested: AtomicUsize,
     cancel: AtomicBool,
-    pass: Mutex<Option<Pass>>,
-}
-
-#[derive(Clone)]
-struct Pass {
-    store: Arc<Store>,
-    scope: String,
-    epoch: u64,
-    stale: bool,
 }
 
 #[derive(Clone)]
@@ -99,21 +87,6 @@ pub struct Source {
     pub api: String,
     pub art_prefix: Option<String>,
     pub user: crate::credentials::Credentials,
-    pub api_cache: Option<Arc<Store>>,
-}
-
-static ART: OnceLock<Store> = OnceLock::new();
-
-pub fn open_cache() -> Option<Arc<Store>> {
-    let root = bramley_api::store::cache_dir()?;
-    let opened = Store::open(&root, "art", ART_CAP).and_then(|art| {
-        let _ = ART.set(art);
-        Store::open(&root, "api", API_CAP)
-    });
-    opened
-        .inspect_err(|e| eprintln!("bramley: the cache is off: {e}"))
-        .ok()
-        .map(Arc::new)
 }
 
 pub fn px(points: f32, pixels_per_point: f32) -> u32 {
@@ -189,29 +162,6 @@ fn get(
         .limit(MAX_BODY_BYTES)
         .read_to_vec()?;
     Ok((status, body, wait))
-}
-
-fn input(
-    agent: &mut ureq::Agent,
-    (api, path): (&str, &str),
-    headers: &[(&str, &str)],
-    tally: &Tally,
-) -> Result<(u16, Vec<u8>, Duration)> {
-    let url = format!("{api}{path}");
-    let pass = tally.pass.lock().unwrap().clone();
-    let Some(pass) = pass else {
-        return get(agent, &url, headers, tally);
-    };
-    let key = ["home", pass.scope.as_str(), path];
-    if pass.stale {
-        let body = pass.store.get(&key).context("not cached")?;
-        return Ok((200, body, Duration::ZERO));
-    }
-    let found = get(agent, &url, headers, tally)?;
-    if found.0 == 200 {
-        pass.store.put(&key, &found.1, pass.epoch);
-    }
-    Ok(found)
 }
 
 fn apple_error((status, body, wait): (u16, Vec<u8>, Duration)) -> anyhow::Error {
@@ -368,7 +318,7 @@ fn ok_body(
     source: &Source,
     tally: &Tally,
 ) -> Result<Option<Value>> {
-    match input(agent, (&source.api, path), headers, tally) {
+    match get(agent, &format!("{}{path}", source.api), headers, tally) {
         Ok((200, body, _)) => Ok(serde_json::from_slice(&body).ok()),
         Ok((401, ..)) => Err(anyhow!(DeveloperTokenRejected)),
         _ => Ok(None),
@@ -469,8 +419,8 @@ fn library_albums(
     let mut albums = Vec::new();
     for page in 0..LIBRARY_PAGES {
         let path = format!("{LIBRARY_ALBUMS}&offset={}", page * LIBRARY_PAGE);
-        let (status, body, wait) =
-            input(agent, (&source.api, &path), &headers, tally).context("library albums")?;
+        let (status, body, wait) = get(agent, &format!("{}{path}", source.api), &headers, tally)
+            .context("library albums")?;
         match status {
             200 => {}
             401 => return Err(anyhow!(DeveloperTokenRejected)),
@@ -569,49 +519,18 @@ fn home(
     Ok((sent.emitted, sent.skipped))
 }
 
-fn home_cached(
+pub(crate) fn cover(
     agent: &mut ureq::Agent,
-    auth: (&Source, &str, &str),
-    (signed_in, px): (&[u8], u32),
-    (jobs, tally): (&Sender<Job>, &Tally),
-) -> Result<(usize, usize)> {
-    let Some(store) = auth.0.api_cache.clone() else {
-        return home(agent, auth, (signed_in, px), (jobs, tally));
-    };
-    if let Some(found) = storefront(signed_in) {
-        store.remember_storefront(auth.2, &found, store.epoch());
+    url: &str,
+    px: u32,
+    tally: &Tally,
+) -> Result<ColorImage> {
+    let (status, bytes, _) = get(agent, url, &[], tally)?;
+    match status {
+        200 => {}
+        300..=399 => bail!("redirected (HTTP {status}); redirects are not followed"),
+        _ => bail!("HTTP {status}"),
     }
-    let pass = |stale| Pass {
-        store: store.clone(),
-        scope: store.scope(auth.2),
-        epoch: store.epoch(),
-        stale,
-    };
-    let collect = |agent: &mut ureq::Agent, pass| {
-        *tally.pass.lock().unwrap() = Some(pass);
-        let (tx, rx) = channel();
-        let counts = home(agent, auth, (signed_in, px), (&tx, tally));
-        (counts, rx.try_iter().collect::<Vec<Job>>())
-    };
-    let (shown_counts, shown) = collect(agent, pass(true));
-    if !matches!(shown_counts, Ok((emitted, _)) if emitted > 0) {
-        *tally.pass.lock().unwrap() = Some(pass(false));
-        return home(agent, auth, (signed_in, px), (jobs, tally));
-    }
-    shown.iter().for_each(|job| drop(jobs.send(job.clone())));
-    match collect(agent, pass(false)) {
-        (Err(e), _) if e.is::<DeveloperTokenRejected>() => Err(e),
-        (Ok(counts), fresh) => {
-            if fresh != shown {
-                fresh.into_iter().for_each(|job| drop(jobs.send(job)));
-            }
-            Ok(counts)
-        }
-        (Err(_), _) => shown_counts,
-    }
-}
-
-fn decode(bytes: &[u8], px: u32) -> Result<ColorImage> {
     let side = px.saturating_mul(2);
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(side);
@@ -622,44 +541,6 @@ fn decode(bytes: &[u8], px: u32) -> Result<ColorImage> {
     let rgb = reader.decode()?.to_rgb8();
     let size = [rgb.width() as usize, rgb.height() as usize];
     Ok(ColorImage::from_rgb(size, rgb.as_raw()))
-}
-
-pub(crate) fn cover(
-    agent: &mut ureq::Agent,
-    url: &str,
-    px: u32,
-    tally: &Tally,
-) -> Result<ColorImage> {
-    cover_in(ART.get(), agent, url, px, tally)
-}
-
-pub(crate) fn cover_in(
-    store: Option<&Store>,
-    agent: &mut ureq::Agent,
-    url: &str,
-    px: u32,
-    tally: &Tally,
-) -> Result<ColorImage> {
-    let key = ["art", url];
-    let kept = store
-        .and_then(|s| s.get(&key))
-        .and_then(|b| decode(&b, px).ok());
-    if let Some(image) = kept {
-        ART_HITS.fetch_add(1, Seq);
-        return Ok(image);
-    }
-    ART_MISSES.fetch_add(1, Seq);
-    let (status, bytes, _) = get(agent, url, &[], tally)?;
-    match status {
-        200 => {}
-        300..=399 => bail!("redirected (HTTP {status}); redirects are not followed"),
-        _ => bail!("HTTP {status}"),
-    }
-    let image = decode(&bytes, px)?;
-    if let Some(store) = store {
-        store.put(&key, &bytes, store.epoch());
-    }
-    Ok(image)
 }
 
 type Job = (usize, String, String);
@@ -680,7 +561,7 @@ fn load_home(
         let bearer = format!("Bearer {developer}");
         let checked = signed_in(agent, source, &bearer, &user, tally).and_then(|body| {
             let auth = (source, bearer.as_str(), user.as_str());
-            body.map(|body| home_cached(agent, auth, (&body, px), (jobs, tally)))
+            body.map(|body| home(agent, auth, (&body, px), (jobs, tally)))
                 .transpose()
         });
         checked.map_err(|e| {
@@ -730,9 +611,8 @@ pub fn fetch(
                     let _ = tx.send(Loaded::Failed(format!("{e:#}"), COUNT));
                 }
                 Ok(Some((0, 0))) => drop(tx.send(Loaded::Empty)),
-                Ok(Some((emitted, 0))) => drop(tx.send(Loaded::Keep(emitted))),
-                Ok(Some((emitted, skipped))) => {
-                    let _ = tx.send(Loaded::Keep(emitted));
+                Ok(Some((_, 0))) => {}
+                Ok(Some((_, skipped))) => {
                     let why = format!("{skipped} library albums had no usable artwork");
                     let _ = tx.send(Loaded::Failed(why, skipped));
                 }
@@ -791,7 +671,6 @@ pub struct Grid {
     px: u32,
     rx: Option<Receiver<Loaded>>,
     textures: BTreeMap<usize, (String, TextureHandle)>,
-    keep: Option<usize>,
     tally: Arc<Tally>,
     failed: Option<String>,
     failures: usize,
@@ -861,16 +740,10 @@ impl Grid {
                     let bytes = image.pixels.len() * 4;
                     #[cfg(feature = "gate-sabotage")]
                     self.kept.push(image.clone());
+                    let texture =
+                        ctx.load_texture(format!("cover-{index}"), image, TextureOptions::LINEAR);
+                    self.textures.insert(index, (id, texture));
                     self.tally.in_flight.fetch_sub(bytes, Ordering::SeqCst);
-                    if self.keep.is_none_or(|count| index < count) {
-                        let name = format!("cover-{index}");
-                        let texture = ctx.load_texture(name, image, TextureOptions::LINEAR);
-                        self.textures.insert(index, (id, texture));
-                    }
-                }
-                Loaded::Keep(count) => {
-                    self.keep = Some(count);
-                    self.textures.retain(|index, _| *index < count);
                 }
                 Loaded::Failed(why, covers) => {
                     self.failed.get_or_insert(why);

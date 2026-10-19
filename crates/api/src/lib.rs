@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::Ordering::SeqCst;
 use std::sync::mpsc::{Sender, channel};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 #[cfg(feature = "loopback")]
@@ -42,7 +43,8 @@ pub enum Reply {
 }
 
 pub type Done = Box<dyn FnOnce(Result<Reply>) + Send>;
-pub type Refresh = Box<dyn FnOnce(Reply) + Send>;
+pub type Refresh = Box<dyn FnOnce(Result<Reply>) + Send>;
+const MAX_PENDING: usize = 8;
 
 pub struct Job {
     pub call: Call,
@@ -67,7 +69,7 @@ impl Job {
         }
     }
 
-    pub fn revalidating(self, refresh: impl FnOnce(Reply) + Send + 'static) -> Self {
+    pub fn revalidating(self, refresh: impl FnOnce(Result<Reply>) + Send + 'static) -> Self {
         Job {
             refresh: Some(Box::new(refresh)),
             ..self
@@ -110,10 +112,60 @@ impl Client {
 
     fn revalidate(&self, call: Call, stale: &Reply, refresh: Refresh) {
         store::API_REVALIDATIONS.fetch_add(1, SeqCst);
-        if let Ok(fresh) = self.run(call)
-            && fresh != *stale
-        {
-            refresh(fresh);
+        match self.run(call) {
+            Ok(fresh) if fresh != *stale => refresh(Ok(fresh)),
+            Err(Error::SignInNeeded) => refresh(Err(Error::SignInNeeded)),
+            _ => {}
+        }
+    }
+}
+
+struct Revalidation {
+    call: Call,
+    stale: Reply,
+    refresh: Refresh,
+    deadline: Instant,
+}
+
+struct Revalidator {
+    tx: Sender<Revalidation>,
+    pending: Arc<Mutex<Vec<Call>>>,
+}
+
+impl Revalidator {
+    fn spawn(client: Client) -> std::io::Result<Self> {
+        let (tx, rx) = channel::<Revalidation>();
+        let pending: Arc<Mutex<Vec<Call>>> = Arc::default();
+        let finished = pending.clone();
+        let work = move || {
+            for Revalidation {
+                call,
+                stale,
+                refresh,
+                deadline,
+            } in rx
+            {
+                if Instant::now() < deadline {
+                    let again = call.clone();
+                    let _ = catch_unwind(AssertUnwindSafe(|| {
+                        client.revalidate(again, &stale, refresh)
+                    }));
+                }
+                let mut pending = finished.lock().unwrap_or_else(|e| e.into_inner());
+                pending.retain(|queued| *queued != call);
+            }
+        };
+        std::thread::Builder::new()
+            .name("api-revalidate".into())
+            .spawn(work)?;
+        Ok(Revalidator { tx, pending })
+    }
+
+    fn submit(&self, job: Revalidation) {
+        let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+        if pending.len() < MAX_PENDING && !pending.contains(&job.call) {
+            pending.push(job.call.clone());
+            let _ = self.tx.send(job);
         }
     }
 }
@@ -138,6 +190,7 @@ impl Session<'_> {
 }
 
 pub fn worker(client: Client) -> std::io::Result<Sender<Job>> {
+    let revalidator = Revalidator::spawn(client.clone())?;
     let (tx, rx) = channel::<Job>();
     std::thread::Builder::new()
         .name("apple-api".into())
@@ -156,17 +209,21 @@ pub fn worker(client: Client) -> std::io::Result<Sender<Job>> {
                     call,
                     done,
                     refresh,
+                    deadline,
                     ..
                 } = job;
-                if let Some(refresh) = refresh
-                    && let Some(stale) = client.stale(&call)
-                {
+                let stale = refresh.and_then(|refresh| {
+                    let found = catch_unwind(AssertUnwindSafe(|| client.stale(&call)));
+                    found.ok().flatten().map(|stale| (stale, refresh))
+                });
+                if let Some((stale, refresh)) = stale {
                     done(Ok(stale.clone()));
-                    let client = client.clone();
-                    let revalidate = move || client.revalidate(call, &stale, refresh);
-                    let _ = std::thread::Builder::new()
-                        .name("api-revalidate".into())
-                        .spawn(revalidate);
+                    revalidator.submit(Revalidation {
+                        call,
+                        stale,
+                        refresh,
+                        deadline,
+                    });
                     continue;
                 }
                 let ran = catch_unwind(AssertUnwindSafe(|| client.run(call)));

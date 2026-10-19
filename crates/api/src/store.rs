@@ -95,8 +95,10 @@ impl Store {
         let dir = root.join(name);
         private_dir(root)?;
         private_dir(&dir)?;
-        let bytes = files(&dir).iter().map(|f| f.1).sum();
-        let state = Mutex::new(State { epoch: 0, bytes });
+        let state = Mutex::new(State {
+            epoch: 0,
+            bytes: cap,
+        });
         Ok(Store { dir, cap, state })
     }
 
@@ -126,7 +128,7 @@ impl Store {
         if state.epoch != epoch || write_file(&self.path(parts), bytes, false).is_err() {
             return;
         }
-        state.bytes += bytes.len() as u64;
+        state.bytes = state.bytes.saturating_add(bytes.len() as u64);
         if state.bytes > self.cap {
             state.bytes = self.evict();
         }
@@ -136,8 +138,13 @@ impl Store {
         let mut files = files(&self.dir);
         files.sort_by_key(|f| f.2);
         let mut total: u64 = files.iter().map(|f| f.1).sum();
+        let floor = if total > self.cap {
+            self.cap / 10 * 9
+        } else {
+            total
+        };
         for (path, len, _) in files {
-            if total <= self.cap {
+            if total <= floor {
                 break;
             }
             if std::fs::remove_file(path).is_ok() {
@@ -160,8 +167,8 @@ impl Store {
         );
     }
 
-    pub fn scope(&self, user: &str) -> String {
-        digest(&[user, &self.storefront(user).unwrap_or_default()])
+    pub fn remove(&self, parts: &[&str]) {
+        let _ = std::fs::remove_file(self.path(parts));
     }
 
     pub fn wipe(&self) {
