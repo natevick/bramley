@@ -88,4 +88,4 @@ Nate delegated the definition of "done" to Norm on 2026-10-10. Bramley v1 on Lin
 
 ## Out of scope for v1
 
-Windows, macOS, music videos, lyrics, the EQ (pending Nate's compliance call), offline mode, and a disk artwork cache (Nate: memory only).
+Windows, macOS, music videos, lyrics, the EQ (pending Nate's compliance call), offline mode, and a cache that serves without the network (the 2026-10-18 disk cache revalidates on every use).

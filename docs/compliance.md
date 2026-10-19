@@ -94,3 +94,8 @@ Header of `https://js-cdn.music.apple.com/musickit/v3/musickit.js` (ETag `"a62a1
     - delete them at the end of every session, including on failure;
     - never write them into evidence files.
   - Private screenshots with real art and names are the one on-disk exception. They come from the dev build and never enter the repo.
+- **2026-10-18: artwork and API responses may be cached on disk (Nate: "we need to add cache so the load of album art etc is not as slow. If I get in trouble with Apple that is fine").**
+  - **Supersedes** the 2026-10-10 entry "no artwork on disk from the shipped app (Norm's call, conservative)", except that `--screenshot` stays dev-only.
+  - **Amends** the 2026-10-11 entry "library and track names stay out of files". The `--status` file still never carries names. The API cache now holds library and catalog responses, names included, as files under `$XDG_CACHE_HOME/bramley/api`, 0600 in a 0700 directory, scoped to a hash of the user token plus the storefront, and wiped at sign-out. Harness sessions keep it inside their isolated `XDG_CACHE_HOME` and delete it with the session.
+  - **Replaces** the 2026-10-10 rule that art is shown only after the user token validates against `/v1/me/storefront`. The Home grid still waits for that check. Library and track lists, and the art in them, may now show from cache first and are revalidated in the background. A signed-out user sees neither, because a lookup needs the stored user token and sign-out wipes the API cache. The art cache is kept at sign-out.
+  - **Unchanged:** rule 6. Decrypted audio never touches disk. Nothing from the playback or license path, and nothing musickit.js fetches, is cached. The cache never stores search queries, the storefront check, or the playback path.
