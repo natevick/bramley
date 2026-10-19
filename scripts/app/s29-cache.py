@@ -14,7 +14,8 @@ cs, s6 = load('covers_session', 'covers-session.py'), load('s6_shots', 's6-shots
 TITLE, LIST = {'S': 'Songs', 'A': 'Album'}, {'S': 'songs', 'A': 'tracks'}
 PLAN = ['S-Nc1', 'S-M1', 'S-Nw1', 'A-Nc1', 'A-M1', 'A-Nw1', 'S-Nc2', 'S-M2', 'S-Nw2', 'A-Nc2', 'A-M2', 'A-Nw2', 'S-Nc3', 'A-Nc3', 'S-Nw3', 'A-Nw3']
 EXTRA = ['S-M3', 'A-M3']
-SPACING, QUIET, CAP = 70, 6, 90
+SPACING, QUIET, CAP, POLL = 70, 6, 90, 0.1
+SPAWNED = []
 CACHE_KEYS = ('apiHits', 'apiMisses', 'apiRevalidations', 'artHits', 'artMisses')
 
 
@@ -56,6 +57,7 @@ def watch(p, t0, snap, which):
             return {**first, 'all': last['lib'][1], 'artTextures': last['lib'][0]}, status, None
         if t > CAP or p.poll() is not None:
             return first, status, 'exited' if p.poll() is not None else 'cap'
+        time.sleep(POLL)
 
 
 def launch(a, tag, which, binary, env, config, extra, out):
@@ -65,6 +67,9 @@ def launch(a, tag, which, binary, env, config, extra, out):
         full.pop('DISPLAY', None)
         cs.assert_isolated(full)
         st = os.path.join(out, tag + '.status.json')
+        if not a.mock and SPAWNED and time.monotonic() - SPAWNED[-1] < SPACING:
+            raise RuntimeError('refusing: the last launch was under 70 s ago')
+        SPAWNED.append(time.monotonic())
         with open(a.ledger, 'a') as f:
             f.write(json.dumps({'launch': tag, 'spawn': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'mono': round(time.monotonic(), 1)}) + '\n')
         t0 = time.monotonic()
@@ -126,13 +131,13 @@ def run(a):
         extra = ['--api-base', base, '--developer-token-url', base + '/developer-token.json']
     os.makedirs(a.out, exist_ok=True)
     plan = (a.only or PLAN) + (EXTRA if a.extra else [])
-    rows, homes, last = [], {}, 0.0
+    rows, homes = [], {}
     with contextlib.ExitStack() as stack:
         for n, name in enumerate(plan, 1):
             which, arm = name.split('-')[0], name.split('-')[1]
             tag = f'{n:02d}-{name}'
-            time.sleep(0 if a.mock else max(0, last + SPACING - time.monotonic()))
-            last = time.monotonic()
+            if SPAWNED and not a.mock:
+                time.sleep(max(0, SPAWNED[-1] + SPACING - time.monotonic()))
             pair = f'{which}{arm[2:]}'
             if arm.startswith('Nw'):
                 iso, config = homes.pop(pair)
