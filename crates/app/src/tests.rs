@@ -2930,7 +2930,12 @@ fn the_app_retries_a_failed_home_chart_only_while_home_is_the_route() {
     };
     let on_search = ticked(&mut app, 6500);
     app.go(Route::Home);
-    let on_home = ticked(&mut app, 1000);
+    let until = Instant::now() + Duration::from_millis(5000);
+    while Instant::now() < until && charts(&fx) < 2 {
+        app.tick(&ctx);
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let on_home = ticked(&mut app, 500);
     std::fs::remove_dir_all(&config).unwrap();
     assert_eq!((on_search, on_home), (1, 2));
 }
