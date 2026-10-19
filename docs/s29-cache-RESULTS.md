@@ -27,3 +27,16 @@ Seconds from spawn. S = Songs, A = Album (one fixed large library album). `rows`
 - Sign-out, eviction at the 512 MB cap and the keyring wipe ordering were exercised in unit tests, not against Apple.
 
 **Size.** After a launch the cache held 0.25 to 0.27 MB of art and 1.75 MB of API responses per route, inside the isolated session. The harness deletes it with the session; `~/.cache/bramley` was never created.
+
+## After review fixes (2026-10-18)
+
+Review changes: Home no longer caches ranking inputs (art cache only), one bounded revalidation worker, a revalidation 403 reaches the UI, lazy store trim. One confirmation pass, 4 real launches (a separate budget from the 16 of the PREREG), spaced at least 70 s, isolated harness, no playback. Build = HEAD 555b675.
+
+| launch | route | rows | covers | apiHits | artHits |
+|--------|-------|------|--------|---------|---------|
+| cold | Songs | 2.41 | 2.81 | 0 | 1 |
+| cold | Album | 2.21 | 2.41 | 0 | 14 |
+| warm | Songs | 0.2 | 0.2 | 2 | 65 |
+| warm | Album | 0.2 | 0.2 | 2 | 65 |
+
+Warm covers over cold covers: 0.07 on Songs, 0.08 on Album (bar 0.50). Cache hits are non-zero on both warm launches; both cold launches showed `apiHits` 0. The bar still holds, n=1 per cell, and 0.2 s is the status-file floor.
