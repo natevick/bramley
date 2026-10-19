@@ -27,7 +27,7 @@ Committed before any real measurement. Thresholds do not move after data comes i
 
 **Deviations from the brief, stated now.**
 - An album's route cover is fetched right after its track list, not after every track list. Otherwise a library over about 250 albums starves covers for hundreds of runs. Grid covers (Albums cells, the library-albums tail of Home, playlist and song rows) come after all track lists.
-- Art counts against the 60 but is not paced: it is one sequential connection to the art CDN (`*.mzstatic.com`), a different host from `api.music.apple.com`. API calls stay at 1 per second.
+- Art counts against the 60 but is not paced: it is one request at a time to the art CDN hosts (`*.mzstatic.com`), different hosts from `api.music.apple.com`. API calls stay at 1 per second.
 - Only page 1 of Songs and Artists is warmed. Later Albums and Playlists pages are followed only when missing or older than 6 h.
 - Home's ranking comes from listening history, which warm never requests, so warm covers only Home's library-albums fallback.
 
