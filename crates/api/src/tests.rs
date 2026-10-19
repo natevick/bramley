@@ -931,3 +931,420 @@ fn after_one_dead_pooled_socket_the_pool_is_dropped_so_its_dead_sibling_is_never
         "{fourth:?} {served:?}"
     );
 }
+
+mod disk_cache {
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::SystemTime;
+
+    use super::*;
+    use crate::client::browse;
+    use crate::store::Store;
+
+    fn scratch(name: &str) -> PathBuf {
+        let tag = format!("cache-{}-{name}", std::process::id());
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp");
+        let dir = dir.join(tag);
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    fn songs(names: &[&str]) -> String {
+        let row = |(i, name): (usize, &&str)| {
+            let attributes = format!(r#"{{"name":"{name}"}}"#);
+            format!(r#"{{"id":"i.{i}","type":"library-songs","attributes":{attributes}}}"#)
+        };
+        let rows: Vec<String> = names.iter().enumerate().map(row).collect();
+        format!(
+            r#"{{"data":[{}],"meta":{{"total":{}}}}}"#,
+            rows.join(","),
+            rows.len()
+        )
+    }
+
+    fn caching(server: &Server, user: &str, store: &Arc<Store>) -> Client {
+        raw(&server.base, Some(user)).caching(store.clone())
+    }
+
+    fn names(reply: Reply) -> Vec<String> {
+        let Reply::Page(page) = reply else {
+            panic!("{reply:?}")
+        };
+        page.items.into_iter().filter_map(|i| i.name).collect()
+    }
+
+    const LIST: Call = Call::Library(Shelf::Songs);
+
+    fn age(store: &Store, parts: &[&str], seconds: u64) {
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(store.path(parts))
+            .unwrap();
+        file.set_modified(SystemTime::now() - Duration::from_secs(seconds))
+            .unwrap();
+    }
+
+    #[test]
+    fn another_accounts_key_misses_and_no_token_is_in_the_cache() {
+        let root = scratch("scope");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let server = serve(vec![("/v1/me/library/songs", vec![ok(&songs(&["one"]))])]);
+        let mine = caching(&server, USER, &store);
+        assert_eq!(mine.stale(&LIST), None);
+        mine.run(LIST).unwrap();
+        assert_eq!(names(mine.stale(&LIST).unwrap()), ["one"]);
+        assert_eq!(
+            caching(&server, "another-user-token-0123456789", &store).stale(&LIST),
+            None
+        );
+        for entry in std::fs::read_dir(root.join("api")).unwrap() {
+            let entry = entry.unwrap();
+            let text = std::fs::read(entry.path()).unwrap();
+            let name = entry.file_name().into_string().unwrap();
+            assert!(!name.contains(USER) && !String::from_utf8_lossy(&text).contains(USER));
+        }
+    }
+
+    #[test]
+    fn only_browse_paths_are_cached_never_search_recent_plays_or_the_storefront() {
+        for path in [
+            "/v1/me/storefront",
+            "/v1/me/recent/played",
+            "/v1/catalog/us/search",
+        ] {
+            assert!(!browse(path), "{path}");
+        }
+        for path in [
+            "/v1/me/library/songs",
+            "/v1/me/library/albums/l.1/tracks",
+            "/v1/catalog/us/albums/1",
+        ] {
+            assert!(browse(path), "{path}");
+        }
+        let root = scratch("never");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let server = serve(vec![
+            ("/v1/me/storefront", vec![ok(STOREFRONT)]),
+            ("/v1/catalog/us/search", vec![ok(SEARCH)]),
+            ("/v1/me/recent/played", vec![ok(&songs(&["one"]))]),
+        ]);
+        let client = caching(&server, USER, &store);
+        for call in [Call::Search("a".into()), Call::RecentlyPlayed] {
+            client.run(call.clone()).unwrap();
+            assert_eq!(client.stale(&call), None, "{call:?}");
+        }
+    }
+
+    #[test]
+    fn a_catalog_page_is_found_after_a_restart_through_the_remembered_storefront() {
+        let root = scratch("hint");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let server = serve(vec![
+            ("/v1/me/storefront", vec![ok(STOREFRONT)]),
+            (
+                "/v1/catalog/us/albums/2000001",
+                vec![ok(include_str!("fixtures/album.json"))],
+            ),
+        ]);
+        let call = Call::Album("2000001".into());
+        caching(&server, USER, &store).run(call.clone()).unwrap();
+        let restarted = caching(&server, USER, &store);
+        assert!(matches!(restarted.stale(&call), Some(Reply::Detail(_))));
+        assert_eq!(server.targets().len(), 2, "the restart asked nothing");
+    }
+
+    #[test]
+    fn a_stale_page_is_refreshed_only_when_the_fresh_one_differs() {
+        let root = scratch("swr");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let (old, new) = (ok(&songs(&["old"])), ok(&songs(&["new"])));
+        let server = serve(vec![("/v1/me/library/songs", vec![old.clone(), old, new])]);
+        let client = caching(&server, USER, &store);
+        client.run(LIST).unwrap();
+        let (tx, rx) = channel();
+        let refresh = |tx: std::sync::mpsc::Sender<crate::Result<Reply>>| -> crate::Refresh {
+            Box::new(move |fresh| tx.send(fresh).unwrap())
+        };
+        let stale = client.stale(&LIST).unwrap();
+        client.revalidate(LIST, &stale, refresh(tx.clone()));
+        assert!(rx.try_recv().is_err(), "the same page is not sent again");
+        assert_eq!(server.targets().len(), 2, "the refetch did run");
+        client.revalidate(LIST, &stale, refresh(tx));
+        assert_eq!(names(rx.try_recv().unwrap().unwrap()), ["new"]);
+        assert_eq!(
+            names(client.stale(&LIST).unwrap()),
+            ["new"],
+            "the cache moved on"
+        );
+    }
+
+    #[test]
+    fn the_worker_answers_from_cache_at_once_then_revalidates_off_its_thread() {
+        let root = scratch("worker");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let (old, new) = (ok(&songs(&["old"])), ok(&songs(&["new"])));
+        let server = serve(vec![("/v1/me/library/songs", vec![old, new])]);
+        let client = caching(&server, USER, &store);
+        client.run(LIST).unwrap();
+        let jobs = worker(client).unwrap();
+        let (done, answered) = channel();
+        let (refresh, refreshed) = channel();
+        let soon = Instant::now() + Duration::from_secs(10);
+        let job = Job::new(LIST, soon, move |found| done.send(found).unwrap());
+        jobs.send(job.revalidating(move |fresh| refresh.send(fresh).unwrap()))
+            .unwrap();
+        let first = answered.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_eq!(names(first.unwrap()), ["old"]);
+        let fresh = refreshed.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_eq!(names(fresh.unwrap()), ["new"]);
+    }
+
+    #[test]
+    fn a_403_on_revalidation_reaches_the_refresh_and_drops_the_page_other_errors_keep_it() {
+        let root = scratch("revoked");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let refused = |status| (status, String::new(), b"{}".to_vec());
+        let routes = vec![ok(&songs(&["kept"])), refused(500), refused(403)];
+        let server = serve(vec![("/v1/me/library/songs", routes)]);
+        let client = caching(&server, USER, &store);
+        client.run(LIST).unwrap();
+        let stale = client.stale(&LIST).unwrap();
+        let (tx, rx) = channel();
+        let refresh = |tx: std::sync::mpsc::Sender<crate::Result<Reply>>| -> crate::Refresh {
+            Box::new(move |fresh| tx.send(fresh).unwrap())
+        };
+        client.revalidate(LIST, &stale, refresh(tx.clone()));
+        assert!(rx.try_recv().is_err(), "a 500 keeps the stale view quietly");
+        assert_eq!(names(client.stale(&LIST).unwrap()), ["kept"]);
+        client.revalidate(LIST, &stale, refresh(tx));
+        assert_eq!(rx.try_recv().unwrap(), Err(Error::SignInNeeded));
+        assert_eq!(
+            client.stale(&LIST),
+            None,
+            "a revoked token's page is dropped"
+        );
+    }
+
+    #[test]
+    fn a_persisting_403_after_a_stale_hit_ends_in_a_live_sign_in_needed() {
+        let root = scratch("persisting");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let refused = (403, String::new(), b"{}".to_vec());
+        let server = serve(vec![(
+            "/v1/me/library/songs",
+            vec![ok(&songs(&["old"])), refused],
+        )]);
+        let client = caching(&server, USER, &store);
+        client.run(LIST).unwrap();
+        let jobs = worker(client).unwrap();
+        let (done, answered) = channel();
+        let (refresh, refreshed) = channel();
+        let soon = Instant::now() + Duration::from_secs(10);
+        let job = Job::new(LIST, soon, move |found| done.send(found).unwrap());
+        jobs.send(job.revalidating(move |fresh| refresh.send(fresh).unwrap()))
+            .unwrap();
+        let first = answered.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_eq!(names(first.unwrap()), ["old"]);
+        let revoked = refreshed.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_eq!(revoked, Err(Error::SignInNeeded));
+        let (done, answered) = channel();
+        let job = Job::new(LIST, soon, move |found| done.send(found).unwrap());
+        jobs.send(job.revalidating(|_| {})).unwrap();
+        let live = answered.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_eq!(
+            live,
+            Err(Error::SignInNeeded),
+            "no stale page is served again"
+        );
+    }
+
+    fn gated(server: &Server, store: &Arc<Store>, counts: [Arc<AtomicUsize>; 3]) -> Client {
+        let [running, peak, runs] = counts;
+        let client = Client::at(&server.base, move || {
+            if std::thread::current().name() == Some("api-revalidate") {
+                runs.fetch_add(1, Ordering::SeqCst);
+                let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(now, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(150));
+                running.fetch_sub(1, Ordering::SeqCst);
+            }
+            Ok(Tokens {
+                developer: DEVELOPER.into(),
+                user: Some(USER.into()),
+            })
+        });
+        client.caching(store.clone())
+    }
+
+    #[test]
+    fn stale_hits_queue_for_one_revalidation_thread_deduped_and_capped() {
+        let root = scratch("bounded");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let server = serve(vec![("/v1/me/library/songs", vec![ok(&songs(&["one"]))])]);
+        let counts: [Arc<AtomicUsize>; 3] = Default::default();
+        let client = gated(&server, &store, counts.clone());
+        let page = |n: usize| Call::Next(format!("/v1/me/library/songs?offset={n}"));
+        (0..12).for_each(|n| drop(client.run(page(n)).unwrap()));
+        let jobs = worker(client).unwrap();
+        let (done, answered) = channel();
+        let soon = Instant::now() + Duration::from_secs(30);
+        let calls = (0..12).map(page).chain((0..12).map(|_| page(0)));
+        for call in calls {
+            let done = done.clone();
+            let job = Job::new(call, soon, move |found| done.send(found).unwrap());
+            jobs.send(job.revalidating(|_| {})).unwrap();
+        }
+        for _ in 0..24 {
+            answered
+                .recv_timeout(Duration::from_secs(10))
+                .unwrap()
+                .unwrap();
+        }
+        let [running, peak, runs] = counts;
+        let until = Instant::now() + Duration::from_secs(10);
+        while runs.load(Ordering::SeqCst) < 8 && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(1500));
+        let seen = (peak.load(Ordering::SeqCst), runs.load(Ordering::SeqCst));
+        assert_eq!((seen, running.load(Ordering::SeqCst)), ((1, 8), 0));
+        let (done, answered) = channel();
+        for _ in 0..5 {
+            let done = done.clone();
+            let job = Job::new(page(11), soon, move |found| done.send(found).unwrap());
+            jobs.send(job.revalidating(|_| {})).unwrap();
+        }
+        for _ in 0..5 {
+            answered
+                .recv_timeout(Duration::from_secs(10))
+                .unwrap()
+                .unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(1000));
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            9,
+            "identical pending calls run once"
+        );
+    }
+
+    #[test]
+    fn a_panic_while_reading_the_cache_does_not_kill_the_worker() {
+        let root = scratch("panic");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let server = serve(vec![("/v1/me/library/songs", vec![ok(&songs(&["one"]))])]);
+        let armed = Arc::new(AtomicBool::new(false));
+        let trip = armed.clone();
+        let client = Client::at(&server.base, move || {
+            assert!(!trip.swap(false, Ordering::SeqCst), "boom");
+            Ok(Tokens {
+                developer: DEVELOPER.into(),
+                user: Some(USER.into()),
+            })
+        });
+        let client = client.caching(store);
+        client.run(LIST).unwrap();
+        let jobs = worker(client).unwrap();
+        armed.store(true, Ordering::SeqCst);
+        for _ in 0..2 {
+            let (done, answered) = channel();
+            let soon = Instant::now() + Duration::from_secs(10);
+            let job = Job::new(LIST, soon, move |found| done.send(found).unwrap());
+            jobs.send(job.revalidating(|_| {})).unwrap();
+            let found = answered.recv_timeout(Duration::from_secs(10));
+            assert!(found.is_ok_and(|found| found.is_ok()), "the worker died");
+        }
+    }
+
+    #[test]
+    fn a_job_that_did_not_ask_for_revalidation_always_goes_to_the_network() {
+        let root = scratch("live");
+        let store = Arc::new(Store::open(&root, "api", 1 << 20).unwrap());
+        let server = serve(vec![("/v1/me/library/songs", vec![ok(&songs(&["one"]))])]);
+        let client = caching(&server, USER, &store);
+        client.run(LIST).unwrap();
+        let jobs = worker(client).unwrap();
+        let (done, answered) = channel();
+        let soon = Instant::now() + Duration::from_secs(10);
+        jobs.send(Job::new(LIST, soon, move |found| done.send(found).unwrap()))
+            .unwrap();
+        answered
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap()
+            .unwrap();
+        assert_eq!(server.targets().len(), 2);
+    }
+
+    #[test]
+    fn eviction_keeps_the_total_under_the_cap_and_drops_the_least_recently_used() {
+        let root = scratch("evict");
+        let store = Store::open(&root, "art", 300).unwrap();
+        let epoch = store.epoch();
+        for name in ["a", "b", "c"] {
+            store.put(&[name], &[0; 100], epoch);
+        }
+        age(&store, &["a"], 30);
+        age(&store, &["b"], 20);
+        age(&store, &["c"], 10);
+        assert!(store.get(&["a"]).is_some());
+        store.put(&["d"], &[0; 100], epoch);
+        for gone in ["b", "c"] {
+            assert_eq!(store.get(&[gone]), None, "{gone} went, down to 90%");
+        }
+        for kept in ["a", "d"] {
+            assert!(store.get(&[kept]).is_some(), "{kept}");
+        }
+        let total: u64 = std::fs::read_dir(root.join("art"))
+            .unwrap()
+            .map(|e| e.unwrap().metadata().unwrap().len())
+            .sum();
+        assert!(total <= 270, "{total}");
+    }
+
+    #[test]
+    fn a_reopened_store_trims_an_oversized_directory_on_its_first_write() {
+        let root = scratch("reopen");
+        let big = Store::open(&root, "art", 1 << 20).unwrap();
+        for n in 0..10 {
+            big.put(&[&n.to_string()], &[0; 100], big.epoch());
+        }
+        let small = Store::open(&root, "art", 500).unwrap();
+        small.put(&["new"], &[0; 100], small.epoch());
+        let total: u64 = std::fs::read_dir(root.join("art"))
+            .unwrap()
+            .map(|e| e.unwrap().metadata().unwrap().len())
+            .sum();
+        assert!(total <= 450, "{total}");
+    }
+
+    #[test]
+    fn a_wipe_empties_the_store_and_drops_a_write_begun_before_it() {
+        let root = scratch("wipe");
+        let store = Store::open(&root, "api", 1 << 20).unwrap();
+        let before = store.epoch();
+        store.put(&["kept"], b"library data", before);
+        store.wipe();
+        assert_eq!(store.get(&["kept"]), None);
+        store.put(&["in flight"], b"library data", before);
+        assert_eq!(
+            store.get(&["in flight"]),
+            None,
+            "a stale writer cannot refill the cache"
+        );
+        store.put(&["after"], b"library data", store.epoch());
+        assert!(store.get(&["after"]).is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_cache_directory_is_private_and_its_files_are_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = scratch("modes");
+        let store = Store::open(&root, "art", 1 << 20).unwrap();
+        store.put(&["x"], b"bytes", store.epoch());
+        let mode =
+            |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!((mode(&root), mode(&root.join("art"))), (0o700, 0o700));
+        assert_eq!(mode(&store.path(&["x"])), 0o600);
+    }
+}

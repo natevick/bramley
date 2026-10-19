@@ -61,7 +61,7 @@ impl StatusWriter {
         let thread = std::thread::spawn(move || {
             while let Ok(mut status) = rx.recv() {
                 status = rx.try_iter().last().unwrap_or(status);
-                if let Err(e) = crate::credentials::write_private(&path, &status) {
+                if let Err(e) = bramley_api::store::write_private(&path, status.as_bytes()) {
                     eprintln!("bramley: status not written to {}: {e}", path.display());
                 }
             }
@@ -91,6 +91,7 @@ struct Shot {
 
 pub struct App {
     pub(crate) api: Option<Sender<bramley_api::Job>>,
+    pub(crate) api_cache: Option<Arc<bramley_api::store::Store>>,
     #[cfg(feature = "dev")]
     api_port: Option<u16>,
     search: Search,
@@ -184,8 +185,13 @@ impl App {
             }
             search.click_first_song = args.click_first_song;
         }
+        let art_cache = source.as_ref().and_then(|s| s.art_cache.clone());
+        search.art_cache(art_cache.clone());
+        library.art_cache(art_cache.clone());
+        detail.art_cache(art_cache);
         App {
             api: None,
+            api_cache: source.as_ref().and_then(|s| s.api_cache.clone()),
             #[cfg(feature = "dev")]
             api_port: loopback_port(args.api_base.as_deref()),
             search,
@@ -288,6 +294,7 @@ impl App {
             "library": self.library.status(),
             "detail": self.detail.status(),
         });
+        status["cache"] = bramley_api::store::counts();
         status["signInReason"] = json!(self.playback.sign_in_reason());
         status["shuffleMode"] = json!(if shown.shuffle { "on" } else { "off" });
         status["repeatMode"] = json!(shown.repeat.as_str());
@@ -364,6 +371,7 @@ impl App {
             .collect();
         if cleared.is_some() {
             self.clearing = None;
+            self.wipe_api_cache();
         }
         if let Some(Err(why)) = cleared {
             self.notice = Some(why);
@@ -462,6 +470,10 @@ impl App {
                 };
                 #[cfg(not(feature = "dev"))]
                 let client = bramley_api::Client::new(tokens);
+                let client = match self.api_cache.clone() {
+                    Some(store) => client.caching(store),
+                    None => client,
+                };
                 bramley_api::worker(client.renewing(move |old| developer.refetch(old)))
             }
         };
@@ -534,12 +546,19 @@ impl App {
         true
     }
 
+    fn wipe_api_cache(&self) {
+        if let Some(store) = &self.api_cache {
+            store.wipe();
+        }
+    }
+
     fn sign_out(&mut self) {
         self.generation.fetch_add(1, Ordering::SeqCst);
         (self.sign_in, self.checking, self.notice, self.api) = (None, None, None, None);
         self.playback.sign_out();
         self.covers.reset();
         self.library.reset();
+        self.wipe_api_cache();
         let user = self.user.clone();
         let waiting = self.clearing.take().map(|(_, waiting)| waiting);
         let job = worker(move || user.clear().map(|()| false));

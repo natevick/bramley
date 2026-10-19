@@ -11,7 +11,7 @@
   - a player bar along the bottom;
   - the queue as a side panel.
   Every UI slice ships screenshots before merge.
-- **2026-10-10: artwork cache (Nate).** Artwork is cached in memory only, never on disk.
+- **2026-10-10: artwork cache (Nate).** Artwork is cached in memory only, never on disk. Superseded 2026-10-18, below.
 - **2026-10-10: agent access (Nate).** Bramley is controllable by agents: a CLI (`bramley play|pause|next|…`) and a local MCP server (`bramley mcp`). Both talk to the running instance. See the compliance interpretation log.
 - **2026-10-10: user-token storage (coordinator's call after the S3 review; Nate may override).**
   - The keyring is the source of truth, and there is only ever one copy. An import into the keyring is read back and then deletes the old `music-user-token` file. A save to the keyring also removes the file.
@@ -35,6 +35,13 @@
   - `v020-counted-1` FAILed one check, F4: one cold start of five got a transient HTTP 403 from Apple's storefront sign-in check at launch, and Bramley treated it as signed out. See `docs/v0.2.0-RESULTS.md`.
   - The 403 handling predates 0.2.0 and is in every release. 0.2.0's changes (version 0.2.0 for app and engine, `#[non_exhaustive]` public engine enums, type-to-jump matching) don't touch it.
   - 0.2.0 ships with it as a known issue. The fix is next: confirm a storefront 403 before signing the user out.
+- **2026-10-18: on-disk cache for artwork and API responses (Nate).**
+  - Nate: "we need to add cache so the load of album art etc is not as slow. If I get in trouble with Apple that is fine".
+  - This supersedes "2026-10-10: artwork cache (Nate)", which kept artwork in memory only. See the compliance interpretation log for the matching amendments.
+  - **Where:** `$XDG_CACHE_HOME/bramley` (default `~/.cache/bramley`), directories 0700, files 0600.
+  - **Art:** the encoded image bytes as fetched, keyed by URL including size. Capped at 512 MB with least-recently-used eviction. Kept at sign-out.
+  - **API:** browse responses only (library lists and album, playlist and artist track lists), served stale while one background worker refetches. Scoped to the account and wiped at sign-out. Capped at 64 MB. Listening history (recent plays, heavy rotation, replay summaries, recently added) is never cached on disk.
+  - **Unchanged:** compliance rule 6. Nothing from the playback or license path, and nothing musickit.js fetches, is cached.
 - **2026-10-19: v0.2.1 ships over a failed acceptance check (Nate).**
   - `v021-counted-1` FAILed F7 (one MCP `library_playlists` call returned an error) and F9 (one of five MCP plays stayed silent), both in the same minute of one session. See `docs/v0.2.1-RESULTS.md`.
   - Neither touches v0.2.1's changes. The MCP library path is byte-identical to v0.2.0, which passed. The S28 engine code runs once at boot, before the first play succeeded. Both are first-ever failures in 22 counted runs. Their causes weren't recorded, because `drive.py` drops the error text (S31).

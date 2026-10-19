@@ -1328,3 +1328,52 @@ fn typing_on_albums_jumps_the_grid_to_the_row_of_the_first_match() {
     let shown = on((&ctx, &mut lib), albums(), 1.1, vec![]);
     assert!(names(&shown).contains(&"Mx0") && !names(&shown).contains(&"Ax0"));
 }
+
+#[test]
+fn a_changed_first_page_replaces_the_stale_one_in_place_and_an_old_session_is_ignored() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+    let mut job = lib.tick(now, true, || {}).remove(0);
+    let refresh = job.refresh.take().expect("a library page revalidates");
+    (job.done)(Ok(page(0..100, Some("/v1/me/library/songs?offset=100"))));
+    lib.receive(&ctx);
+    lib.lists[List::Songs as usize].wanted = true;
+    answer(&mut lib, &ctx, now + DEADLINE, page(100..150, None));
+    assert_eq!(lib.list(List::Songs).items.len(), 150);
+    refresh(Ok(page(500..600, Some("/v1/me/library/songs?offset=100"))));
+    lib.receive(&ctx);
+    let songs = lib.list(List::Songs);
+    let ids: Vec<_> = songs.items.iter().map(|i| i.id.as_str()).collect();
+    assert_eq!((ids.len(), ids[0], ids[99]), (100, "i.500", "i.599"));
+    assert!(songs.next.is_some(), "the later pages load again on demand");
+
+    let mut lib = Library::default();
+    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+    let late = lib.tick(now, true, || {}).remove(0).refresh.unwrap();
+    lib.reset();
+    late(Ok(page(0..100, None)));
+    lib.receive(&ctx);
+    assert!(
+        lib.list(List::Songs).items.is_empty(),
+        "a refresh from before sign-out landed"
+    );
+}
+
+#[test]
+fn a_403_on_revalidation_reloads_the_list_live_and_the_403_rules_end_in_sign_out() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+    let mut job = lib.tick(now, true, || {}).remove(0);
+    let refresh = job.refresh.take().unwrap();
+    (job.done)(Ok(page(0..100, None)));
+    lib.receive(&ctx);
+    assert_eq!(lib.list(List::Songs).items.len(), 100);
+    refresh(Err(Error::SignInNeeded));
+    lib.receive(&ctx);
+    assert!(
+        lib.list(List::Songs).items.is_empty(),
+        "the revoked page was dropped"
+    );
+    refused_thrice(&mut lib, &ctx, &Route::Songs);
+    assert!(lib.denied);
+}

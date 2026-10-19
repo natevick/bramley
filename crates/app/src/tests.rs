@@ -1272,6 +1272,8 @@ fn fixture_source(fx: &Fixture, art_prefix: bool) -> (Source, std::path::PathBuf
         api,
         art_prefix: art_prefix.then(|| fx.base.clone()),
         user: mock_user(&config),
+        art_cache: None,
+        api_cache: None,
     };
     (source, config)
 }
@@ -3595,4 +3597,102 @@ fn an_art_request_on_a_pooled_socket_that_went_silent_is_retried_fresh_in_about_
         matches!(again, Ok(took) if took < Duration::from_secs(13)),
         "{again:?}"
     );
+}
+
+mod disk_cache {
+    use bramley_api::store::Store;
+
+    use super::*;
+
+    fn root(name: &str) -> std::path::PathBuf {
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp");
+        let dir = dir.join(format!("cache-test-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    fn arts(fx: &Fixture) -> usize {
+        fx.paths().iter().filter(|p| p.starts_with("/art/")).count()
+    }
+
+    fn cached(store: &Arc<Store>) -> covers::Tally {
+        covers::Tally::caching(Some(store.clone()))
+    }
+
+    fn open_home(fx: &Fixture, store: &Arc<Store>) -> Grid {
+        let (mut source, config) = fixture_source(fx, true);
+        source.art_cache = Some(store.clone());
+        let ctx = egui::Context::default();
+        let mut grid = Grid::new(Some(source));
+        grid.follow(&ctx, true);
+        settle(&mut grid, &ctx);
+        std::fs::remove_dir_all(&config).unwrap();
+        grid
+    }
+
+    #[test]
+    fn an_art_cache_hit_makes_no_network_request_and_survives_a_restart() {
+        let fx = fixture(SERVE);
+        let dir = root("art");
+        let url = format!("{}/art/3/96x96bb.jpg", fx.base);
+        let mut agent = covers::agent();
+        let store = Arc::new(Store::open(&dir, "art", 1 << 20).unwrap());
+        let fetched = covers::cover(&mut agent, &url, 96, &cached(&store)).unwrap();
+        let hit = covers::cover(&mut agent, &url, 96, &cached(&store)).unwrap();
+        let restarted = Arc::new(Store::open(&dir, "art", 1 << 20).unwrap());
+        let again = covers::cover(&mut agent, &url, 96, &cached(&restarted)).unwrap();
+        assert_eq!((arts(&fx), hit.pixels == fetched.pixels), (1, true));
+        assert_eq!(again.pixels, fetched.pixels);
+    }
+
+    #[test]
+    fn a_corrupt_art_entry_is_refetched_not_trusted() {
+        let fx = fixture(SERVE);
+        let url = format!("{}/art/3/96x96bb.jpg", fx.base);
+        let store = Arc::new(Store::open(&root("corrupt"), "art", 1 << 20).unwrap());
+        store.put(&["art", &url], b"not a jpeg", store.epoch());
+        let image = covers::cover(&mut covers::agent(), &url, 96, &cached(&store));
+        assert_eq!((image.is_ok(), arts(&fx)), (true, 1));
+    }
+
+    #[test]
+    fn the_home_grid_fills_from_the_art_cache_on_a_second_open() {
+        let fx = fixture(SERVE);
+        let store = Arc::new(Store::open(&root("home"), "art", 1 << 24).unwrap());
+        assert_eq!(open_home(&fx, &store).uploaded(), 50);
+        assert_eq!(arts(&fx), 50);
+        assert_eq!(open_home(&fx, &store).uploaded(), 50);
+        assert_eq!(arts(&fx), 50, "the second open fetched no art");
+    }
+
+    #[test]
+    fn sign_out_wipes_the_api_cache_and_keeps_the_art_cache() {
+        let (mut app, _ends, inbox, ctx, config, _fx) = app_on(SERVE);
+        let dir = root("sign-out");
+        let api = Arc::new(Store::open(&dir, "api", 1 << 20).unwrap());
+        let art = Store::open(&dir, "art", 1 << 20).unwrap();
+        api.put(&["library"], b"library data", api.epoch());
+        art.put(&["cover"], b"art bytes", art.epoch());
+        app.api_cache = Some(api.clone());
+        let counts = app.status_json()["cache"].clone();
+        ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignOut);
+        std::fs::remove_dir_all(&config).unwrap();
+        assert_eq!(
+            api.epoch(),
+            2,
+            "once on sign-out, once when the keyring clear finishes"
+        );
+        assert_eq!(api.get(&["library"]), None);
+        assert!(art.get(&["cover"]).is_some());
+        let mut keys: Vec<_> = counts.as_object().unwrap().keys().cloned().collect();
+        keys.sort();
+        let want = [
+            "apiHits",
+            "apiMisses",
+            "apiRevalidations",
+            "artHits",
+            "artMisses",
+        ];
+        assert_eq!(keys, want);
+    }
 }

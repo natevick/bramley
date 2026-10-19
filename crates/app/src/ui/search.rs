@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
+use bramley_api::store::Store;
 use bramley_api::{Call, Error, Item, Job, Kind, Reply, SearchResults};
 use egui::{Color32, ColorImage, Key, RichText, TextureHandle, WidgetType};
 use serde_json::{Value, json};
@@ -61,6 +62,11 @@ pub struct Search {
 }
 
 impl Search {
+    pub fn art_cache(&mut self, cache: Option<Arc<Store>>) {
+        self.art.cache.clone_from(&cache);
+        self.recent_art.cache = cache;
+    }
+
     pub fn new(art_prefix: Option<String>) -> Self {
         let (tx, rx) = channel();
         let (recent_tx, recent_rx) = channel();
@@ -274,6 +280,7 @@ pub(super) fn art_key(item: &Item) -> String {
 
 pub struct Art {
     prefix: Option<String>,
+    cache: Option<Arc<Store>>,
     pt: f32,
     current: Arc<AtomicU64>,
     pub(super) tx: Sender<Fetched>,
@@ -287,6 +294,7 @@ impl Art {
         let (tx, rx) = channel();
         Art {
             prefix,
+            cache: None,
             pt,
             current: Arc::default(),
             tx,
@@ -299,6 +307,10 @@ impl Art {
     #[cfg(test)]
     pub(super) fn wanted(&self) -> usize {
         self.textures.len()
+    }
+
+    pub(super) fn set_cache(&mut self, cache: Option<Arc<Store>>) {
+        self.cache = cache;
     }
 
     pub(super) fn set(&self) -> u64 {
@@ -338,7 +350,7 @@ impl Art {
         let url = art_url(template, px).filter(|url| allowed_art(url, self.prefix.as_deref()));
         if self.jobs.is_none() {
             let (current, done) = (self.current.clone(), self.tx.clone());
-            self.jobs = fetcher(current, done, ctx.clone());
+            self.jobs = fetcher(current, done, (ctx.clone(), self.cache.clone()));
         }
         if let (Some(jobs), Some(url)) = (&self.jobs, url) {
             let _ = jobs.send((self.set(), key, url, px));
@@ -349,11 +361,11 @@ impl Art {
 fn fetcher(
     current: Arc<AtomicU64>,
     done: Sender<Fetched>,
-    waker: egui::Context,
+    (waker, cache): (egui::Context, Option<Arc<Store>>),
 ) -> Option<Sender<Wanted>> {
     let (jobs, queue) = channel::<Wanted>();
     let fetch = move || {
-        let (mut agent, tally) = (covers::agent(), Tally::default());
+        let (mut agent, tally) = (covers::agent(), Tally::caching(cache));
         let live = queue
             .into_iter()
             .filter(|job| job.0 == current.load(Ordering::SeqCst));
