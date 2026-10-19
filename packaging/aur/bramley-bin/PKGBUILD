@@ -26,8 +26,4 @@ package() {
     "${pkgdir}/usr/share/applications/bramley.desktop"
   install -Dm644 "${dir}/packaging/icons/bramley.svg" \
     "${pkgdir}/usr/share/icons/hicolor/scalable/apps/bramley.svg"
-  install -Dm644 "${dir}/packaging/systemd/bramley-warm.service" \
-    "${pkgdir}/usr/lib/systemd/user/bramley-warm.service"
-  install -Dm644 "${dir}/packaging/systemd/bramley-warm.timer" \
-    "${pkgdir}/usr/lib/systemd/user/bramley-warm.timer"
 }

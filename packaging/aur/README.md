@@ -9,8 +9,6 @@
 | `/usr/bin/bramley` | `bramley` |
 | `/usr/share/applications/bramley.desktop` | `packaging/applications/bramley.desktop` |
 | `/usr/share/icons/hicolor/scalable/apps/bramley.svg` | `packaging/icons/bramley.svg` |
-| `/usr/lib/systemd/user/bramley-warm.service` | `packaging/systemd/bramley-warm.service` |
-| `/usr/lib/systemd/user/bramley-warm.timer` | `packaging/systemd/bramley-warm.timer` |
 | `/usr/share/licenses/bramley-bin/LICENSE` | `LICENSE` |
 | `/usr/share/doc/bramley-bin/README.md` | `README.md` |
 
