@@ -6,7 +6,8 @@ Committed before any real measurement. Thresholds do not move after data comes i
 
 **Build.** natevick/s32-warm, `cargo build --release --features dev`. The cold arm uses the same binary and never runs `warm`. Every launch and warm run uses `cs.isolated` (own XDG_CACHE_HOME, config, keyring service), no playback, the real instance slot (refused if a real Bramley is running).
 
-**Arms.** Route `album:<id>`, one album per launch. Order C1 W1 C2 W2 C3 W3 T, spawns at least 60 s apart.
+**Arms.** Route `album:<id>`, one album per launch. Order S, up to 5 warm runs, C1 W1 C2 W2 C3 W3 T, every spawn and run at least 70 s apart.
+- S (seed): one app launch, route `songs`, in the W config before the first warm run, so the app records the display scale that warm needs (a fresh config has none). Not judged; its `frame` joins the first-frame baseline.
 - C (cold): a fresh isolated config and empty cache per launch.
 - W (warm): one isolated config. Up to 5 `bramley warm` runs, at least 60 s apart, stopping early on `stopped=complete`. `developer-token.json` is deleted before each W launch (the cache dir holds it only in W).
 - T: the app launched about 2 s into a 6th warm run in the W config, route `songs`.
@@ -18,9 +19,9 @@ Committed before any real measurement. Thresholds do not move after data comes i
 **Bar, fixed now.**
 1. Median W `covers` <= 0.5 s. C median is reported (expected about 2 s) with within-arm spread.
 2. Each warm run: `requests` <= 60, and the API paced at 1 s (checked by the unit tests and the printed counts).
-3. T: `frame` <= 1.2 x the median `frame` of the six C and W launches, the app holds the slot (no "already running"), and the overlapping warm run prints `stopped=app-running`.
+3. T: `frame` <= 1.2 x the median `frame` of the S, C and W launches, the app holds the slot (no "already running"), and the overlapping warm run prints `stopped=app-running`.
 
-**Did-it-run.** Warm runs: `cached` > 0 until one prints `complete`. A W launch counts only if its track list and cover entries existed before it; a C launch only if they did not; both reached the route, painted, and had `artTextures` > 0. An invalid launch is not repeated; an arm left with n < 2 makes the verdict inconclusive. Caps: 6 warm runs, 10 launches.
+**Did-it-run.** Warm runs: `cached` > 0 until one prints `complete`. A W launch counts only if its track list and cover entries existed before it; a C launch only if they did not; both reached the route, painted, and had `artTextures` > 0. An invalid launch is not repeated; an arm left with n < 2 makes the verdict inconclusive. Caps: 6 warm runs, 10 launches (8 planned).
 
 **Budget conflict rule.** If no run prints `complete` by the 5th, the bar is judged on P as drawn, the coverage ratio is reported, and the conflict goes to the lead; it is not read as a pass for the whole library.
 
