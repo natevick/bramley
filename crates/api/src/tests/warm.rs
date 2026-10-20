@@ -252,7 +252,7 @@ fn a_401_or_403_stops_and_leaves_the_cache_as_it_was() {
         assert_eq!(go(&w).stop, Stop::Complete);
         let before = snapshot(&w.store, &server);
         assert!(before.iter().all(|(_, body)| body.is_some()));
-        backdate(&w, 3600);
+        backdate(&w, 25 * 3600);
 
         let mut routes = library(2, 1);
         routes[0].1 = vec![(status, String::new(), Vec::new())];
@@ -364,25 +364,25 @@ fn fresh_entries_make_no_request_and_the_oldest_track_lists_are_refreshed_first(
         file.set_modified(SystemTime::now() - Duration::from_secs(seconds))
             .unwrap();
     };
-    age(2, 7 * 3600);
-    age(3, 9 * 3600);
+    age(2, 25 * 3600);
+    age(3, 27 * 3600);
     let before = server.targets().len();
     rerun(&server, &w);
     assert_eq!(paths(&server)[before..], [tracks(3), tracks(2)]);
 }
 
 #[test]
-fn list_pages_are_refreshed_only_after_30_minutes() {
+fn list_pages_are_refreshed_only_after_a_day() {
     let server = library_server(2, 1);
     let w = warmed(&server, "lists", fast());
     go(&w);
-    backdate(&w, 25 * 60);
+    backdate(&w, 23 * 3600);
     assert_eq!(rerun(&server, &w).requests, 0);
-    backdate(&w, 31 * 60);
+    backdate(&w, 25 * 3600);
     let lists = paths(&server).len();
     let report = rerun(&server, &w);
     let refreshed = &paths(&server)[lists..];
-    assert_eq!(report.requests, 4, "{refreshed:?}");
+    assert_eq!(report.requests, 7, "{refreshed:?}");
     assert!(
         refreshed[..4]
             .iter()
@@ -427,7 +427,7 @@ fn an_empty_playlist_is_cached_as_empty_and_not_asked_for_every_run() {
     let server = serving(&routes);
     let w = warmed(&server, "empty", fast());
     assert_eq!(go(&w).stop, Stop::Complete);
-    backdate(&w, 31 * 60);
+    backdate(&w, 23 * 3600);
     rerun(&server, &w);
     let asked = paths(&server);
     let tracks = asked.iter().filter(|p| p.ends_with("p.1/tracks")).count();
@@ -520,7 +520,7 @@ fn paged(routes: &mut [(String, Vec<Response>)], first: &str, second: &str) {
 }
 
 #[test]
-fn later_album_pages_are_followed_and_refreshed_with_the_first_page_after_30_minutes() {
+fn later_album_pages_are_followed_and_refreshed_with_the_first_page_after_a_day() {
     let mut routes = library(2, 0);
     let (first, second) = (
         rows("library-albums", "l", 1),
@@ -551,7 +551,7 @@ fn later_album_pages_are_followed_and_refreshed_with_the_first_page_after_30_min
 
     rerun(&server, &w);
     assert_eq!(on_albums(&server), 2, "fresh pages are read, not requested");
-    backdate(&w, 31 * 60);
+    backdate(&w, 25 * 3600);
     rerun(&server, &w);
-    assert_eq!(on_albums(&server), 4, "both pages were past 30 minutes");
+    assert_eq!(on_albums(&server), 4, "both pages were past a day");
 }

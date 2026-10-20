@@ -50,3 +50,7 @@
   - `v021-counted-1` FAILed F7 (one MCP `library_playlists` call returned an error) and F9 (one of five MCP plays stayed silent), both in the same minute of one session. See `docs/v0.2.1-RESULTS.md`.
   - Neither touches v0.2.1's changes. The MCP library path is byte-identical to v0.2.0, which passed. The S28 engine code runs once at boot, before the first play succeeded. Both are first-ever failures in 22 counted runs. Their causes weren't recorded, because `drive.py` drops the error text (S31).
   - v0.2.1 ships the S28 fix for the storefront 403 sign-out, which caused `v020-counted-1`'s F4 failure, and the de-flaked Home retry test. The disk cache follows as its own release.
+- **2026-10-20: the cache warmer refreshes once a day (Nate).**
+  - Nate: "Yes we should cut that way down. Once a day feels ok for now".
+  - On Nate's laptop, warm had made 1,045 requests in 12 hours: 120 runs, every one `complete`. Most were 6-hour track-list refreshes.
+  - Library list pages and album and playlist track lists now refresh after 24 hours, down from 30 minutes and 6 hours, so a warm library costs about one refresh of each a day. Art is never re-fetched. While the app is open, stale-while-revalidate still refreshes what you view.

@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 use crate::client::{Client, Error, Session, Shelf};
 use crate::models::{Item, Kind, Page, art_url};
 
-const REFRESH: Duration = Duration::from_secs(6 * 3600);
-const LISTS: Duration = Duration::from_secs(30 * 60);
+const REFRESH: Duration = Duration::from_secs(24 * 3600);
+const LISTS: Duration = REFRESH;
 const VISIBLE: usize = 24;
 const RESERVE: usize = 2;
 
