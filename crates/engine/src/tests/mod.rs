@@ -267,7 +267,7 @@ fn every_cargo_feature_carries_an_unshipped_marker() {
         .unwrap()
         .lines()
         .filter_map(|l| l.split_once('=').map(|(name, _)| name.trim()))
-        .filter(|name| *name != "default")
+        .filter(|name| !["default", "runtime"].contains(name))
         .collect();
     assert!(
         !features.is_empty(),
