@@ -6,7 +6,6 @@ use super::library::Library;
 use super::nav::{Nav, Route};
 
 const ENTRY_PT: f32 = 28.0;
-const FOOTER_PT: f32 = 90.0;
 const CHEVRON_PT: f32 = 24.0;
 
 fn entry(ui: &mut egui::Ui, current: &Route, route: Route, navs: &mut Vec<Nav>) -> egui::Response {
@@ -43,7 +42,18 @@ fn chevron(ui: &mut egui::Ui, link: &egui::Response, collapsed: &mut bool) {
     );
 }
 
-pub fn show(ui: &mut egui::Ui, current: &Route, library: &mut Library, navs: &mut Vec<Nav>) {
+pub fn show(
+    ui: &mut egui::Ui,
+    current: &Route,
+    library: &mut Library,
+    navs: &mut Vec<Nav>,
+    signed_in: bool,
+) -> bool {
+    let footer = egui::Panel::bottom("sidebar-account")
+        .resizable(false)
+        .show_separator_line(false)
+        .frame(egui::Frame::NONE);
+    let sign_out = footer.show(ui, |ui| account(ui, signed_in)).inner;
     ui.add_space(10.0);
     ui.heading("Bramley");
     ui.add_space(10.0);
@@ -58,21 +68,19 @@ pub fn show(ui: &mut egui::Ui, current: &Route, library: &mut Library, navs: &mu
     let link = entry(ui, current, Route::Playlists, navs);
     chevron(ui, &link, &mut library.playlists_collapsed);
     if !library.playlists_collapsed {
-        let height = ui.available_height() - FOOTER_PT;
+        let height = ui.available_height();
         ui.indent("sidebar-playlists-nest", |ui| {
             super::library::sidebar(ui, library, current, navs, height)
         });
     }
+    sign_out
 }
 
 pub fn account(ui: &mut egui::Ui, signed_in: bool) -> bool {
-    let mut sign_out = false;
-    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-        ui.add_space(10.0);
-        sign_out = signed_in && ui.button("Sign out").clicked();
-        if signed_in {
-            ui.label(RichText::new("Signed in to Apple Music").weak());
-        }
-    });
+    if signed_in {
+        ui.label(RichText::new("Signed in to Apple Music").weak());
+    }
+    let sign_out = signed_in && ui.button("Sign out").clicked();
+    ui.add_space(10.0);
     sign_out
 }

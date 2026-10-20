@@ -21,6 +21,7 @@ pub const ROW_PT: f32 = 40.0;
 pub const CELL_PT: f32 = 140.0;
 const SIDEBAR_ROW_PT: f32 = 22.0;
 const STRIP_PT: f32 = 18.0;
+const STRIP_MIN_LETTER_PT: f32 = 11.0;
 const TYPING_PAUSE: f64 = 1.0;
 pub const MARGIN: usize = 20;
 pub const ART_CAP: usize = 96;
@@ -493,20 +494,26 @@ fn strip(ui: &mut egui::Ui, items: &[Item]) -> Option<char> {
     let area = egui::Rect::from_min_max(egui::pos2(full.right() - STRIP_PT, full.top()), full.max);
     ui.set_max_width(full.width() - STRIP_PT - ui.spacing().item_spacing.x);
     let present: HashSet<char> = items.iter().filter_map(initial).collect();
-    let height = (area.height() / 26.0).clamp(10.0, 20.0);
+    let letters: Vec<char> = ('A'..='Z').collect();
+    let fit = ((area.height() / STRIP_MIN_LETTER_PT) as usize).clamp(1, letters.len());
+    let mut spans: Vec<&[char]> = letters.chunks(letters.len().div_ceil(fit)).collect();
+    if let Some(last) = spans.pop() {
+        let (head, tail) = last.split_at(last.len() - 1);
+        spans.extend([head, tail].into_iter().filter(|span| !span.is_empty()));
+    }
+    let height = (area.height() / spans.len() as f32).min(20.0);
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area));
     child.spacing_mut().item_spacing.y = 0.0;
+    child.spacing_mut().interact_size.y = 0.0;
     let mut hit = None;
-    for letter in 'A'..='Z' {
-        let text = RichText::new(letter).small();
-        let text = if present.contains(&letter) {
-            text
-        } else {
-            text.weak()
-        };
+    for span in spans {
+        let first = span.iter().copied().find(|l| present.contains(l));
+        let shown = span[0];
+        let text = RichText::new(shown).small();
+        let text = if first.is_some() { text } else { text.weak() };
         let button = child.add_sized([STRIP_PT, height], egui::Button::new(text).frame(false));
-        if labeled(button, WidgetType::Button, &format!("Jump to {letter}")).clicked() {
-            hit = Some(letter);
+        if labeled(button, WidgetType::Button, &format!("Jump to {shown}")).clicked() {
+            hit = Some(first.unwrap_or(shown));
         }
     }
     hit
@@ -931,10 +938,13 @@ pub fn sidebar(
     navs: &mut Vec<Nav>,
     height: f32,
 ) {
+    if height < SIDEBAR_ROW_PT {
+        return;
+    }
     let loaded = lib.list(List::Playlists).items.len();
     let area = egui::ScrollArea::vertical()
         .id_salt("sidebar-playlists")
-        .max_height(height.max(SIDEBAR_ROW_PT));
+        .max_height(height);
     area.show_rows(ui, SIDEBAR_ROW_PT, loaded, |ui, rows| {
         lib.lists[List::Playlists as usize].wanted |= rows.end + MARGIN >= loaded;
         for item in &lib.list(List::Playlists).items[rows] {

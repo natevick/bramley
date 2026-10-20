@@ -17,8 +17,15 @@ pub fn show(
     (shell, search, library, detail): (&mut Shell, &mut Search, &mut Library, &mut Detail),
     covers: &Grid,
     (actions, navs): (&mut Vec<Action>, &mut Vec<Nav>),
+    compact: bool,
 ) {
     let title = ui.horizontal(|ui| {
+        if compact {
+            let menu = ui.button(RichText::new("☰").size(16.0));
+            if labeled(menu, WidgetType::Button, "Menu").clicked() {
+                navs.push(Nav::ToggleDrawer);
+            }
+        }
         let back = ui.add_enabled(
             shell.can_go_back(),
             egui::Button::new(RichText::new("⬅").size(16.0)),

@@ -971,8 +971,7 @@ fn sidebar(
         ..RawInput::default()
     };
     let mut out = ctx.run_ui(input, |ui| {
-        crate::ui::sidebar::show(ui, route, lib, &mut navs);
-        crate::ui::sidebar::account(ui, true);
+        crate::ui::sidebar::show(ui, route, lib, &mut navs, true);
     });
     out.textures_delta.clear();
     let tree = out.platform_output.accesskit_update.expect("a tree");
@@ -1067,7 +1066,8 @@ fn the_chevron_folds_and_unfolds_the_playlists_and_the_link_still_opens_the_page
 #[test]
 fn hundreds_of_playlists_still_leave_albums_songs_and_sign_out_on_screen() {
     let (ctx, mut lib) = (egui::Context::default(), playlists(300));
-    let (nodes, _) = sidebar(&ctx, &mut lib, &Route::Home, 420.0, vec![]);
+    let settle = |_| sidebar(&ctx, &mut lib, &Route::Home, 420.0, vec![]);
+    let (nodes, _) = (0..3).map(settle).last().unwrap();
     let (songs, out) = (bounds(&nodes, "Songs"), bounds(&nodes, "Sign out"));
     let footer = nodes.iter().find(|(l, _)| l == "Signed in to Apple Music");
     let footer = footer
@@ -1075,13 +1075,43 @@ fn hundreds_of_playlists_still_leave_albums_songs_and_sign_out_on_screen() {
         .expect("the signed-in line");
     assert!(bounds(&nodes, "Albums").y1 <= songs.y0);
     let rows = nodes.iter().filter(|(l, _)| l.starts_with("Secret"));
-    let last = rows
-        .filter_map(|(_, n)| n.bounds())
-        .map(|r| r.y1)
-        .fold(0.0, f64::max);
+    let tops: Vec<f64> = rows.filter_map(|(_, n)| n.bounds()).map(|r| r.y0).collect();
+    let clipped = tops.iter().filter(|top| **top >= footer.y0).count();
     assert!(songs.y1 <= footer.y0, "{songs:?} {footer:?}");
-    assert!(last > songs.y1 && last <= footer.y0, "{last} {footer:?}");
+    assert!(tops.iter().any(|top| *top > songs.y1 && *top < footer.y0));
+    assert!(
+        clipped <= 1,
+        "{clipped} rows begin below the footer {footer:?}"
+    );
     assert!(footer.y1 <= out.y0 && out.y1 <= 420.0, "{footer:?} {out:?}");
+}
+
+#[test]
+fn the_footer_stays_below_the_playlist_rows_and_a_sliver_of_list_is_never_drawn_over_it() {
+    for height in [300.0, 320.0, 340.0, 380.0, 420.0, 720.0] {
+        let (ctx, mut lib) = (egui::Context::default(), playlists(300));
+        let settle = |_| sidebar(&ctx, &mut lib, &Route::Home, height, vec![]);
+        let (nodes, _) = (0..3).map(settle).last().unwrap();
+        let footer = bounds(&nodes, "Signed in to Apple Music");
+        let tops = nodes.iter().filter(|(l, _)| l.starts_with("Secret"));
+        let tops: Vec<f64> = tops.filter_map(|(_, n)| n.bounds()).map(|r| r.y0).collect();
+        let clipped = tops.iter().filter(|top| **top >= footer.y0).count();
+        assert!(
+            clipped <= 2,
+            "{height}: {clipped} rows begin below the footer {footer:?}"
+        );
+        let room = footer.y0 - bounds(&nodes, "Playlists").y1;
+        assert_eq!(
+            tops.is_empty(),
+            room < 25.0,
+            "{height}: {room} left for {} rows",
+            tops.len()
+        );
+        assert!(
+            bounds(&nodes, "Sign out").y1 <= f64::from(height),
+            "{height}: sign out is cut off"
+        );
+    }
 }
 
 fn lettered(letters: std::ops::Range<u8>) -> Vec<Item> {
@@ -1405,4 +1435,117 @@ fn warm_asks_for_the_urls_and_sizes_the_library_view_asks_for() {
         let warm = |px| (bramley_api::art_url(template, px).unwrap(), px);
         assert_eq!(asked, [warm(sizes.row), warm(sizes.cell)], "{scale}");
     }
+}
+
+fn strip_at(
+    ctx: &egui::Context,
+    lib: &mut Library,
+    height: f32,
+    events: Vec<Event>,
+) -> Vec<(String, Rect)> {
+    ctx.enable_accesskit();
+    let screen = Rect::from_min_size(Pos2::ZERO, vec2(800.0, height));
+    let input = RawInput {
+        screen_rect: Some(screen),
+        events,
+        ..RawInput::default()
+    };
+    let mut out = ctx.run_ui(input, |ui| {
+        let route = (&Route::Artists, &mut None);
+        show(ui, lib, route, (&mut vec![], &mut vec![]))
+    });
+    out.textures_delta.clear();
+    let nodes = out.platform_output.accesskit_update.expect("a tree").nodes;
+    let named = nodes.iter().filter_map(|(_, n)| {
+        let b = n.bounds()?;
+        let (min, max) = (
+            Pos2::new(b.x0 as f32, b.y0 as f32),
+            Pos2::new(b.x1 as f32, b.y1 as f32),
+        );
+        Some((n.label()?.to_owned(), Rect::from_min_max(min, max)))
+    });
+    named.collect()
+}
+
+fn settled_strip(ctx: &egui::Context, lib: &mut Library, height: f32) -> Vec<(char, Rect)> {
+    let nodes = (0..3)
+        .map(|_| strip_at(ctx, lib, height, vec![]))
+        .last()
+        .unwrap();
+    let letter = |(label, rect): &(String, Rect)| {
+        Some((label.strip_prefix("Jump to ")?.chars().next()?, *rect))
+    };
+    let mut letters: Vec<_> = nodes.iter().filter_map(letter).collect();
+    letters.sort_by_key(|(l, _)| *l);
+    letters
+}
+
+#[test]
+fn the_a_to_z_strip_fits_any_height_keeping_a_and_z_and_thinning_to_fewer_letters() {
+    for height in [720.0, 480.0, 300.0, 200.0, 120.0] {
+        let mut lib = Library::default();
+        lib.lists[List::Artists as usize].items = lettered(b'A'..b'C');
+        let letters = settled_strip(&egui::Context::default(), &mut lib, height);
+        let shown: String = letters.iter().map(|(l, _)| *l).collect();
+        assert!(
+            shown.starts_with('A') && shown.ends_with('Z'),
+            "{height}: {shown}"
+        );
+        assert_eq!(shown.len() == 26, height >= 300.0, "{height}: {shown}");
+        for (letter, rect) in &letters {
+            assert!(
+                rect.bottom() <= height + 0.5,
+                "{height}: {letter} is cut off at {}",
+                rect.bottom()
+            );
+        }
+        let stacked = letters
+            .windows(2)
+            .all(|w| w[0].1.bottom() <= w[1].1.top() + 0.5);
+        assert!(stacked, "{height}: letters overlap in {shown}");
+    }
+}
+
+#[test]
+fn a_letter_the_thin_strip_hides_still_jumps_through_its_neighbour_and_by_typing() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    let mut names = lettered(b'A'..b'B');
+    names.extend(lettered(b'D'..b'E'));
+    lib.lists[List::Artists as usize].items = names;
+    let letters = settled_strip(&ctx, &mut lib, 200.0);
+    let shown: String = letters.iter().map(|(l, _)| *l).collect();
+    assert!(shown.contains('C') && !shown.contains('D'), "{shown}");
+    let top = |nodes: &[(String, Rect)], name: &str| {
+        let row = nodes.iter().find(|(l, _)| l.ends_with(name));
+        row.map_or(f32::MAX, |(_, r)| r.top())
+    };
+    let c = letters
+        .iter()
+        .find(|(l, _)| *l == 'C')
+        .expect("the C button")
+        .1;
+    let at = Pos2::new(790.0, c.center().y);
+    let button = |pressed| Event::PointerButton {
+        pos: at,
+        button: PointerButton::Primary,
+        pressed,
+        modifiers: Default::default(),
+    };
+    let before = strip_at(&ctx, &mut lib, 200.0, vec![]);
+    assert!(top(&before, "Dx0") > 200.0, "D starts below the fold");
+    strip_at(
+        &ctx,
+        &mut lib,
+        200.0,
+        vec![Event::PointerMoved(at), button(true)],
+    );
+    strip_at(&ctx, &mut lib, 200.0, vec![button(false)]);
+    let after = strip_at(&ctx, &mut lib, 200.0, vec![]);
+    assert!(
+        top(&after, "Dx0") < 60.0,
+        "C jumped to D: {}",
+        top(&after, "Dx0")
+    );
+    strip_at(&ctx, &mut lib, 200.0, vec![text("a")]);
+    assert_eq!(lib.typed.0, "a", "every letter still types");
 }

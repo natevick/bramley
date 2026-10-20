@@ -66,6 +66,7 @@ pub enum Nav {
     Go(Route),
     Back,
     ToggleQueue,
+    ToggleDrawer,
     FocusSearch,
     Scroll(Edge),
 }
@@ -83,6 +84,7 @@ pub struct Shell {
     pub route: Route,
     back: Vec<Route>,
     pub queue_open: bool,
+    pub drawer_open: bool,
     pub focus_search: bool,
     pub query: String,
     pub scroll: Option<Edge>,
@@ -94,6 +96,9 @@ impl Shell {
     }
 
     pub fn apply(&mut self, nav: Nav) {
+        if matches!(nav, Nav::Go(_)) {
+            self.drawer_open = false;
+        }
         match nav {
             Nav::Go(route) if route != self.route => {
                 if self.back.len() == BACK_LIMIT {
@@ -109,6 +114,7 @@ impl Shell {
                 }
             }
             Nav::ToggleQueue => self.queue_open = !self.queue_open,
+            Nav::ToggleDrawer => self.drawer_open = !self.drawer_open,
             Nav::FocusSearch => {
                 self.apply(Nav::Go(Route::Search));
                 self.focus_search = true;

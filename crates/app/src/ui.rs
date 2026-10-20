@@ -14,8 +14,34 @@ use egui::{Color32, Key, Modifiers, RichText, WidgetInfo, WidgetType};
 use crate::playback::{Action, Banner};
 use nav::Nav;
 
+pub const MIN_WINDOW: [f32; 2] = [360.0, 480.0];
+pub const COMPACT_PT: f32 = 640.0;
+pub const CONTENT_PANEL_MIN_PT: f32 = 336.0;
+pub const QUEUE_PT: f32 = 260.0;
+pub const DRAWER_PT: f32 = 260.0;
+const OVERLAY_MARGIN_PT: f32 = 8.0;
+
 const ACCENT: Color32 = Color32::from_rgb(250, 45, 72);
 const ACCENT_ON_LIGHT: Color32 = Color32::from_rgb(200, 25, 50);
+
+pub fn overlay(
+    ui: &egui::Ui,
+    name: &str,
+    rect: egui::Rect,
+    add: impl FnOnce(&mut egui::Ui),
+) -> egui::Response {
+    let area = egui::Area::new(egui::Id::new(name))
+        .order(egui::Order::Foreground)
+        .fixed_pos(rect.min)
+        .constrain(false);
+    area.show(ui.ctx(), |ui| {
+        ui.set_min_size(rect.size());
+        ui.painter().rect_filled(rect, 0.0, ui.visuals().panel_fill);
+        let inner = egui::UiBuilder::new().max_rect(rect.shrink(OVERLAY_MARGIN_PT));
+        ui.scope_builder(inner, add);
+    })
+    .response
+}
 
 pub fn banner(ui: &mut egui::Ui, banner: &Banner, offer_sign_in: bool) -> bool {
     let text = match banner {
