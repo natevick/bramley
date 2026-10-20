@@ -1,6 +1,4 @@
-#[cfg(feature = "dev")]
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
@@ -23,6 +21,7 @@ use crate::ui::nav::{Nav, Shell};
 use crate::ui::search::Search;
 use crate::{signin, ui};
 
+const VOLUME_FILE: &str = "volume";
 const REPAINT_EVERY: Duration = Duration::from_secs(1);
 const MEMORY_ONLY: [&str; 5] = ["title", "artist", "queue", "queuePosition", "queueLength"];
 const QUEUE_FIRST: &str = "Play something first; the queue starts with it.";
@@ -30,6 +29,12 @@ const TOP_UP_FAILED: &str = "More songs from your library could not be added to 
 const NOT_A_LIST: &str = "scroll works in a library list: open playlists, albums, songs, artists, a library playlist or an artist first";
 const STILL_CLEARING: &str =
     "signed out here, but the stored sign-in is still being removed; run sign-out again to check";
+
+fn load_volume(dir: &Path) -> f32 {
+    let text = std::fs::read_to_string(dir.join(VOLUME_FILE)).unwrap_or_default();
+    let percent = text.trim().parse::<u8>().ok().filter(|p| *p <= 100);
+    percent.map_or(1.0, |p| f32::from(p) / 100.0)
+}
 
 type Job = Receiver<Result<bool, &'static str>>;
 type Waiting = Vec<(Instant, Sender<String>)>;
@@ -100,6 +105,8 @@ pub struct App {
     #[cfg(feature = "dev")]
     click_cover: Option<usize>,
     playback: Playback,
+    saved_volume: u8,
+    volume_file: Option<StatusWriter>,
     user: Credentials,
     sign_in: Option<(signin::Server, bool)>,
     notice: Option<&'static str>,
@@ -189,6 +196,8 @@ impl App {
         search.art_cache(art_cache.clone());
         library.art_cache(art_cache.clone());
         detail.art_cache(art_cache);
+        let mut playback = Playback::new(spawn, signed_out);
+        playback.apply(Action::Volume(load_volume(user.dir())));
         App {
             api: None,
             api_cache: source.as_ref().and_then(|s| s.api_cache.clone()),
@@ -199,7 +208,9 @@ impl App {
             detail,
             #[cfg(feature = "dev")]
             click_cover: args.click_cover,
-            playback: Playback::new(spawn, signed_out),
+            saved_volume: percent(playback.volume()),
+            playback,
+            volume_file: None,
             user,
             sign_in: None,
             notice: None,
@@ -242,6 +253,11 @@ impl App {
     #[cfg(test)]
     pub(crate) fn scroll(&self) -> Option<ui::nav::Edge> {
         self.shell.scroll
+    }
+
+    #[cfg(test)]
+    pub(crate) fn apply(&mut self, action: Action) {
+        self.playback.apply(action);
     }
 
     #[cfg(test)]
@@ -298,6 +314,7 @@ impl App {
         status["signInReason"] = json!(self.playback.sign_in_reason());
         status["shuffleMode"] = json!(if shown.shuffle { "on" } else { "off" });
         status["repeatMode"] = json!(shown.repeat.as_str());
+        status["volume"] = json!(self.volume_percent());
         status["loadFailReason"] = match &shown.error {
             Some(PlayerError::LoadFailed(why)) => json!(why),
             _ => Value::Null,
@@ -331,14 +348,36 @@ impl App {
     }
 
     pub fn pump(&mut self, ctx: &egui::Context) -> bool {
-        self.playback.receive()
+        let changed = self.playback.receive()
             | self.covers.receive(ctx)
             | self.search.receive(ctx)
             | self.library.receive(ctx)
             | self.detail.receive(ctx)
             | self.answer_requests(ctx)
             | self.follow_sign_in()
-            | self.follow_account()
+            | self.follow_account();
+        self.save_volume();
+        changed
+    }
+
+    fn volume_percent(&self) -> u8 {
+        percent(self.playback.volume())
+    }
+
+    fn save_volume(&mut self) {
+        let percent = self.volume_percent();
+        if percent == self.saved_volume {
+            return;
+        }
+        self.saved_volume = percent;
+        let dir = self.user.dir();
+        let file = self.volume_file.get_or_insert_with(|| {
+            let _ = std::fs::create_dir_all(dir);
+            StatusWriter::new(dir.join(VOLUME_FILE))
+        });
+        if let Some(tx) = &file.tx {
+            let _ = tx.send(format!("{percent}\n"));
+        }
     }
 
     pub fn check_sign_in(&mut self) {
@@ -664,12 +703,13 @@ impl App {
     pub fn draw(&mut self, ui: &mut egui::Ui) {
         self.frames += 1;
         let (shown, started) = (self.playback.shown(), self.playback.started());
+        let volume = self.volume_percent();
         let toggle = started.then(|| play_or_pause(shown.state));
         ui::shortcuts(ui.ctx(), toggle, &mut self.actions, &mut self.navs);
         egui::Panel::bottom("now-playing").show(ui, |ui| {
             ui.add_space(8.0);
             let emit = (&mut self.actions, &mut self.navs);
-            ui::player_bar::show(ui, &shown, started, self.shell.queue_open, emit);
+            ui::player_bar::show(ui, &shown, started, volume, self.shell.queue_open, emit);
             ui.add_space(8.0);
         });
         let (mut sign_in, mut sign_out, mut dismissed) = (false, false, false);
@@ -801,6 +841,7 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.save_volume();
         self.playback.shutdown();
         self.status = None;
     }
@@ -812,6 +853,10 @@ fn loopback_port(base: Option<&str>) -> Option<u16> {
     port.bytes()
         .all(|b| b.is_ascii_digit())
         .then(|| port.parse().ok())?
+}
+
+fn percent(volume: f32) -> u8 {
+    (volume * 100.0).round() as u8
 }
 
 pub fn covers_allowed(playback: &Playback) -> bool {

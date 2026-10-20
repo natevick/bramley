@@ -71,6 +71,7 @@ pub struct Playback {
     pending: Option<Pending>,
     signed_out: Option<String>,
     shuffled: bool,
+    volume: f32,
     generation: u64,
     background: u64,
 }
@@ -88,6 +89,7 @@ impl Playback {
             pending: None,
             signed_out: signed_out.then(|| "boot-unchecked".into()),
             shuffled: false,
+            volume: 1.0,
             generation: 0,
             background: 0,
         }
@@ -104,6 +106,10 @@ impl Playback {
 
     pub fn snapshot(&self) -> &Snapshot {
         &self.snap
+    }
+
+    pub fn volume(&self) -> f32 {
+        self.volume
     }
 
     pub fn background_settled(&self) -> bool {
@@ -123,10 +129,14 @@ impl Playback {
     }
 
     pub fn apply(&mut self, action: Action) -> bool {
+        if let Action::Volume(v) = action {
+            self.volume = v;
+        }
         let (command, state, position) = match action {
             Action::PlaySong(id) => return self.play(Queue::Songs(vec![id]), 0, false),
             Action::PlayIn(queue, start) => return self.play(queue, start, false),
             Action::Shuffle(queue) => return self.play(queue, 0, true),
+            Action::Volume(_) if !self.started() => return true,
             _ if !self.started() => return false,
             Action::TopUp(ids) => {
                 self.background += 1;
@@ -163,6 +173,9 @@ impl Playback {
             (self.seq, self.snap, self.shuffled) = (0, Snapshot::default(), false);
             self.engine += 1;
             self.background = 0;
+            if self.volume != 1.0 {
+                self.send(Command::Volume(self.volume), None, None);
+            }
         }
         if self.shuffled && !shuffle {
             self.shuffled = false;

@@ -1,9 +1,13 @@
+use std::time::Duration;
+
 use bramley_engine::{Repeat, Snapshot};
 use egui::{RichText, WidgetInfo, WidgetType};
 
 use super::labeled;
 use super::nav::Nav;
 use crate::playback::{Action, play_or_pause};
+
+const VOLUME_EVERY: f64 = 0.1;
 
 pub fn clock(seconds: f64) -> String {
     let s = seconds.max(0.0) as u64;
@@ -19,6 +23,7 @@ pub fn show(
     ui: &mut egui::Ui,
     shown: &Snapshot,
     started: bool,
+    volume: u8,
     queue_open: bool,
     (actions, navs): (&mut Vec<Action>, &mut Vec<Nav>),
 ) {
@@ -35,11 +40,42 @@ pub fn show(
                 navs.push(Nav::ToggleQueue);
             }
             ui.add_enabled_ui(started, |ui| modes(ui, shown, actions));
+            volume_slider(ui, volume, actions);
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 controls(ui, shown, started, actions);
             });
         });
     });
+}
+
+fn volume_slider(ui: &mut egui::Ui, current: u8, actions: &mut Vec<Action>) {
+    let id = ui.id().with("volume");
+    let held: Option<(u8, u8, f64)> = ui.data(|d| d.get_temp(id));
+    let mut percent = held.map_or(current, |(shown, ..)| shown);
+    let slider = egui::Slider::new(&mut percent, 0..=100).show_value(false);
+    let response = ui.scope(|ui| {
+        ui.spacing_mut().slider_width = 100.0;
+        ui.add(slider)
+    });
+    let response = response.inner.on_hover_text(format!("{percent}%"));
+    let enabled = response.enabled();
+    response.widget_info(|| WidgetInfo::slider(enabled, f64::from(percent), "Volume"));
+    ui.label("🔈");
+    let now = ui.input(|i| i.time);
+    let (mut sent, mut at) = held.map_or((current, f64::NEG_INFINITY), |(_, sent, at)| (sent, at));
+    if percent != sent && (response.drag_stopped() || now - at >= VOLUME_EVERY) {
+        actions.push(Action::Volume(f32::from(percent) / 100.0));
+        (sent, at) = (percent, now);
+    }
+    if percent != sent {
+        ui.ctx()
+            .request_repaint_after(Duration::from_secs_f64(VOLUME_EVERY));
+    }
+    if percent != sent || response.dragged() {
+        ui.data_mut(|d| d.insert_temp(id, (percent, sent, at)));
+    } else {
+        ui.data_mut(|d| d.remove_temp::<(u8, u8, f64)>(id));
+    }
 }
 
 fn toggle(ui: &mut egui::Ui, on: bool, text: &str, label: &str) -> bool {

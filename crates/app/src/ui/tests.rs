@@ -203,6 +203,22 @@ fn frame(ctx: &egui::Context, app: &mut crate::app::App, input: RawInput) -> egu
 }
 
 #[test]
+fn a_volume_set_from_the_cli_shows_on_the_slider_in_the_app() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut app = app(&ctx, true);
+    app.apply(Action::Volume(0.4));
+    let out = frame(&ctx, &mut app, RawInput::default());
+    let tree = out.platform_output.accesskit_update.expect("a tree");
+    let nodes: Nodes = tree
+        .nodes
+        .into_iter()
+        .filter_map(|(_, n)| Some((n.label()?.to_owned(), n)))
+        .collect();
+    assert_eq!(volume_of(&nodes), Some(40.0));
+}
+
+#[test]
 fn the_app_applies_command_l_after_the_frame_and_focuses_the_field_next_frame() {
     let ctx = egui::Context::default();
     let mut app = app(&ctx, true);
@@ -818,6 +834,15 @@ fn bar(
     started: bool,
     events: Vec<Event>,
 ) -> (Nodes, Vec<Action>) {
+    bar_at(ctx, shown, (started, 100), events)
+}
+
+fn bar_at(
+    ctx: &egui::Context,
+    shown: &bramley_engine::Snapshot,
+    (started, volume): (bool, u8),
+    events: Vec<Event>,
+) -> (Nodes, Vec<Action>) {
     ctx.enable_accesskit();
     let mut actions = Vec::new();
     let input = RawInput {
@@ -830,7 +855,7 @@ fn bar(
     };
     let mut out = ctx.run_ui(input, |ui| {
         let emit = (&mut actions, &mut Vec::new());
-        super::player_bar::show(ui, shown, started, false, emit);
+        super::player_bar::show(ui, shown, started, volume, false, emit);
     });
     out.textures_delta.clear();
     let tree = out.platform_output.accesskit_update.expect("a tree");
@@ -876,6 +901,78 @@ fn shuffle_and_repeat_sit_at_the_right_end_beside_the_queue() {
     let order = ["Next track", "Position", "Shuffle", "Repeat off", "Queue"];
     let xs: Vec<f32> = order.iter().map(|l| x(l)).collect();
     assert!(xs.windows(2).all(|w| w[0] < w[1]), "{order:?} at {xs:?}");
+}
+
+fn volume_of(nodes: &Nodes) -> Option<f64> {
+    let node = nodes.iter().find(|(l, _)| l == "Volume");
+    node.and_then(|(_, n)| n.numeric_value())
+}
+
+#[test]
+fn the_volume_slider_sits_between_position_and_shuffle_and_shows_the_current_volume() {
+    let ctx = egui::Context::default();
+    let shown = bramley_engine::Snapshot::default();
+    let nodes = bar_at(&ctx, &shown, (false, 40), vec![]).0;
+    let order = ["Position", "Volume", "Shuffle"];
+    let xs: Vec<f32> = order.iter().map(|l| centre(&nodes, l).x).collect();
+    assert!(xs.windows(2).all(|w| w[0] < w[1]), "{order:?} at {xs:?}");
+    assert_eq!(volume_of(&nodes), Some(40.0));
+    ctx.all_styles_mut(|style| style.interaction.tooltip_delay = 0.0);
+    let hover = vec![Event::PointerMoved(centre(&nodes, "Volume"))];
+    let tips = |_: u8| bar_at(&ctx, &shown, (false, 40), hover.clone()).0;
+    let hovered: Vec<_> = (0..5).map(tips).collect();
+    assert!(hovered.iter().any(|n| n.iter().any(|(l, _)| l == "40%")));
+}
+
+#[test]
+fn dragging_the_volume_slider_sends_the_value_at_most_ten_times_a_second_and_the_final_one_on_release()
+ {
+    let ctx = egui::Context::default();
+    let shown = bramley_engine::Snapshot::default();
+    let slider = |ctx: &egui::Context| {
+        let nodes = bar_at(ctx, &shown, (false, 100), vec![]).0;
+        let bounds = nodes
+            .iter()
+            .find(|(l, _)| l == "Volume")
+            .unwrap()
+            .1
+            .bounds();
+        bounds.expect("bounds")
+    };
+    let rect = slider(&ctx);
+    let at = |fraction: f64| {
+        let x = rect.x0 + (rect.x1 - rect.x0) * fraction;
+        egui::pos2(x as f32, ((rect.y0 + rect.y1) / 2.0) as f32)
+    };
+    let button = |pos, pressed| Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    let frame = |events| bar_at(&ctx, &shown, (false, 100), events);
+    frame(vec![Event::PointerMoved(at(0.2))]);
+    let (_, mut sent) = frame(vec![Event::PointerMoved(at(0.2)), button(at(0.2), true)]);
+    assert_eq!(sent.len(), 1, "a press sends at once");
+    let (nodes, more) = frame(vec![Event::PointerMoved(at(0.7))]);
+    assert_eq!(more, [], "a second move inside 100 ms is held back");
+    let held = volume_of(&nodes).expect("a value") / 100.0;
+    let (_, more) = frame(vec![button(at(0.7), false)]);
+    sent.extend(more);
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[1], Action::Volume(held as f32));
+    assert_ne!(sent[0], sent[1]);
+    let mut flood = Vec::new();
+    frame(vec![Event::PointerMoved(at(0.5)), button(at(0.5), true)]);
+    for i in 0..60 {
+        let fraction = if i % 2 == 0 { 0.3 } else { 0.8 };
+        flood.extend(frame(vec![Event::PointerMoved(at(fraction))]).1);
+    }
+    assert!(
+        flood.len() <= 11,
+        "{} commands in about a second",
+        flood.len()
+    );
 }
 
 #[test]

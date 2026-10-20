@@ -793,6 +793,39 @@ fn cli_round_trip_acks_each_command_with_the_seq_it_was_assigned() {
 }
 
 #[test]
+fn a_volume_set_before_the_first_play_is_kept_and_reaches_the_engine_before_the_queue() {
+    let (mut p, ends) = fake(false);
+    assert!(p.apply(Action::Volume(0.4)));
+    assert_eq!((ends.borrow().len(), p.volume(), p.seq()), (0, 0.4, 0));
+    p.apply(Action::PlaySong("42".into()));
+    p.receive();
+    p.apply(Action::Volume(0.7));
+    let sent: Vec<Command> = ends.borrow()[0].0.try_iter().collect();
+    let queue = Queue::Songs(vec!["42".into()]);
+    let expected = [
+        Command::Volume(0.4),
+        Command::SetQueue { queue, start: 0 },
+        Command::Play,
+        Command::Volume(0.7),
+    ];
+    assert_eq!((sent, p.seq()), (expected.to_vec(), 4));
+}
+
+#[test]
+fn the_volume_is_set_from_the_cli_shown_in_status_and_survives_a_relaunch() {
+    let slot = slot("volume");
+    let app = FakeApp::start(&slot, false);
+    let (code, reply, err) = run(&slot, "volume 40");
+    assert_eq!((code, &reply["volume"]), (0, &json!(40)), "{err}");
+    app.finish();
+    let saved = std::fs::read_to_string(slot.dir().join("volume"));
+    assert_eq!(saved.unwrap(), "40\n");
+    let relaunched = FakeApp::start(&slot, false);
+    assert_eq!(run(&slot, "now").1["volume"], 40);
+    relaunched.finish();
+}
+
+#[test]
 fn mcp_requests_reach_the_app_marked_as_an_agent() {
     let slot = slot("agent");
     let app = FakeApp::start(&slot, false);
