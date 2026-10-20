@@ -13,9 +13,13 @@ use crate::covers::{self, Tally};
 use crate::tests::mock_user;
 
 fn scratch(name: &str) -> std::path::PathBuf {
-    let tag = format!("warm-{}-{name}", std::process::id());
-    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp");
-    let dir = dir.join(tag);
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .unwrap();
+    let dir = root
+        .join("target/tmp")
+        .join(format!("w{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
