@@ -1,5 +1,5 @@
 pkgname=bramley-bin
-pkgver=0.4.0
+pkgver=0.4.1
 pkgrel=1
 pkgdesc="Small native player for Apple Music"
 arch=('x86_64')
@@ -14,7 +14,7 @@ provides=("bramley=$pkgver")
 conflicts=('bramley' 'bramley-git')
 options=('!debug' '!strip')
 source_x86_64=("${url}/releases/download/v${pkgver}/bramley-v${pkgver}-${CARCH}-unknown-linux-gnu.tar.gz")
-sha256sums_x86_64=('dfcfe5d20197288a6c66b88bdac807b33660ebf1907de4c906e940901718c190')
+sha256sums_x86_64=('191be79ab265c1ba46cb74d4f166573aa5206444432c1c60d7985e5a249516e5')
 
 package() {
   local dir="${srcdir}/bramley-v${pkgver}-${CARCH}-unknown-linux-gnu"
