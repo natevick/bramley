@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 anyhow = "1"
 bramley-api = { path = "../api" }
-bramley-engine = { path = "../engine" }
+bramley-engine = { path = "../engine", default-features = false }
 eframe = { version = "0.36.1", default-features = false, features = ["accesskit", "glow", "default_fonts", "wayland", "x11"] }
 egui = "0.36.1"
 fastframe-fonts = { git = "https://github.com/crmne/fastframe", rev = "4cf12984fca3ade655b214add154828684e3e993" }
@@ -27,11 +27,15 @@ serde_json = "1"
 tokio = { version = "1", default-features = false, features = ["rt"] }
 ureq = "3"
 
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+bramley-engine = { path = "../engine" }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus-secret-service-keyring-store = { version = "1.0.1", features = ["rt-async-io-crypto-rust"] }
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+bramley-macos-player = { path = "../macos-player" }
 apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 
 [target.'cfg(windows)'.dependencies]

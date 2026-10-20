@@ -4,6 +4,7 @@ mod covers;
 mod credentials;
 mod devtoken;
 mod mcp;
+mod musickit;
 mod playback;
 mod signin;
 #[cfg(test)]
@@ -18,7 +19,10 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
-use bramley_engine::{Player, PlayerConfig, Tokens, redact};
+#[cfg(not(target_os = "macos"))]
+use bramley_engine::{Player, PlayerConfig};
+#[cfg(any(test, not(target_os = "macos")))]
+use bramley_engine::{Tokens, redact};
 use fastframe_instance::Claim;
 
 use crate::credentials::Credentials;
@@ -273,6 +277,7 @@ fn cover_source(args: &Args, user: &Credentials) -> Option<covers::Source> {
     })
 }
 
+#[cfg(any(test, not(target_os = "macos")))]
 fn boot(user: &Credentials, start: impl FnOnce(Tokens) -> Result<Link>) -> Result<Link> {
     let user_token = user.load().map_err(|why| anyhow!(why))?;
     let user_token = user_token.ok_or_else(|| anyhow!(SignedOut))?;
@@ -282,18 +287,39 @@ fn boot(user: &Credentials, start: impl FnOnce(Tokens) -> Result<Link>) -> Resul
     start(Tokens { developer, user }).map_err(|e| anyhow!(redact(&format!("{e:#}"), &secrets)))
 }
 
+#[cfg(not(target_os = "macos"))]
+fn launch(
+    user: &Credentials,
+    output_device: Option<String>,
+    waker: impl Fn() + Send + 'static,
+) -> Result<Link> {
+    boot(user, |tokens| {
+        let mut cfg = PlayerConfig::default();
+        cfg.engine.audio_sink_name = "bramley".into();
+        cfg.engine.output_device = output_device;
+        Player::spawn(cfg, tokens, waker)
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn launch(
+    user: &Credentials,
+    _output_device: Option<String>,
+    waker: impl Fn() + Send + 'static,
+) -> Result<Link> {
+    if user.signed_in() != Ok(true) {
+        bail!(SignedOut);
+    }
+    bramley_macos_player::spawn(waker)
+}
+
 fn spawner(ctx: egui::Context, output_device: Option<String>, user: Credentials) -> Spawn {
     Box::new(move || {
         let (tx, rx) = channel();
         let (ctx, output_device, user) = (ctx.clone(), output_device.clone(), user.clone());
         std::thread::spawn(move || {
-            let started = boot(&user, |tokens| {
-                let mut cfg = PlayerConfig::default();
-                cfg.engine.audio_sink_name = "bramley".into();
-                cfg.engine.output_device = output_device;
-                let waker = ctx.clone();
-                Player::spawn(cfg, tokens, move || waker.request_repaint())
-            });
+            let waker = ctx.clone();
+            let started = launch(&user, output_device, move || waker.request_repaint());
             let _ = tx.send(started);
             ctx.request_repaint();
         });
@@ -326,6 +352,13 @@ fn main() -> Result<()> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     if matches!(argv.as_slice(), [flag] if flag == "--version" || flag == "-V") {
         println!("bramley {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    if let [word, flags @ ..] = argv.as_slice()
+        && word == "musickit-probe"
+    {
+        println!("{}", bramley_macos_player::probe(flags == ["--request"]));
         return Ok(());
     }
     let slot = cli::slot();
@@ -392,8 +425,11 @@ fn main() -> Result<()> {
     let config = config_dir()?;
     let developer = devtoken::DeveloperToken::system(token_url, &config);
     let user = Credentials::system(&config, developer);
-    let prefetch = user.developer().clone();
-    std::thread::spawn(move || prefetch.wait(|| false));
+    #[cfg(not(target_os = "macos"))]
+    {
+        let prefetch = user.developer().clone();
+        std::thread::spawn(move || prefetch.wait(|| false));
+    }
     let source = cover_source(&args, &user);
     #[cfg(feature = "dev")]
     let size = args.size.unwrap_or([1100.0, 720.0]);

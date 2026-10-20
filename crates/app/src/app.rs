@@ -383,7 +383,7 @@ impl App {
     pub fn check_sign_in(&mut self) {
         self.playback.mark_signed_out("sign-in-check");
         let user = self.user.clone();
-        self.checking = Some(worker(move || user.load().map(|token| token.is_some())));
+        self.checking = Some(worker(move || user.signed_in()));
     }
 
     fn follow_account(&mut self) -> bool {
@@ -537,6 +537,11 @@ impl App {
 
     fn start_sign_in(&mut self) -> Result<(), &'static str> {
         if self.waiting().is_some() {
+            return Ok(());
+        }
+        if self.user.native() {
+            let user = self.user.clone();
+            (self.checking, self.notice) = (Some(worker(move || user.request())), None);
             return Ok(());
         }
         let developer = self.user.developer().peek();

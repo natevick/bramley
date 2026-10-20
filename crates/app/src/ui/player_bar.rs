@@ -40,7 +40,9 @@ pub fn show(
                 navs.push(Nav::ToggleQueue);
             }
             ui.add_enabled_ui(started, |ui| modes(ui, shown, actions));
-            volume_slider(ui, volume, actions);
+            if cfg!(not(target_os = "macos")) {
+                volume_slider(ui, volume, actions);
+            }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 controls(ui, shown, started, actions);
             });

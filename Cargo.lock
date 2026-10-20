@@ -572,6 +572,7 @@ dependencies = [
  "apple-native-keyring-store",
  "bramley-api",
  "bramley-engine",
+ "bramley-macos-player",
  "eframe",
  "egui",
  "fastframe-fonts",
@@ -617,6 +618,16 @@ dependencies = [
  "sha2 0.10.9",
  "symphonia",
  "ureq",
+]
+
+[[package]]
+name = "bramley-macos-player"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bramley-engine",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/api", "crates/app", "crates/engine"]
+members = ["crates/api", "crates/app", "crates/engine", "crates/macos-player"]
 exclude = ["spikes"]
 
 [profile.release]
