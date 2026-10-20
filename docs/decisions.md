@@ -54,3 +54,7 @@
   - Nate: "Yes we should cut that way down. Once a day feels ok for now".
   - On Nate's laptop, warm had made 1,045 requests in 12 hours: 120 runs, every one `complete`. Most were 6-hour track-list refreshes.
   - Library list pages and album and playlist track lists now refresh after 24 hours, down from 30 minutes and 6 hours, so a warm library costs about one refresh of each a day. Art is never re-fetched. While the app is open, stale-while-revalidate still refreshes what you view.
+- **2026-10-20: v0.4.2 ships over a failed acceptance gate (Nate).**
+  - In `v042-counted-1` all 16 checks PASSed. The gate was FAIL only because the ballast positive control landed R1's USS at 220.1 MiB, 0.1 MiB outside its 215 ± 5 band. See `docs/v0.4.2-RESULTS.md`.
+  - v0.4.2 changes only the warmer's refresh ages, which the app never runs. Nate: "ship it".
+  - Follow-up S34: a positive control that misses its band should make a run VOID, not FAIL. To be amended for future runs.
