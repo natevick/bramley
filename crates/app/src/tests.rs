@@ -826,6 +826,22 @@ fn the_volume_is_set_from_the_cli_shown_in_status_and_survives_a_relaunch() {
 }
 
 #[test]
+fn quitting_right_after_a_volume_change_still_writes_it() {
+    let dir = std::path::PathBuf::from(format!("../../target/c/quit{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let ctx = egui::Context::default();
+    let spawn = spawning(|| unreachable!("no player may start"));
+    let user = (mock_user(&dir), true);
+    let args = crate::Args::default();
+    let mut app = crate::app::App::new(&ctx, args, spawn, user, (channel().1, true), None);
+    app.apply(Action::Volume(0.25));
+    eframe::App::on_exit(&mut app, None);
+    let saved = std::fs::read_to_string(dir.join("volume"));
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(saved.unwrap(), "25\n");
+}
+
+#[test]
 fn mcp_requests_reach_the_app_marked_as_an_agent() {
     let slot = slot("agent");
     let app = FakeApp::start(&slot, false);

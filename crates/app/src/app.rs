@@ -61,13 +61,13 @@ struct StatusWriter {
 }
 
 impl StatusWriter {
-    fn new(path: PathBuf) -> Self {
+    fn new(path: PathBuf, what: &'static str) -> Self {
         let (tx, rx) = channel::<String>();
         let thread = std::thread::spawn(move || {
             while let Ok(mut status) = rx.recv() {
                 status = rx.try_iter().last().unwrap_or(status);
                 if let Err(e) = bramley_api::store::write_private(&path, status.as_bytes()) {
-                    eprintln!("bramley: status not written to {}: {e}", path.display());
+                    eprintln!("bramley: {what} not written: {e}");
                 }
             }
         });
@@ -225,7 +225,7 @@ impl App {
             navs: Vec::new(),
             inbox,
             guarded,
-            status: args.status.map(StatusWriter::new),
+            status: args.status.map(|path| StatusWriter::new(path, "status")),
             #[cfg(feature = "dev")]
             shot: args.screenshot.map(|path| Shot {
                 path,
@@ -373,7 +373,7 @@ impl App {
         let dir = self.user.dir();
         let file = self.volume_file.get_or_insert_with(|| {
             let _ = std::fs::create_dir_all(dir);
-            StatusWriter::new(dir.join(VOLUME_FILE))
+            StatusWriter::new(dir.join(VOLUME_FILE), "volume")
         });
         if let Some(tx) = &file.tx {
             let _ = tx.send(format!("{percent}\n"));
@@ -844,6 +844,7 @@ impl eframe::App for App {
         self.save_volume();
         self.playback.shutdown();
         self.status = None;
+        self.volume_file = None;
     }
 }
 
