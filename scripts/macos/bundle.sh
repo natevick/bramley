@@ -19,8 +19,9 @@ fi
 
 APP="$OUT/Bramley.app"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 install -m 755 "$BIN" "$APP/Contents/MacOS/bramley"
+install -m 644 "$ROOT/packaging/macos/AppIcon.icns" "$ROOT/packaging/macos/codes.vick.bramley.warm.plist" "$APP/Contents/Resources/"
 [ -z "${BRAMLEY_PROVISION_PROFILE:-}" ] || cp "$BRAMLEY_PROVISION_PROFILE" "$APP/Contents/embedded.provisionprofile"
 cat >"$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -30,6 +31,7 @@ cat >"$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
   <key>CFBundleName</key><string>Bramley</string>
   <key>CFBundleExecutable</key><string>bramley</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>

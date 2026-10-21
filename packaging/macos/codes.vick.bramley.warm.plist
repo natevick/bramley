@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>codes.vick.bramley.warm</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@APP@/Contents/MacOS/bramley</string>
+    <string>warm</string>
+  </array>
+  <key>StartInterval</key><integer>300</integer>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Background</string>
+  <key>LowPriorityIO</key><true/>
+  <key>Nice</key><integer>10</integer>
+  <key>StandardOutPath</key><string>@LOGS@/bramley-warm.log</string>
+  <key>StandardErrorPath</key><string>@LOGS@/bramley-warm.log</string>
+</dict>
+</plist>
