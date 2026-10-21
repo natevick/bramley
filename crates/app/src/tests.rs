@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -1477,6 +1478,8 @@ fn home_asks_replay_heavy_rotation_recent_and_added_with_the_users_storefront() 
     assert_eq!(order, expected);
     assert_eq!(grid.uploaded(), 50);
     let paths = fx.paths();
+    let ranking = paths.iter().filter(|p| !p.starts_with("/art/")).count();
+    assert_eq!(ranking, 9, "{paths:?}");
     let replay = "/v1/me/music-summaries?filter%5Byear%5D=latest&views=top-albums,top-songs";
     let songs = "/v1/catalog/zz/songs?include=albums&ids=7,8";
     let shelves = "/v1/catalog/zz/albums?include=library&ids=c1005,c1003,c1009,c1002";
@@ -3741,7 +3744,244 @@ mod disk_cache {
             "apiRevalidations",
             "artHits",
             "artMisses",
+            "homeHits",
         ];
         assert_eq!(keys, want);
+    }
+
+    fn start_home(
+        fx: &Fixture,
+        art: &Arc<Store>,
+        api: &Arc<Store>,
+    ) -> (Grid, egui::Context, std::path::PathBuf) {
+        let (mut source, config) = fixture_source(fx, true);
+        (source.art_cache, source.api_cache) = (Some(art.clone()), Some(api.clone()));
+        let ctx = egui::Context::default();
+        let mut grid = Grid::new(Some(source));
+        grid.follow(&ctx, true);
+        (grid, ctx, config)
+    }
+
+    fn order(grid: &Grid) -> Vec<String> {
+        (0..50)
+            .filter_map(|n| grid.album(n).map(str::to_owned))
+            .collect()
+    }
+
+    fn stores(name: &str) -> (Arc<Store>, Arc<Store>) {
+        let dir = root(name);
+        let open = |kind| Arc::new(Store::open(&dir, kind, 1 << 24).unwrap());
+        (open("art"), open("api"))
+    }
+
+    fn ranking_requests(fx: &Fixture) -> usize {
+        fx.paths()
+            .iter()
+            .filter(|p| !p.starts_with("/art/"))
+            .count()
+    }
+
+    fn watch(
+        grid: &mut Grid,
+        ctx: &egui::Context,
+        fx: &Fixture,
+        library_requests: usize,
+    ) -> Vec<Vec<String>> {
+        let until = Instant::now() + Duration::from_secs(20);
+        let mut seen = Vec::new();
+        let mut settled = None;
+        while Instant::now() < until
+            && settled.is_none_or(|at: Instant| at.elapsed() < Duration::from_millis(600))
+        {
+            grid.receive(ctx);
+            if grid.uploaded() == 50 {
+                seen.push(order(grid));
+            }
+            if settled.is_none() && charts(fx) >= library_requests {
+                settled = Some(Instant::now());
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        seen
+    }
+
+    #[test]
+    fn a_cached_grid_shows_before_the_ranking_answers_and_one_swap_replaces_it() {
+        let fx = fixture(Serve {
+            slow_chart: true,
+            ..SERVE
+        });
+        let (art, api) = stores("home-swap");
+        let (mut first, ctx, config) = start_home(&fx, &art, &api);
+        settle(&mut first, &ctx);
+        let mut grid = api.home(FIXTURE_USER).unwrap();
+        let live: Vec<_> = grid.iter().map(|(id, _)| id.clone()).collect();
+        grid.reverse();
+        let stale: Vec<_> = grid.iter().map(|(id, _)| id.clone()).collect();
+        api.remember_home(FIXTURE_USER, &grid, api.epoch());
+        let before = ranking_requests(&fx);
+        let (mut second, ctx, _) = start_home(&fx, &art, &api);
+        let seen = watch(&mut second, &ctx, &fx, 2);
+        std::fs::remove_dir_all(&config).unwrap();
+        assert_eq!(seen.first(), Some(&stale), "the cached grid shows first");
+        assert_eq!(seen.last(), Some(&live), "the live grid replaces it");
+        assert!(
+            seen.iter().all(|o| *o == stale || *o == live),
+            "a swap reshuffled tiles one by one"
+        );
+        assert_eq!(
+            ranking_requests(&fx) - before,
+            before,
+            "the request count grew"
+        );
+        let rewritten = api.home(FIXTURE_USER).unwrap();
+        let ids: Vec<_> = rewritten.into_iter().map(|(id, _)| id).collect();
+        assert_eq!(ids, live);
+    }
+
+    #[test]
+    fn an_unchanged_live_grid_swaps_nothing_and_a_cached_grid_makes_no_extra_requests() {
+        let fx = fixture(SERVE);
+        let (art, api) = stores("home-same");
+        let (mut first, ctx, config) = start_home(&fx, &art, &api);
+        settle(&mut first, &ctx);
+        let uses = ranking_requests(&fx);
+        let (mut second, ctx, _) = start_home(&fx, &art, &api);
+        let seen = watch(&mut second, &ctx, &fx, 2);
+        std::fs::remove_dir_all(&config).unwrap();
+        let mut delta = ctx.tex_manager().write().take_delta();
+        let uploads = delta.set.len();
+        delta.clear();
+        assert_eq!(
+            (seen.is_empty(), uploads < 100),
+            (false, true),
+            "{uploads} uploads"
+        );
+        assert_eq!(ranking_requests(&fx), 2 * uses);
+    }
+
+    #[test]
+    fn another_accounts_cached_grid_is_never_shown() {
+        let fx = fixture(SERVE);
+        let (art, api) = stores("home-scope");
+        let seed = (
+            "l.9".to_owned(),
+            format!("{}/art/seed/{{w}}x{{h}}bb.jpg", fx.base),
+        );
+        api.remember_home("someone else", std::slice::from_ref(&seed), api.epoch());
+        let (mut grid, ctx, config) = start_home(&fx, &art, &api);
+        settle(&mut grid, &ctx);
+        std::fs::remove_dir_all(&config).unwrap();
+        assert!(fx.paths().iter().all(|p| !p.contains("/art/seed")));
+        assert_eq!(api.home("someone else"), Some(vec![seed]));
+        assert_eq!(api.home(FIXTURE_USER).map(|g| g.len()), Some(50));
+    }
+
+    #[test]
+    fn sign_out_wipes_the_cached_home_grid() {
+        let (mut app, _ends, inbox, ctx, config, _fx) = app_on(SERVE);
+        let api = Arc::new(Store::open(&root("sign-out-home"), "api", 1 << 20).unwrap());
+        app.api_cache = Some(api.clone());
+        api.remember_home(FIXTURE_USER, &[("l.1".into(), "a/{w}".into())], api.epoch());
+        ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignOut);
+        std::fs::remove_dir_all(&config).unwrap();
+        assert_eq!(api.home(FIXTURE_USER), None);
+    }
+
+    #[test]
+    fn a_stale_cover_cannot_land_after_the_fresh_grid_took_over() {
+        let ctx = egui::Context::default();
+        let (tx, rx) = channel();
+        let mut grid = Grid::default();
+        grid.listen(rx);
+        let image = || egui::ColorImage::filled([2, 2], egui::Color32::WHITE);
+        let cover =
+            |round, index: usize, id: &str| covers::Loaded::Cover(round, index, id.into(), image());
+        tx.send(cover(0, 0, "stale-0")).unwrap();
+        grid.receive(&ctx);
+        assert_eq!(grid.album(0), Some("stale-0"));
+        tx.send(covers::Loaded::Live(2)).unwrap();
+        tx.send(cover(1, 0, "fresh-0")).unwrap();
+        grid.receive(&ctx);
+        assert_eq!(
+            grid.album(0),
+            Some("stale-0"),
+            "the swap waits for the whole grid"
+        );
+        tx.send(covers::Loaded::Missed(1, "no art".into())).unwrap();
+        tx.send(cover(0, 1, "stale-1")).unwrap();
+        grid.receive(&ctx);
+        assert_eq!((grid.album(0), grid.uploaded()), (Some("fresh-0"), 1));
+        tx.send(cover(0, 0, "stale-0")).unwrap();
+        grid.receive(&ctx);
+        assert_eq!((grid.album(0), grid.uploaded()), (Some("fresh-0"), 1));
+    }
+
+    #[test]
+    fn home_issues_its_independent_ranking_requests_at_once() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let (open, peak) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let (library, overlapped) = (
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(false)),
+        );
+        let (seen, gauge) = (
+            requests.clone(),
+            (open, peak.clone(), library, overlapped.clone()),
+        );
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let (seen, (open, peak, library, overlapped)) = (seen.clone(), gauge.clone());
+                std::thread::spawn(move || {
+                    let mut stream = stream.unwrap();
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    let path = line.split_whitespace().nth(1).unwrap_or("").to_owned();
+                    while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
+                        line.clear();
+                    }
+                    seen.lock().unwrap().push((path.clone(), None, None));
+                    peak.fetch_max(open.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+                    let history = path.contains("music-summaries")
+                        || path.contains("/history/")
+                        || path.contains("/recent/")
+                        || path.contains("recently-added");
+                    if path.starts_with("/v1/me/library/albums?") {
+                        library.store(true, Ordering::SeqCst);
+                    }
+                    let until = Instant::now() + Duration::from_secs(2);
+                    while history && !library.load(Ordering::SeqCst) && Instant::now() < until {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    overlapped
+                        .fetch_or(history && library.load(Ordering::SeqCst), Ordering::SeqCst);
+                    let body = match path.as_str() {
+                        "/v1/me/storefront" => r#"{"data":[{"id":"zz"}]}"#,
+                        _ => r#"{"data":[]}"#,
+                    };
+                    let head = format!(
+                        "HTTP/1.1 200 X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes());
+                    open.fetch_sub(1, Ordering::SeqCst);
+                });
+            }
+        });
+        let fx = Fixture { base, requests };
+        let (source, config) = fixture_source(&fx, true);
+        let ctx = egui::Context::default();
+        let mut grid = Grid::new(Some(source));
+        grid.follow(&ctx, true);
+        settle(&mut grid, &ctx);
+        std::fs::remove_dir_all(&config).unwrap();
+        assert!(
+            overlapped.load(Ordering::SeqCst),
+            "the library page waited for the history"
+        );
+        assert!(peak.load(Ordering::SeqCst) > 1);
     }
 }

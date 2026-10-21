@@ -14,6 +14,7 @@ pub static ART_MISSES: AtomicU64 = AtomicU64::new(0);
 pub static API_HITS: AtomicU64 = AtomicU64::new(0);
 pub static API_MISSES: AtomicU64 = AtomicU64::new(0);
 pub static API_REVALIDATIONS: AtomicU64 = AtomicU64::new(0);
+pub static HOME_HITS: AtomicU64 = AtomicU64::new(0);
 
 pub fn counts() -> serde_json::Value {
     let read = |counter: &AtomicU64| counter.load(SeqCst);
@@ -21,6 +22,7 @@ pub fn counts() -> serde_json::Value {
         "artHits": read(&ART_HITS), "artMisses": read(&ART_MISSES),
         "apiHits": read(&API_HITS), "apiMisses": read(&API_MISSES),
         "apiRevalidations": read(&API_REVALIDATIONS),
+        "homeHits": read(&HOME_HITS),
     })
 }
 
@@ -191,6 +193,22 @@ impl Store {
             storefront.as_bytes(),
             epoch,
         );
+    }
+
+    pub fn home(&self, user: &str) -> Option<Vec<(String, String)>> {
+        let found = self.get(&["home", &digest(&[user])])?;
+        let mut grid: Vec<(String, String)> = serde_json::from_slice(&found).ok()?;
+        grid.retain(|(id, _)| crate::segment(id));
+        HOME_HITS.fetch_add(1, SeqCst);
+        Some(grid)
+    }
+
+    pub fn remember_home(&self, user: &str, grid: &[(String, String)], epoch: u64) {
+        let key = ["home", &digest(&[user])];
+        match serde_json::to_vec(grid) {
+            Ok(bytes) if !grid.is_empty() => self.put(&key, &bytes, epoch),
+            _ => self.remove(&key),
+        }
     }
 
     pub fn remove(&self, parts: &[&str]) {

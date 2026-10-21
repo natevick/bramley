@@ -69,9 +69,15 @@ impl std::fmt::Display for Refused {
 
 impl std::error::Error for Refused {}
 
+type Round = u8;
+const SHOWN: Round = 0;
+const FRESH: Round = 1;
+
 pub enum Loaded {
-    Cover(usize, String, ColorImage),
+    Cover(Round, usize, String, ColorImage),
+    Missed(Round, String),
     Failed(String, usize),
+    Live(usize),
     Retry(Duration),
     SignInNeeded,
     DeveloperRejected(String),
@@ -493,6 +499,7 @@ struct Sent {
     emitted: usize,
     processed: usize,
     skipped: usize,
+    grid: Vec<(String, String)>,
 }
 
 fn send(
@@ -505,10 +512,12 @@ fn send(
             break;
         }
         sent.processed += 1;
-        let url = album.art.as_deref().and_then(|art| art_url(art, px));
-        match url.filter(|url| allowed_art(url, art_prefix)) {
-            Some(url) => {
-                drop(jobs.send((sent.emitted, album.id, url)));
+        let art = album.art.as_deref();
+        let url = art.and_then(|art| art_url(art, px));
+        match url.filter(|url| allowed_art(url, art_prefix)).zip(art) {
+            Some((url, art)) => {
+                sent.grid.push((album.id.clone(), art.to_owned()));
+                drop(jobs.send((SHOWN, sent.emitted, album.id, url)));
                 sent.emitted += 1;
             }
             None => sent.skipped += 1,
@@ -521,17 +530,18 @@ fn home(
     auth: (&Source, &str, &str),
     (signed_in, px): (&[u8], u32),
     (jobs, tally): (&Sender<Job>, &Tally),
-) -> Result<(usize, usize)> {
+) -> Result<Sent> {
     let storefront = storefront(signed_in);
     let out = (jobs, px, auth.0.art_prefix.as_deref());
     let (mut sent, mut found) = (Sent::default(), HashMap::new());
-    let sources = std::thread::scope(|scope| {
+    std::thread::scope(|scope| {
         let agent = &*agent;
         let (early, first) = channel();
         let sf = (storefront.clone(), early);
         let replay = scope.spawn(|| replay(&mut agent.clone(), auth, sf, tally));
         let listened = LISTENING
             .map(|path| scope.spawn(move || listed(&mut agent.clone(), auth, (path, tally))));
+        let library = scope.spawn(|| library_albums(&mut agent.clone(), auth, tally));
         if let Ok(top) = first.recv() {
             let top = [top];
             let early = lookup(
@@ -543,24 +553,62 @@ fn home(
             send(rank(&top, &early, Vec::new()), &mut sent, out);
             found = early;
         }
-        listened.into_iter().fold(joined(replay), |all, found| {
+        let sources = listened.into_iter().fold(joined(replay), |all, found| {
             let (mut all, found) = (all?, joined(found)?);
             all.push(found);
             Ok::<_, anyhow::Error>(all)
-        })
+        })?;
+        found.extend(lookup(
+            &mut agent.clone(),
+            auth,
+            (storefront.as_deref(), &sources),
+            tally,
+        )?);
+        send(rank(&sources, &found, Vec::new()), &mut sent, out);
+        if sent.emitted < COUNT {
+            send(rank(&sources, &found, joined(library)?), &mut sent, out);
+        }
+        Ok::<_, anyhow::Error>(())
     })?;
-    found.extend(lookup(
-        agent,
-        auth,
-        (storefront.as_deref(), &sources),
-        tally,
-    )?);
-    send(rank(&sources, &found, Vec::new()), &mut sent, out);
-    if sent.emitted < COUNT {
-        let library = library_albums(agent, auth, tally)?;
-        send(rank(&sources, &found, library), &mut sent, out);
+    Ok(sent)
+}
+
+fn home_cached(
+    agent: &mut ureq::Agent,
+    auth: (&Source, &str, &str),
+    (signed_in, px): (&[u8], u32),
+    (jobs, tx, tally): (&Sender<Job>, &Sender<Loaded>, &Tally),
+) -> Result<(usize, usize)> {
+    let (source, _, user) = auth;
+    let Some(store) = source.api_cache.as_deref() else {
+        let live = home(agent, auth, (signed_in, px), (jobs, tally))?;
+        return Ok((live.emitted, live.skipped));
+    };
+    let (epoch, cached) = (store.epoch(), store.home(user));
+    let (held, waiting) = channel();
+    let target = if cached.is_some() { &held } else { jobs };
+    let remembered = cached.iter().flatten().map(|(id, art)| Album {
+        id: id.clone(),
+        art: Some(art.clone()),
+        edition: String::new(),
+    });
+    let prefix = source.art_prefix.as_deref();
+    send(
+        remembered.collect(),
+        &mut Sent::default(),
+        (jobs, px, prefix),
+    );
+    let live = home(agent, auth, (signed_in, px), (target, tally))?;
+    if cached.as_ref() != Some(&live.grid) {
+        store.remember_home(user, &live.grid, epoch);
+        if cached.is_some() {
+            for (_, index, id, url) in waiting.try_iter() {
+                drop(jobs.send((FRESH, index, id, url)));
+            }
+            drop(tx.send(Loaded::Live(live.emitted)));
+        }
     }
-    Ok((sent.emitted, sent.skipped))
+    Ok((live.emitted, live.skipped))
 }
 
 pub(crate) fn art_key(url: &str) -> [&str; 2] {
@@ -612,13 +660,13 @@ fn decode(bytes: &[u8], px: u32) -> Result<ColorImage> {
     Ok(ColorImage::from_rgb(size, rgb.as_raw()))
 }
 
-type Job = (usize, String, String);
+type Job = (Round, usize, String, String);
 
 fn load_home(
     agent: &mut ureq::Agent,
     source: &Source,
     px: u32,
-    (jobs, tally): (&Sender<Job>, &Tally),
+    (jobs, tx, tally): (&Sender<Job>, &Sender<Loaded>, &Tally),
 ) -> Result<Option<(usize, usize)>> {
     let tokens = source.user.developer();
     let cancelled = || tally.cancel.load(Ordering::SeqCst);
@@ -630,7 +678,7 @@ fn load_home(
         let bearer = format!("Bearer {developer}");
         let checked = signed_in(agent, source, &bearer, &user, tally).and_then(|body| {
             let auth = (source, bearer.as_str(), user.as_str());
-            body.map(|body| home(agent, auth, (&body, px), (jobs, tally)))
+            body.map(|body| home_cached(agent, auth, (&body, px), (jobs, tx, tally)))
                 .transpose()
         });
         checked.map_err(|e| {
@@ -665,7 +713,7 @@ pub fn fetch(
             let mut agent = agent();
             let (jobs, queue) = channel();
             decode_on_workers(agent.clone(), (queue, px), &tx, tally.clone(), wake.clone());
-            match load_home(&mut agent, &source, px, (&jobs, &tally)) {
+            match load_home(&mut agent, &source, px, (&jobs, &tx, &tally)) {
                 Ok(None) => drop(tx.send(Loaded::SignInNeeded)),
                 Err(e) if e.is::<DeveloperTokenRejected>() => {
                     let rejected = source.user.developer().peek().unwrap_or_default();
@@ -711,7 +759,7 @@ fn decode_on_workers(
         std::thread::Builder::new()
             .name(format!("cover-{n}"))
             .spawn(move || {
-                while let Ok((index, id, url)) = jobs.lock().unwrap().recv() {
+                while let Ok((round, index, id, url)) = jobs.lock().unwrap().recv() {
                     let decoded =
                         catch_unwind(AssertUnwindSafe(|| cover(&mut agent, &url, px, &tally)));
                     let loaded =
@@ -720,9 +768,9 @@ fn decode_on_workers(
                                 tally
                                     .in_flight
                                     .fetch_add(image.pixels.len() * 4, Ordering::SeqCst);
-                                Loaded::Cover(index, id, image)
+                                Loaded::Cover(round, index, id, image)
                             }
-                            Err(e) => Loaded::Failed(format!("cover {index}: {e:#}"), 1),
+                            Err(e) => Loaded::Missed(round, format!("cover {index}: {e:#}")),
                         };
                     if tx.send(loaded).is_err() {
                         break;
@@ -740,6 +788,10 @@ pub struct Grid {
     px: u32,
     rx: Option<Receiver<Loaded>>,
     textures: BTreeMap<usize, (String, TextureHandle)>,
+    generation: Round,
+    fresh: BTreeMap<usize, (String, TextureHandle)>,
+    expecting: Option<usize>,
+    missed: usize,
     tally: Arc<Tally>,
     failed: Option<String>,
     failures: usize,
@@ -807,15 +859,29 @@ impl Grid {
         for loaded in rx.try_iter() {
             any = true;
             match loaded {
-                Loaded::Cover(index, id, image) => {
+                Loaded::Cover(round, index, id, image) => {
                     let bytes = image.pixels.len() * 4;
                     #[cfg(feature = "gate-sabotage")]
                     self.kept.push(image.clone());
-                    let texture =
-                        ctx.load_texture(format!("cover-{index}"), image, TextureOptions::LINEAR);
-                    self.textures.insert(index, (id, texture));
+                    if round >= self.generation {
+                        let name = format!("cover-{index}");
+                        let texture = ctx.load_texture(name, image, TextureOptions::LINEAR);
+                        let shelf = if round == FRESH {
+                            &mut self.fresh
+                        } else {
+                            &mut self.textures
+                        };
+                        shelf.insert(index, (id, texture));
+                    }
                     self.tally.in_flight.fetch_sub(bytes, Ordering::SeqCst);
                 }
+                Loaded::Missed(round, why) if round >= self.generation => {
+                    self.failed.get_or_insert(why);
+                    self.failures += 1;
+                    self.missed += usize::from(round == FRESH);
+                }
+                Loaded::Missed(..) => {}
+                Loaded::Live(count) => self.expecting = Some(count),
                 Loaded::Failed(why, covers) => {
                     self.failed.get_or_insert(why);
                     self.failures += covers;
@@ -829,6 +895,13 @@ impl Grid {
                 Loaded::Empty => self.empty = true,
                 Loaded::DeveloperRejected(token) => self.developer_rejected = Some(token),
             }
+        }
+        if self
+            .expecting
+            .is_some_and(|n| self.fresh.len() + self.missed >= n)
+        {
+            self.textures = std::mem::take(&mut self.fresh);
+            (self.generation, self.expecting, self.missed) = (FRESH, None, 0);
         }
         any
     }
@@ -844,6 +917,11 @@ impl Grid {
     #[cfg(any(test, feature = "dev"))]
     pub fn album(&self, n: usize) -> Option<&str> {
         self.textures.values().nth(n).map(|(id, _)| id.as_str())
+    }
+
+    #[cfg(test)]
+    pub fn listen(&mut self, rx: Receiver<Loaded>) {
+        self.rx = Some(rx);
     }
 
     #[cfg(test)]
