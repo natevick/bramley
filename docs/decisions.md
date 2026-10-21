@@ -64,3 +64,7 @@
   - **Where:** the API store, scoped to a hash of the user token, 0600 in a 0700 directory, wiped at sign-out with the API cache.
   - **Behavior:** after the storefront check passes, Home shows the cached grid, ranks live and swaps the grid in one step only if the result differs. `bramley warm` does not refresh it: that needs the history requests warm never makes.
   - Measured in `docs/s39-home-fast-RESULTS.md`: B shows 50 covers in 0.44 s against A's 4.50 s, and parallel ranking alone gets C to 61% of A.
+- **2026-10-21: no volume control on macOS (Nate).**
+  - Nate: "Nope no slider it is".
+  - The macOS 27 SDK's MusicKit swiftinterface has no volume, gain or mute API, and Apple's Music app uses private frameworks.
+  - The player bar hides the volume control on macOS, and `bramley volume N` is accepted and does nothing there. Linux is unchanged. See `docs/macos-native-PLAN.md`.
