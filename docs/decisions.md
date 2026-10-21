@@ -68,3 +68,7 @@
   - Nate: "Nope no slider it is".
   - The macOS 27 SDK's MusicKit swiftinterface has no volume, gain or mute API, and Apple's Music app uses private frameworks.
   - The player bar hides the volume control on macOS, and `bramley volume N` is accepted and does nothing there. Linux is unchanged. See `docs/macos-native-PLAN.md`.
+- **2026-10-21: Home's library request goes out with the history requests (Nate accepted).**
+  - Home's library request now goes out at the same time as the listening-history requests. It no longer waits to see whether history fills fewer than 50 slots. Follows the parallel ranking in the 2026-10-21 Home-grid entry above (S39, `docs/s39-home-fast-RESULTS.md`).
+  - **Cost:** one extra Apple request on each Home load, for accounts whose history alone fills 50. During a 429, each retry round sends one extra request. Rounds back off 5 s, 30 s, then 60 s, and honour Retry-After.
+  - **Not exercised by S39:** bar 4 (requests per Home load <= A, measured 9, 9, 9) was measured on an account whose history never fills 50, so it did not exercise this case. `docs/compliance.md` has no request-volume rule for the app.
