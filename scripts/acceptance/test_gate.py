@@ -594,11 +594,19 @@ class ColdCache(unittest.TestCase):
         self.assertEqual(os.listdir(root), ['developer-token.json'])
 
     def test_a_launch_that_would_use_the_real_cache_is_refused(self):
-        base = {'BRAMLEY_CONFIG_DIR': os.path.join(SCRATCH, 'config'), 'BRAMLEY_KEYRING_SERVICE': 'bramley-gate-t'}
+        base = {'BRAMLEY_CONFIG_DIR': os.path.join(SCRATCH, 'config'), 'BRAMLEY_KEYRING_SERVICE': 'bramley-gate-t', 'XDG_STATE_HOME': os.path.join(SCRATCH, 'config', 'state')}
         self.cs.assert_isolated(dict(base, XDG_CACHE_HOME=os.path.join(SCRATCH, 'config', 'cache')))
         for cache in (os.path.dirname(self.cs.REAL_CACHE), None):
             with self.assertRaises(RuntimeError):
                 self.cs.assert_isolated(dict(base, **({} if cache is None else {'XDG_CACHE_HOME': cache})))
+
+    def test_a_launch_that_could_read_the_host_omarchy_theme_is_refused(self):
+        config = os.path.join(SCRATCH, 'config')
+        base = {'BRAMLEY_CONFIG_DIR': config, 'BRAMLEY_KEYRING_SERVICE': 'bramley-gate-t', 'XDG_CACHE_HOME': os.path.join(config, 'cache')}
+        self.cs.assert_isolated(dict(base, XDG_STATE_HOME=os.path.join(config, 'state')))
+        for state in (None, '', os.path.expanduser('~/.local/state'), os.path.dirname(config)):
+            with self.assertRaises(RuntimeError):
+                self.cs.assert_isolated(dict(base, **({} if state is None else {'XDG_STATE_HOME': state})))
 
     def test_every_launch_in_the_driver_goes_through_the_cold_cache_wipe(self):
         text = open(os.path.join(HERE, 'drive.py')).read()

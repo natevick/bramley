@@ -21,12 +21,7 @@ fn row(ui: &mut egui::Ui, shown: &Snapshot, row: usize, actions: &mut Vec<Action
     let title = item.title.as_deref().unwrap_or("Untitled");
     let length = item.duration.map(clock).unwrap_or_default();
     let current = row == 0 && shown.queue_position.is_some();
-    let text = if current {
-        RichText::new(title).strong()
-    } else {
-        RichText::new(title)
-    };
-    let button = egui::Button::selectable(current, text)
+    let button = egui::Button::selectable(current, title)
         .right_text(length)
         .truncate();
     let response = ui.add_sized([ui.available_width(), 26.0], button);
