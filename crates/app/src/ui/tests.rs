@@ -203,6 +203,20 @@ fn frame(ctx: &egui::Context, app: &mut crate::app::App, input: RawInput) -> egu
 }
 
 #[test]
+#[cfg(target_os = "macos")]
+fn the_player_bar_has_no_volume_slider_because_the_system_player_has_no_volume() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut app = app(&ctx, true);
+    let out = frame(&ctx, &mut app, RawInput::default());
+    let tree = out.platform_output.accesskit_update.expect("a tree");
+    let labels: Vec<_> = tree.nodes.iter().filter_map(|(_, n)| n.label()).collect();
+    assert!(labels.contains(&"Position"));
+    assert!(!labels.contains(&"Volume"));
+}
+
+#[test]
+#[cfg(not(target_os = "macos"))]
 fn a_volume_set_from_the_cli_shows_on_the_slider_in_the_app() {
     let ctx = egui::Context::default();
     ctx.enable_accesskit();
@@ -923,6 +937,7 @@ fn volume_of(nodes: &Nodes) -> Option<f64> {
 }
 
 #[test]
+#[cfg(not(target_os = "macos"))]
 fn the_volume_slider_sits_between_position_and_shuffle_and_shows_the_current_volume() {
     let ctx = egui::Context::default();
     let shown = bramley_engine::Snapshot::default();
@@ -939,6 +954,7 @@ fn the_volume_slider_sits_between_position_and_shuffle_and_shows_the_current_vol
 }
 
 #[test]
+#[cfg(not(target_os = "macos"))]
 fn dragging_the_volume_slider_sends_the_value_at_most_ten_times_a_second_and_the_final_one_on_release()
  {
     let ctx = egui::Context::default();
@@ -1204,6 +1220,7 @@ fn below_the_compact_width_the_bar_puts_title_and_queue_above_the_transport() {
 }
 
 #[test]
+#[cfg(not(target_os = "macos"))]
 fn a_narrow_bar_folds_the_volume_into_an_icon_that_opens_a_slider_popup() {
     let (ctx, shown) = (
         egui::Context::default(),
@@ -1238,6 +1255,17 @@ fn a_narrow_bar_folds_the_volume_into_an_icon_that_opens_a_slider_popup() {
     )
     .0;
     assert!(wide.iter().all(|(l, _)| l != "Volume menu"));
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn no_bar_width_shows_any_volume_control_on_macos() {
+    let shown = bramley_engine::Snapshot::default();
+    for width in [400.0, 700.0, 1100.0] {
+        let ctx = egui::Context::default();
+        let nodes = bar_sized(&ctx, &shown, (true, 50), (width, 80.0), vec![]).0;
+        assert!(nodes.iter().all(|(l, _)| !l.starts_with("Volume")));
+    }
 }
 
 fn tap_at(ctx: &egui::Context, app: &mut crate::app::App, size: (f32, f32), at: egui::Pos2) {

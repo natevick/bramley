@@ -72,7 +72,9 @@ pub fn show(
             }
             ui.add_enabled_ui(started, |ui| modes(ui, shown, actions));
             let inline = !compact && width >= VOLUME_SLIDER_FROM_PT;
-            volume_control(ui, volume, actions, inline);
+            if cfg!(not(target_os = "macos")) {
+                volume_control(ui, volume, actions, inline);
+            }
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 controls(ui, shown, started, actions, inline);
             });

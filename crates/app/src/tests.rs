@@ -3985,3 +3985,154 @@ mod disk_cache {
         assert!(peak.load(Ordering::SeqCst) > 1);
     }
 }
+
+fn native_user(
+    dir: &std::path::Path,
+    status: Arc<Mutex<&'static str>>,
+    (answer, tokens): (&'static str, bool),
+) -> Credentials {
+    let asked = status.clone();
+    let session = crate::musickit::Session::new(
+        move |request| {
+            let mut held = asked.lock().unwrap();
+            if request {
+                *held = answer;
+            }
+            Ok((*held).into())
+        },
+        move |_| {
+            let issued = bramley_engine::Tokens {
+                developer: "dev-native".into(),
+                user: "user-native".into(),
+            };
+            tokens.then_some(issued).ok_or("tokens refused".into())
+        },
+    );
+    let developer = DeveloperToken::new(None, dir, dir).with_musickit(Arc::new(session));
+    let store = keyring_core::mock::Store::new().unwrap();
+    fail_next(&store);
+    Credentials::new(Some(store), "bramley-test", dir).with_developer(developer)
+}
+
+#[test]
+fn native_credentials_come_from_musickit_and_never_touch_the_keyring_or_the_disk() {
+    let dir = token_dir("native-credentials");
+    let user = native_user(
+        &dir,
+        Arc::new(Mutex::new("authorized")),
+        ("authorized", true),
+    );
+    let seen = (
+        user.load(),
+        user.developer().get(),
+        user.developer().refetch("rejected"),
+        user.save("token", || true),
+        user.clear(),
+        user.developer().peek(),
+        user.storage(),
+        user.developer().status()["devTokenSource"].clone(),
+    );
+    let left = std::fs::read_dir(&dir).unwrap().count();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        seen,
+        (
+            Ok(Some("user-native".into())),
+            Ok("dev-native".into()),
+            true,
+            Err("macOS holds the Apple Music sign-in"),
+            Ok(()),
+            None,
+            Some("musickit"),
+            json!("musickit")
+        )
+    );
+    assert_eq!(left, 0);
+}
+
+#[test]
+fn a_signed_out_native_account_loads_no_token_without_prompting() {
+    let dir = token_dir("native-signed-out");
+    let status = Arc::new(Mutex::new("notDetermined"));
+    let user = native_user(&dir, status.clone(), ("authorized", true));
+    let seen = (user.signed_in(), user.load(), user.developer().get());
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        seen,
+        (
+            Ok(false),
+            Ok(None),
+            Err(crate::musickit::NOT_AUTHORIZED.into())
+        )
+    );
+    assert_eq!(*status.lock().unwrap(), "notDetermined");
+}
+
+fn native_app(
+    status: &'static str,
+    (answer, tokens): (&'static str, bool),
+) -> (
+    crate::app::App,
+    Sender<crate::cli::Envelope>,
+    egui::Context,
+    std::path::PathBuf,
+) {
+    let dir = token_dir(&format!("native-app-{status}-{answer}-{tokens}"));
+    let user = native_user(&dir, Arc::new(Mutex::new(status)), (answer, tokens));
+    let (inbox_tx, inbox) = channel();
+    let ctx = egui::Context::default();
+    let ends: Ends = Rc::default();
+    let spawn = spawning(move || live(&ends));
+    let mut app = crate::app::App::new(
+        &ctx,
+        crate::Args::default(),
+        spawn,
+        (user, true),
+        (inbox, true),
+        None,
+    );
+    app.check_sign_in();
+    (app, inbox_tx, ctx, dir)
+}
+
+#[test]
+fn the_native_sign_in_button_asks_macos_and_signs_the_app_in() {
+    let (mut app, inbox, ctx, dir) = native_app("notDetermined", ("authorized", true));
+    let signed_out = wait_for(&ctx, &mut app, &|s| s["signInReason"] == "boot-no-token");
+    let asked = ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignIn);
+    let signed_in = wait_for(&ctx, &mut app, &|s| s["signInReason"].is_null());
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(signed_out["banner"], "SignInNeeded");
+    assert_eq!(asked["error"], Value::Null);
+    assert_eq!(
+        (signed_in["banner"].clone(), signed_in["signInUrl"].clone()),
+        (Value::Null, Value::Null)
+    );
+}
+
+#[test]
+fn a_denied_native_sign_in_stays_signed_out_and_says_where_to_allow_it() {
+    let (mut app, inbox, ctx, dir) = native_app("notDetermined", ("denied", true));
+    wait_for(&ctx, &mut app, &|s| s["signInReason"] == "boot-no-token");
+    ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignIn);
+    let status = wait_for(&ctx, &mut app, &|s| s["notice"].is_string());
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(
+        status["notice"]
+            .as_str()
+            .unwrap()
+            .contains("System Settings")
+    );
+    assert_eq!(status["banner"], "SignInNeeded");
+}
+
+#[test]
+fn the_startup_check_reads_the_access_status_without_asking_for_tokens() {
+    let (mut app, _inbox, ctx, dir) = native_app("authorized", ("authorized", false));
+    let status = wait_for(&ctx, &mut app, &|s| s["signInReason"] != "boot-unchecked");
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        (status["signInReason"].clone(), status["notice"].clone()),
+        (Value::Null, Value::Null)
+    );
+}

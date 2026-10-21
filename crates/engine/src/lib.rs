@@ -1,22 +1,34 @@
+#[cfg(feature = "runtime")]
 mod audio;
+#[cfg(feature = "runtime")]
 mod buffer;
+#[cfg(feature = "runtime")]
 mod cdm;
+#[cfg(feature = "runtime")]
 mod eme;
+#[cfg(feature = "runtime")]
 mod http_cache;
+#[cfg(feature = "runtime")]
 mod media;
+#[cfg(feature = "runtime")]
 mod mp4;
+#[cfg(feature = "runtime")]
 mod net;
 mod player;
+#[cfg(feature = "runtime")]
 mod runtime;
 
 use std::path::PathBuf;
 
 #[cfg(feature = "diagnostics")]
 pub use player::Diagnostics;
+#[cfg(feature = "runtime")]
+pub use player::Player;
 pub use player::{
-    COMMAND_WAIT, Command, PlayState, Player, PlayerConfig, PlayerError, QUEUE_SHOWN, Queue,
-    QueueItem, Repeat, STOREFRONT_BACKOFF, STOREFRONT_DEADLINE, Snapshot, Tokens,
+    COMMAND_WAIT, Command, PlayState, PlayerConfig, PlayerError, QUEUE_SHOWN, Queue, QueueItem,
+    Repeat, STOREFRONT_BACKOFF, STOREFRONT_DEADLINE, Snapshot, Tokens,
 };
+#[cfg(feature = "runtime")]
 pub use runtime::Engine;
 
 #[cfg(feature = "sabotage")]
@@ -30,6 +42,7 @@ static DIAGNOSTICS_MARKER: &str = "bramley-unshipped-feature:engine/diagnostics\
 #[used]
 static TRACE_MARKER: &str = "bramley-unshipped-feature:engine/trace\0";
 
+#[cfg(feature = "runtime")]
 #[used]
 static LINKED_MARKER: &str = "bramley-linked:engine\0";
 

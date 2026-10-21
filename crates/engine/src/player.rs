@@ -1,13 +1,24 @@
+#[cfg(feature = "runtime")]
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(feature = "runtime")]
+use std::time::Instant;
 
+#[cfg(feature = "runtime")]
 use anyhow::Result;
-use serde_json::{Value as J, json};
+use serde_json::Value as J;
+#[cfg(feature = "runtime")]
+use serde_json::json;
 
-use crate::{Engine, EngineConfig, redact};
+use crate::EngineConfig;
+#[cfg(feature = "runtime")]
+use crate::{Engine, redact};
 
+#[cfg(feature = "runtime")]
 pub(crate) const PLAYER: &str = include_str!("../js/player.js");
+#[cfg(feature = "runtime")]
 const MUSICKIT_URL: &str = "https://js-cdn.music.apple.com/musickit/v3/musickit.js";
+#[cfg(feature = "runtime")]
 const PLAYER_STACK: usize = 8 * 1024 * 1024;
 const COMMAND_WAIT_MS: u64 = 5000;
 const STOREFRONT_DEADLINE_MS: u64 = 10_000;
@@ -16,8 +27,9 @@ pub const STOREFRONT_BACKOFF: [Duration; 2] =
     [Duration::from_millis(250), Duration::from_millis(750)];
 pub const QUEUE_SHOWN: usize = 50;
 pub const COMMAND_WAIT: Duration = Duration::from_millis(COMMAND_WAIT_MS);
+#[cfg(feature = "runtime")]
 const HEARTBEAT: Duration = Duration::from_secs(1);
-#[cfg(feature = "diagnostics")]
+#[cfg(all(feature = "runtime", feature = "diagnostics"))]
 const ENGINE_STATUS_EVERY: Duration = Duration::from_secs(1);
 
 pub struct Tokens {
@@ -93,6 +105,7 @@ impl Repeat {
         }
     }
 
+    #[cfg(feature = "runtime")]
     fn musickit(self) -> &'static str {
         match self {
             Repeat::Off => "none",
@@ -202,6 +215,7 @@ impl Snapshot {
     }
 }
 
+#[cfg(feature = "runtime")]
 pub(crate) trait Backend {
     fn tick(&mut self) -> Duration;
     fn eval_script(&self, name: &str, source: &str) -> Result<()>;
@@ -214,6 +228,7 @@ pub(crate) trait Backend {
     fn status(&self) -> J;
 }
 
+#[cfg(feature = "runtime")]
 impl Backend for Engine {
     fn tick(&mut self) -> Duration {
         Engine::tick(self)
@@ -242,8 +257,10 @@ impl Backend for Engine {
     }
 }
 
+#[cfg(feature = "runtime")]
 pub struct Player;
 
+#[cfg(feature = "runtime")]
 impl Player {
     pub fn spawn(
         mut cfg: PlayerConfig,
@@ -276,12 +293,14 @@ impl Player {
     }
 }
 
+#[cfg(feature = "runtime")]
 struct Exit<W: Fn()> {
     snapshots: Sender<Snapshot>,
     waker: W,
     applied: u64,
 }
 
+#[cfg(feature = "runtime")]
 impl<W: Fn()> Exit<W> {
     fn send(&self, snap: Snapshot) -> bool {
         let sent = self.snapshots.send(snap).is_ok();
@@ -290,6 +309,7 @@ impl<W: Fn()> Exit<W> {
     }
 }
 
+#[cfg(feature = "runtime")]
 impl<W: Fn()> Drop for Exit<W> {
     fn drop(&mut self) {
         if std::thread::panicking() {
@@ -302,6 +322,7 @@ impl<W: Fn()> Drop for Exit<W> {
     }
 }
 
+#[cfg(feature = "runtime")]
 pub(crate) fn spawn_with<B: Backend>(
     make: impl FnOnce() -> Result<B> + Send + 'static,
     setup: String,
@@ -339,6 +360,7 @@ pub(crate) fn spawn_with<B: Backend>(
     Ok((command_tx, snapshot_rx))
 }
 
+#[cfg(feature = "runtime")]
 fn run<B: Backend, W: Fn()>(
     mut b: B,
     commands: &Receiver<Command>,
@@ -395,17 +417,22 @@ fn run<B: Backend, W: Fn()>(
     }
 }
 
+#[cfg(feature = "runtime")]
 pub const OUTPUT_FAILED: &str = "the audio output could not be opened";
+#[cfg(feature = "runtime")]
 pub const START_STALL: Duration = Duration::from_secs(10);
+#[cfg(feature = "runtime")]
 pub const START_STALLED: &str =
     "playback did not start within 10 s; the license or the network may have failed";
 
+#[cfg(feature = "runtime")]
 #[derive(Default)]
 struct StartWatch {
     armed: Option<Instant>,
     last: Option<f64>,
 }
 
+#[cfg(feature = "runtime")]
 impl StartWatch {
     fn command(&mut self, command: &Command) {
         match command {
@@ -443,6 +470,7 @@ impl StartWatch {
     }
 }
 
+#[cfg(feature = "runtime")]
 pub(crate) fn command_js(command: &Command) -> String {
     let (method, arg) = match command {
         Command::SetQueue { queue, start } => {
@@ -467,6 +495,7 @@ pub(crate) fn command_js(command: &Command) -> String {
     format!("__player.{method}({arg});")
 }
 
+#[cfg(feature = "runtime")]
 fn queue_options(queue: &Queue) -> J {
     match queue {
         Queue::Songs(ids) => json!({"songs": ids}),
@@ -475,6 +504,7 @@ fn queue_options(queue: &Queue) -> J {
     }
 }
 
+#[cfg(feature = "runtime")]
 fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
     let js = match b.eval_json("__player.state()") {
         Ok(js) => serde_json::from_str(&redact(&js.to_string(), secrets)).unwrap_or(J::Null),
@@ -557,6 +587,7 @@ fn snapshot<B: Backend>(b: &B, secrets: &[String]) -> Snapshot {
     }
 }
 
+#[cfg(feature = "runtime")]
 #[cfg(feature = "diagnostics")]
 fn without_queue(js: &J) -> String {
     let mut js = js.clone();

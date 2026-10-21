@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::musickit::Session;
+
 pub const URL: &str = "https://natevick.github.io/bramley/developer-token.json";
 const MAX_BYTES: u64 = 64 << 10;
 const MAX_TOKEN: usize = 8 << 10;
@@ -42,6 +44,7 @@ pub struct DeveloperToken {
     agent: ureq::Agent,
     attempts: Arc<Mutex<Attempts>>,
     health: Arc<Mutex<Health>>,
+    musickit: Option<Arc<Session>>,
 }
 
 fn now() -> u64 {
@@ -81,12 +84,26 @@ impl DeveloperToken {
             agent,
             attempts: Arc::default(),
             health: Arc::default(),
+            musickit: None,
         }
     }
 
     pub fn system(url: String, config: &Path) -> Self {
         let cache = bramley_api::store::cache_dir().unwrap_or_else(|| config.to_owned());
-        DeveloperToken::new(Some(url), &cache, config)
+        let developer = DeveloperToken::new(Some(url), &cache, config);
+        #[cfg(target_os = "macos")]
+        let developer = developer.with_musickit(Arc::new(Session::system()));
+        developer
+    }
+
+    #[cfg(any(test, target_os = "macos"))]
+    pub fn with_musickit(mut self, session: Arc<Session>) -> Self {
+        self.musickit = Some(session);
+        self
+    }
+
+    pub fn musickit(&self) -> Option<&Arc<Session>> {
+        self.musickit.as_ref()
     }
 
     fn cached(&self) -> Option<Published> {
@@ -133,6 +150,9 @@ impl DeveloperToken {
     }
 
     pub fn get(&self) -> Result<String, String> {
+        if let Some(session) = &self.musickit {
+            return session.developer();
+        }
         let mut attempts = lock(&self.attempts);
         let cached = self.cached();
         let renew_at = now() + RENEW_DAYS * DAY;
@@ -184,11 +204,17 @@ impl DeveloperToken {
     }
 
     pub fn peek(&self) -> Option<String> {
+        if let Some(session) = &self.musickit {
+            return session.peek();
+        }
         let cached = self.cached().map(|c| c.token);
         cached.or_else(|| crate::read_token(&self.config, "developer-token").ok())
     }
 
     pub fn refetch(&self, rejected: &str) -> bool {
+        if let Some(session) = &self.musickit {
+            return session.renew(rejected);
+        }
         let mut attempts = lock(&self.attempts);
         if self.cached().is_some_and(|c| c.token != rejected) {
             return true;
@@ -207,6 +233,9 @@ impl DeveloperToken {
     }
 
     pub fn status(&self) -> serde_json::Value {
+        if self.musickit.is_some() {
+            return serde_json::json!({"devTokenSource": "musickit"});
+        }
         let health = lock(&self.health);
         serde_json::json!({
             "devTokenDaysLeft": health.days_left,
@@ -220,6 +249,9 @@ impl DeveloperToken {
     }
 
     pub fn missing(&self) -> Option<String> {
+        if let Some(session) = &self.musickit {
+            return session.failure();
+        }
         lock(&self.health).error.clone()
     }
 }

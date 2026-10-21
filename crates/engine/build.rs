@@ -6,7 +6,8 @@ fn main() {
     }
     println!("cargo:rerun-if-changed=src/shim.cc");
     println!("cargo:rerun-if-changed=cdm-api/content_decryption_module.h");
-    if std::env::var("CARGO_CFG_TARGET_FAMILY").as_deref() != Ok("unix") {
+    let shim = std::env::var_os("CARGO_FEATURE_RUNTIME").is_some();
+    if !shim || std::env::var("CARGO_CFG_TARGET_FAMILY").as_deref() != Ok("unix") {
         return;
     }
     cc::Build::new()

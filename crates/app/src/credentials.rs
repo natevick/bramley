@@ -14,6 +14,8 @@ const OPEN_WAIT: Duration = Duration::from_secs(5);
 const WAIT: Duration = Duration::from_secs(60);
 const UNAVAILABLE: &str = "the system keyring did not answer; unlock it and try again";
 const STALE: &str = "Bramley signed out while this sign-in was arriving";
+const NO_NATIVE_SIGN_IN: &str = "this platform signs in through the browser";
+const SIGNED_BY_MACOS: &str = "macOS holds the Apple Music sign-in";
 
 #[derive(Clone)]
 enum Backend {
@@ -92,7 +94,26 @@ impl Credentials {
     }
 
     pub fn storage(&self) -> Option<&'static str> {
-        self.mode.get().copied()
+        let native = self.developer.musickit().map(|_| "musickit");
+        native.or_else(|| self.mode.get().copied())
+    }
+
+    pub fn native(&self) -> bool {
+        self.developer.musickit().is_some()
+    }
+
+    pub fn signed_in(&self) -> Result<bool, &'static str> {
+        match self.developer.musickit() {
+            Some(session) => session.authorized(),
+            None => self.load().map(|token| token.is_some()),
+        }
+    }
+
+    pub fn request(&self) -> Result<bool, &'static str> {
+        match self.developer.musickit() {
+            Some(session) => session.request(),
+            None => Err(NO_NATIVE_SIGN_IN),
+        }
     }
 
     fn locked<T>(
@@ -137,6 +158,9 @@ impl Credentials {
     }
 
     pub fn load(&self) -> Result<Option<String>, &'static str> {
+        if let Some(session) = self.developer.musickit() {
+            return session.user();
+        }
         let file = || crate::read_token(&self.dir, USER_TOKEN).ok();
         self.locked(|backend| match backend {
             Backend::File => Ok(file()),
@@ -152,6 +176,9 @@ impl Credentials {
     }
 
     pub fn save(&self, token: &str, current: impl Fn() -> bool) -> Result<(), &'static str> {
+        if self.native() {
+            return Err(SIGNED_BY_MACOS);
+        }
         self.locked(|backend| match backend {
             _ if !current() => Err(STALE),
             Backend::File => bramley_api::store::write_private(
@@ -164,6 +191,10 @@ impl Credentials {
     }
 
     pub fn clear(&self) -> Result<(), &'static str> {
+        if let Some(session) = self.developer.musickit() {
+            session.forget();
+            return Ok(());
+        }
         self.locked(|backend| {
             if let Backend::Keyring(store) = backend
                 && !matches!(
