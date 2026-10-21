@@ -133,6 +133,8 @@ pub struct Args {
     #[cfg(feature = "dev")]
     queue_open: bool,
     #[cfg(feature = "dev")]
+    drawer_open: bool,
+    #[cfg(feature = "dev")]
     scroll_end: Option<Duration>,
     #[cfg(feature = "dev")]
     click_last: bool,
@@ -184,6 +186,8 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
             "--route" => a.route = Some(ui::nav::Route::parse(&value()?).context("unknown route")?),
             #[cfg(feature = "dev")]
             "--queue-open" => a.queue_open = true,
+            #[cfg(feature = "dev")]
+            "--drawer-open" => a.drawer_open = true,
             #[cfg(feature = "dev")]
             "--scroll-end" => a.scroll_end = Some(Duration::try_from_secs_f64(value()?.parse()?)?),
             #[cfg(feature = "dev")]
@@ -438,6 +442,7 @@ fn main() -> Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size(size)
+            .with_min_inner_size(ui::MIN_WINDOW)
             .with_title("Bramley")
             .with_app_id("bramley"),
         ..Default::default()

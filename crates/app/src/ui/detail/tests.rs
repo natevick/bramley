@@ -256,3 +256,47 @@ fn a_403_on_revalidating_an_album_reopens_it_live() {
     assert_eq!(again.call, Call::Album("1".into()));
     assert!(matches!(d.state, State::Loading(_)));
 }
+
+#[test]
+fn a_narrow_header_stacks_the_cover_above_the_title_and_wraps_the_buttons_inside_the_window() {
+    let (ctx, mut d, t0) = (egui::Context::default(), Detail::new(None), Instant::now());
+    ctx.enable_accesskit();
+    tick(&mut d, t0, true, &Route::Album("1".into()));
+    answer(
+        &mut d,
+        &ctx,
+        Ok(Reply::Detail(found(page(&[("a", "songs")], None)))),
+    );
+    for width in [360.0, 400.0, 459.0, 700.0] {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
+        let mut nodes = Vec::new();
+        for _ in 0..2 {
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| super::show(ui, &mut d, &mut Vec::new()));
+            out.textures_delta.clear();
+            nodes = out.platform_output.accesskit_update.expect("a tree").nodes;
+        }
+        let at = |label: &str| {
+            let named = |n: &egui::accesskit::Node| n.label().or(n.value()) == Some(label);
+            let node = nodes.iter().find(|(_, n)| named(n));
+            node.and_then(|(_, n)| n.bounds()).expect(label)
+        };
+        for label in ["Play all", "Shuffle", "Play songs a"] {
+            let rect = at(label);
+            assert!(
+                rect.x0 >= 0.0 && rect.x1 <= f64::from(width),
+                "{width}: {label} {rect:?}"
+            );
+        }
+        let title = at("albums 1");
+        let stacked = title.x0 < 40.0;
+        assert_eq!(stacked, width < 460.0, "{width}: title at {title:?}");
+        assert!(
+            title.x1 - title.x0 > 60.0,
+            "{width}: the title is squeezed to {title:?}"
+        );
+    }
+}

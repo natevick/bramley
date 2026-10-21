@@ -186,6 +186,7 @@ impl App {
                 .jump_letter
                 .map(|letter| (ui::library::List::Artists, letter));
             (shell.route, shell.queue_open) = (args.route.unwrap_or_default(), args.queue_open);
+            shell.drawer_open = args.drawer_open;
             if let Some(term) = &args.search {
                 shell.query.clone_from(term);
                 search.typed_once_signed_in = Some(term.clone());
@@ -711,23 +712,32 @@ impl App {
         let volume = self.volume_percent();
         let toggle = started.then(|| play_or_pause(shown.state));
         ui::shortcuts(ui.ctx(), toggle, &mut self.actions, &mut self.navs);
+        let compact = ui.available_width() < ui::COMPACT_PT;
         egui::Panel::bottom("now-playing").show(ui, |ui| {
             ui.add_space(8.0);
             let emit = (&mut self.actions, &mut self.navs);
-            ui::player_bar::show(ui, &shown, started, volume, self.shell.queue_open, emit);
+            let layout = (self.shell.queue_open, compact);
+            ui::player_bar::show(ui, &shown, started, volume, layout, emit);
             ui.add_space(8.0);
         });
         let (mut sign_in, mut sign_out, mut dismissed) = (false, false, false);
         let signed_in = covers_allowed(&self.playback);
-        egui::Panel::left("library")
-            .default_size(200.0)
-            .show(ui, |ui| {
-                ui::sidebar::show(ui, &self.shell.route, &mut self.library, &mut self.navs);
-                sign_out = ui::sidebar::account(ui, signed_in);
-            });
-        if self.shell.queue_open {
+        if !compact {
+            egui::Panel::left("library")
+                .default_size(200.0)
+                .show(ui, |ui| {
+                    let (route, library) = (&self.shell.route, &mut self.library);
+                    sign_out = ui::sidebar::show(ui, route, library, &mut self.navs, signed_in);
+                });
+        }
+        let free = ui.available_rect_before_wrap();
+        let docked = self.shell.queue_open
+            && !compact
+            && free.width() >= ui::CONTENT_PANEL_MIN_PT + ui::QUEUE_PT;
+        if docked {
             egui::Panel::right("queue")
-                .default_size(260.0)
+                .default_size(ui::QUEUE_PT)
+                .max_size(free.width() - ui::CONTENT_PANEL_MIN_PT)
                 .show(ui, |ui| {
                     let emit = (&mut self.actions, &mut self.navs);
                     ui::queue_panel::show(ui, &shown, emit)
@@ -753,8 +763,29 @@ impl App {
                 &mut self.detail,
             );
             let emit = (&mut self.actions, &mut self.navs);
-            ui::content::show(ui, view, &self.covers, emit);
+            ui::content::show(ui, view, &self.covers, emit, compact);
         });
+        if self.shell.queue_open && !docked {
+            let mut sheet = free;
+            if !compact {
+                sheet.min.x = free.max.x - ui::QUEUE_PT.min(free.width());
+            }
+            ui::overlay(ui, "queue-overlay", sheet, |ui| {
+                let emit = (&mut self.actions, &mut self.navs);
+                ui::queue_panel::show(ui, &shown, emit)
+            });
+        }
+        if compact && self.shell.drawer_open {
+            let mut drawer = free;
+            drawer.max.x = free.min.x + ui::DRAWER_PT.min(free.width() * 0.8);
+            let outside = ui::overlay(ui, "drawer", drawer, |ui| {
+                let (route, library) = (&self.shell.route, &mut self.library);
+                sign_out = ui::sidebar::show(ui, route, library, &mut self.navs, signed_in);
+            });
+            if outside.clicked_elsewhere() {
+                self.navs.push(Nav::ToggleDrawer);
+            }
+        }
         self.library.art.flush(ui.ctx());
         if sign_out {
             self.sign_out();

@@ -19,6 +19,8 @@ pub const DEADLINE: Duration = Duration::from_secs(10);
 pub const MAX_TRACKS: usize = 1000;
 pub const WINDOW: usize = 100;
 const ART_PT: f32 = 160.0;
+const ART_STACKED_PT: f32 = 96.0;
+const STACK_BELOW_PT: f32 = ART_PT + 300.0;
 const ROW_PT: f32 = 26.0;
 
 type Found = (u64, bramley_api::Result<Reply>, bool);
@@ -279,8 +281,10 @@ pub fn show(ui: &mut egui::Ui, detail: &mut Detail, actions: &mut Vec<Action>) {
             n => actions.extend(play_from(open, model, n - 1)),
         }
     }
-    ui.horizontal(|ui| {
-        let size = egui::vec2(ART_PT, ART_PT);
+    let stacked = ui.available_width() < STACK_BELOW_PT;
+    let header = |ui: &mut egui::Ui| {
+        let art = if stacked { ART_STACKED_PT } else { ART_PT };
+        let size = egui::vec2(art, art);
         detail.art.want(ui.ctx(), &model.item);
         match detail.art.texture(&model.item) {
             Some(texture) => ui.add(egui::Image::new(texture).fit_to_exact_size(size)),
@@ -292,7 +296,7 @@ pub fn show(ui: &mut egui::Ui, detail: &mut Detail, actions: &mut Vec<Action>) {
             ui.label(model.item.artist.as_deref().unwrap_or(""));
             ui.label(RichText::new(model.summary()).weak());
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 let play = labeled(ui.button("⏵ Play"), WidgetType::Button, "Play all");
                 if let Some(first) = model.first_playable().filter(|_| play.clicked()) {
                     actions.extend(play_from(open, model, first));
@@ -303,7 +307,12 @@ pub fn show(ui: &mut egui::Ui, detail: &mut Detail, actions: &mut Vec<Action>) {
                 }
             });
         });
-    });
+    };
+    if stacked {
+        ui.vertical(header);
+    } else {
+        ui.horizontal(header);
+    }
     ui.add_space(8.0);
     let rows = model.tracks.len();
     egui::ScrollArea::vertical().show_rows(ui, ROW_PT, rows, |ui, range| {

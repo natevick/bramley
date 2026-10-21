@@ -857,19 +857,33 @@ fn bar_at(
     (started, volume): (bool, u8),
     events: Vec<Event>,
 ) -> (Nodes, Vec<Action>) {
+    bar_sized(ctx, shown, (started, volume), (1100.0, 80.0), events)
+}
+
+fn bar_sized(
+    ctx: &egui::Context,
+    shown: &bramley_engine::Snapshot,
+    (started, volume): (bool, u8),
+    (width, height): (f32, f32),
+    events: Vec<Event>,
+) -> (Nodes, Vec<Action>) {
     ctx.enable_accesskit();
     let mut actions = Vec::new();
     let input = RawInput {
         screen_rect: Some(egui::Rect::from_min_size(
             egui::Pos2::ZERO,
-            egui::vec2(1100.0, 80.0),
+            egui::vec2(width, height),
         )),
         events,
         ..RawInput::default()
     };
     let mut out = ctx.run_ui(input, |ui| {
         let emit = (&mut actions, &mut Vec::new());
-        super::player_bar::show(ui, shown, started, volume, false, emit);
+        let layout = (false, width < super::COMPACT_PT);
+        let margin = egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 0));
+        margin.show(ui, |ui| {
+            super::player_bar::show(ui, shown, started, volume, layout, emit)
+        });
     });
     out.textures_delta.clear();
     let tree = out.platform_output.accesskit_update.expect("a tree");
@@ -1100,4 +1114,329 @@ fn the_footer_says_signed_in_above_sign_out_and_says_nothing_when_signed_out() {
     let (signed_in, signed_out) = (labels(true), labels(false));
     assert!(has(&signed_in, "Sign out") && has(&signed_in, "Signed in to Apple Music"));
     assert_eq!(signed_out, Vec::<String>::new());
+}
+
+const POSITION_MIN_PT: f32 = 64.0;
+const CONTENT_MIN_PT: f32 = 320.0;
+
+fn sized(width: f32, height: f32, events: Vec<Event>) -> RawInput {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, height));
+    RawInput {
+        screen_rect: Some(screen),
+        events,
+        ..RawInput::default()
+    }
+}
+
+fn labelled(out: egui::FullOutput) -> Nodes {
+    let tree = out.platform_output.accesskit_update.expect("a tree");
+    let named = tree.nodes.into_iter();
+    named
+        .filter_map(|(_, n)| Some((n.label().or(n.value())?.to_owned(), n)))
+        .collect()
+}
+
+fn rect_of(node: &egui::accesskit::Node) -> Option<egui::Rect> {
+    let b = node.bounds()?;
+    let min = egui::pos2(b.x0 as f32, b.y0 as f32);
+    Some(egui::Rect::from_min_max(
+        min,
+        egui::pos2(b.x1 as f32, b.y1 as f32),
+    ))
+}
+
+fn controls(nodes: &Nodes) -> Vec<(String, egui::Rect)> {
+    use egui::accesskit::Role;
+    let shown = nodes.iter().filter(|(l, n)| {
+        let role = n.role();
+        !l.is_empty()
+            && matches!(
+                role,
+                Role::Button | Role::Slider | Role::TextInput | Role::Label
+            )
+    });
+    let one_line = |r: &egui::Rect| r.height() <= 20.0;
+    let rects = shown.filter_map(|(l, n)| Some((l.clone(), rect_of(n)?)));
+    rects.filter(|(_, r)| one_line(r)).collect()
+}
+
+fn width_of(nodes: &Nodes, label: &str) -> f32 {
+    let node = nodes.iter().find(|(l, _)| l == label);
+    rect_of(&node.expect(label).1).expect(label).width()
+}
+
+fn assert_apart(nodes: &Nodes, (width, height): (f32, f32), at: &str) {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, height));
+    let items = controls(nodes);
+    for (label, rect) in &items {
+        assert!(
+            screen.expand(0.5).contains_rect(*rect),
+            "{at}: {label} {rect:?} leaves the window"
+        );
+    }
+    for (i, (a, ra)) in items.iter().enumerate() {
+        for (b, rb) in &items[i + 1..] {
+            let clash = ra.shrink(0.5).intersects(rb.shrink(0.5));
+            assert!(!clash, "{at}: {a} {ra:?} overlaps {b} {rb:?}");
+        }
+    }
+}
+
+#[test]
+fn the_player_bar_keeps_every_control_apart_and_on_screen_from_phone_to_desktop_widths() {
+    let shown = bramley_engine::Snapshot::default();
+    let sizes = [
+        (360.0, 110.0),
+        (400.0, 110.0),
+        (500.0, 110.0),
+        (639.0, 110.0),
+    ];
+    let wide = [640.0, 700.0, 800.0, 816.0, 900.0, 1100.0, 1280.0].map(|w| (w, 60.0));
+    for (width, height) in sizes.into_iter().chain(wide) {
+        let ctx = egui::Context::default();
+        let nodes = bar_sized(&ctx, &shown, (true, 50), (width, height), vec![]).0;
+        assert_apart(&nodes, (width, height), &format!("bar at {width}"));
+        let position = width_of(&nodes, "Position");
+        assert!(
+            position >= POSITION_MIN_PT,
+            "{width}: position is {position}"
+        );
+    }
+}
+
+#[test]
+fn below_the_compact_width_the_bar_puts_title_and_queue_above_the_transport() {
+    let (ctx, shown) = (
+        egui::Context::default(),
+        bramley_engine::Snapshot::default(),
+    );
+    let top = |width: f32, label: &str| {
+        let nodes = bar_sized(&ctx, &shown, (true, 50), (width, 110.0), vec![]).0;
+        let node = nodes.iter().find(|(l, _)| l == label);
+        rect_of(&node.expect(label).1).expect(label).top()
+    };
+    assert!(top(400.0, "Queue") + 10.0 < top(400.0, "Play"));
+    assert!((top(700.0, "Queue") - top(700.0, "Play")).abs() < 10.0);
+}
+
+#[test]
+#[cfg(not(target_os = "macos"))]
+fn a_narrow_bar_folds_the_volume_into_an_icon_that_opens_a_slider_popup() {
+    let (ctx, shown) = (
+        egui::Context::default(),
+        bramley_engine::Snapshot::default(),
+    );
+    let size = (700.0, 80.0);
+    let nodes = bar_sized(&ctx, &shown, (true, 50), size, vec![]).0;
+    assert!(nodes.iter().all(|(l, _)| l != "Volume"));
+    let at = centre(&nodes, "Volume menu");
+    let button = |pressed| Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    bar_sized(
+        &ctx,
+        &shown,
+        (true, 50),
+        size,
+        vec![Event::PointerMoved(at), button(true)],
+    );
+    bar_sized(&ctx, &shown, (true, 50), size, vec![button(false)]);
+    let open = bar_sized(&ctx, &shown, (true, 50), size, vec![]).0;
+    assert_eq!(volume_of(&open), Some(50.0));
+    let wide = bar_sized(
+        &egui::Context::default(),
+        &shown,
+        (true, 50),
+        (1100.0, 80.0),
+        vec![],
+    )
+    .0;
+    assert!(wide.iter().all(|(l, _)| l != "Volume menu"));
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn no_bar_width_shows_any_volume_control_on_macos() {
+    let shown = bramley_engine::Snapshot::default();
+    for width in [400.0, 700.0, 1100.0] {
+        let ctx = egui::Context::default();
+        let nodes = bar_sized(&ctx, &shown, (true, 50), (width, 80.0), vec![]).0;
+        assert!(nodes.iter().all(|(l, _)| !l.starts_with("Volume")));
+    }
+}
+
+fn tap_at(ctx: &egui::Context, app: &mut crate::app::App, size: (f32, f32), at: egui::Pos2) {
+    let button = |pressed| Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: Modifiers::NONE,
+    };
+    for events in [
+        vec![Event::PointerMoved(at), button(true)],
+        vec![button(false)],
+    ] {
+        frame(ctx, app, sized(size.0, size.1, events));
+    }
+}
+
+fn shown(ctx: &egui::Context, app: &mut crate::app::App, size: (f32, f32)) -> Nodes {
+    for _ in 0..2 {
+        frame(ctx, app, sized(size.0, size.1, vec![]));
+    }
+    labelled(frame(ctx, app, sized(size.0, size.1, vec![])))
+}
+
+fn button_at(nodes: &Nodes, label: &str) -> Option<egui::Rect> {
+    let found = nodes
+        .iter()
+        .find(|(l, n)| l == label && n.role() == egui::accesskit::Role::Button);
+    found.and_then(|(_, n)| rect_of(n))
+}
+
+fn open_app(size: (f32, f32), route: Route) -> (egui::Context, crate::app::App) {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut app = app(&ctx, true);
+    app.go(route);
+    shown(&ctx, &mut app, size);
+    (ctx, app)
+}
+
+fn text_at(nodes: &Nodes, label: &str) -> Option<egui::Rect> {
+    let found = nodes
+        .iter()
+        .find(|(l, n)| l == label && n.role() == egui::accesskit::Role::Label);
+    found.and_then(|(_, n)| rect_of(n))
+}
+
+#[test]
+fn an_open_queue_never_leaves_the_content_under_320_it_overlays_instead() {
+    let widths = [
+        360.0, 400.0, 639.0, 640.0, 700.0, 779.0, 780.0, 900.0, 1280.0,
+    ];
+    for width in widths {
+        let size = (width, 600.0);
+        let (ctx, mut app) = open_app(size, Route::Search);
+        let nodes = shown(&ctx, &mut app, size);
+        let queue = button_at(&nodes, "Queue").expect("the queue toggle");
+        tap_at(&ctx, &mut app, size, queue.center());
+        let nodes = shown(&ctx, &mut app, size);
+        let field = nodes
+            .iter()
+            .find(|(_, n)| n.role() == egui::accesskit::Role::TextInput);
+        let content = rect_of(&field.expect("the search field").1).expect("bounds");
+        assert!(
+            content.width() >= CONTENT_MIN_PT,
+            "{width}: content is {}",
+            content.width()
+        );
+        let empty = text_at(&nodes, "Nothing queued.").expect("the queue is open");
+        let close = button_at(&nodes, "Close queue").expect("a close button");
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.0));
+        assert!(
+            screen.contains_rect(close),
+            "{width}: close button off screen"
+        );
+        let sheet = width < super::COMPACT_PT;
+        assert_eq!(
+            sheet,
+            empty.left() < 24.0,
+            "{width}: the sheet covers the content"
+        );
+        let docked = empty.left() >= content.right();
+        assert_eq!(
+            docked,
+            width >= 796.0,
+            "{width}: docked only when 320 stays free"
+        );
+        tap_at(&ctx, &mut app, size, close.center());
+        let nodes = shown(&ctx, &mut app, size);
+        assert!(
+            button_at(&nodes, "Close queue").is_none(),
+            "{width}: the queue closes"
+        );
+    }
+}
+
+#[test]
+fn the_compact_sidebar_is_a_drawer_that_opens_from_the_menu_and_closes_on_navigation() {
+    let size = (400.0, 700.0);
+    let (ctx, mut app) = open_app(size, Route::Home);
+    let nodes = shown(&ctx, &mut app, size);
+    assert!(
+        button_at(&nodes, "Songs").is_none(),
+        "the sidebar takes no width"
+    );
+    let menu = button_at(&nodes, "Menu").expect("a menu button");
+    tap_at(&ctx, &mut app, size, menu.center());
+    let nodes = shown(&ctx, &mut app, size);
+    let songs = button_at(&nodes, "Songs").expect("the drawer lists the routes");
+    assert!(
+        songs.right() <= 300.0,
+        "the drawer leaves the content peeking: {songs:?}"
+    );
+    tap_at(&ctx, &mut app, size, songs.center());
+    assert_eq!(app.status_json()["route"], "Songs");
+    let nodes = shown(&ctx, &mut app, size);
+    assert!(
+        button_at(&nodes, "Songs").is_none(),
+        "choosing a route closes the drawer"
+    );
+    tap_at(&ctx, &mut app, size, menu.center());
+    shown(&ctx, &mut app, size);
+    tap_at(&ctx, &mut app, size, egui::pos2(380.0, 300.0));
+    let nodes = shown(&ctx, &mut app, size);
+    assert!(
+        button_at(&nodes, "Songs").is_none(),
+        "a tap outside closes the drawer"
+    );
+    let (ctx, mut app) = open_app((700.0, 500.0), Route::Home);
+    let nodes = shown(&ctx, &mut app, (700.0, 500.0));
+    assert!(button_at(&nodes, "Menu").is_none() && button_at(&nodes, "Songs").is_some());
+}
+
+#[test]
+fn the_drawer_state_toggles_and_any_route_change_closes_it() {
+    let mut shell = Shell::default();
+    shell.apply(Nav::ToggleDrawer);
+    assert!(shell.drawer_open);
+    shell.apply(Nav::Go(Route::Songs));
+    assert!(!shell.drawer_open);
+    shell.apply(Nav::ToggleDrawer);
+    shell.apply(Nav::Go(Route::Songs));
+    assert!(
+        !shell.drawer_open,
+        "choosing the current route closes it too"
+    );
+}
+
+#[test]
+fn no_route_has_overlapping_controls_at_the_minimum_phone_and_small_desktop_sizes() {
+    let [min_w, min_h] = super::MIN_WINDOW;
+    let sizes = [
+        (min_w, min_h),
+        (400.0, 700.0),
+        (640.0, 480.0),
+        (700.0, 500.0),
+        (1280.0, 800.0),
+    ];
+    let routes = [
+        Route::Home,
+        Route::Search,
+        Route::Artists,
+        Route::Albums,
+        Route::Songs,
+        Route::Playlists,
+    ];
+    for size in sizes {
+        for route in routes.clone() {
+            let (ctx, mut app) = open_app(size, route.clone());
+            let nodes = shown(&ctx, &mut app, size);
+            assert_apart(&nodes, size, &format!("{route:?} at {size:?}"));
+        }
+    }
 }
