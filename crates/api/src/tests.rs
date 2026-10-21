@@ -1341,6 +1341,35 @@ mod disk_cache {
     }
 
     #[test]
+    fn the_home_grid_is_account_scoped_wiped_and_never_keeps_a_bad_id_or_a_stale_write() {
+        let store = Store::open(&scratch("home"), "api", 1 << 20).unwrap();
+        let pair = |id: &str| (id.to_owned(), format!("{id}/{{w}}x{{h}}.jpg"));
+        let grid = vec![pair("l.1"), pair("l.2"), pair("../x")];
+        store.remember_home("alice", &grid, store.epoch());
+        assert_eq!(store.home("alice"), Some(grid[..2].to_vec()));
+        assert_eq!(store.home("bob"), None, "another account misses");
+        store.remember_home("alice", &[], store.epoch());
+        assert_eq!(store.home("alice"), None, "an empty grid is not kept");
+        let before = store.epoch();
+        store.remember_home("alice", &grid, before);
+        std::fs::write(
+            store.path(&["home", &crate::store::digest(&["alice"])]),
+            b"{",
+        )
+        .unwrap();
+        assert_eq!(store.home("alice"), None, "a corrupt entry reads as a miss");
+        store.remember_home("alice", &grid, before);
+        store.wipe();
+        assert_eq!(store.home("alice"), None, "sign-out wipes the grid");
+        store.remember_home("alice", &grid, before);
+        assert_eq!(
+            store.home("alice"),
+            None,
+            "a write begun before the wipe is dropped"
+        );
+    }
+
+    #[test]
     fn age_is_the_time_since_the_fetch_and_a_read_does_not_reset_it() {
         let store = Store::open(&scratch("age"), "api", 1 << 20).unwrap();
         assert_eq!(store.age(&["k"]), None);
