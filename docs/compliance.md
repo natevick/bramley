@@ -103,3 +103,7 @@ Header of `https://js-cdn.music.apple.com/musickit/v3/musickit.js` (ETag `"a62a1
   - **Extends** the 2026-10-18 cache entry to a headless run. It makes only the requests the app makes for the library lists, album and playlist track lists and their covers, with the user's own tokens, at most 60 per run and 1 API request per second.
   - It stops at once on a 429, 5xx, 401 or 403, changes nothing and never signs the user out. It never requests or stores listening history, and never touches the playback path. It does nothing when signed out or when the keyring is locked.
   - The systemd timer ships disabled. The user enables it with `systemctl --user enable --now bramley-warm.timer`.
+- **2026-10-21: the final Home grid may be cached on disk (Nate: "Do both please", after Norm asked whether to cache the last Home grid, which reflects listening).**
+  - **Amends** the 2026-10-18 cache entry's "never stores ... listening history (recent plays, heavy rotation, replay summaries, recently added)". The final Home grid, album ids in listening order with their art templates and nothing else, is now stored in the API cache: scoped to a hash of the user token, 0600 in a 0700 directory, wiped at sign-out.
+  - **Unchanged:** the raw listening-history responses are never cached. Rule 6 and the playback path are untouched. The Home grid still waits for the storefront check before it shows, cached or live.
+  - `bramley warm` still never requests or stores listening history, so it does not refresh the grid.

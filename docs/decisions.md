@@ -58,3 +58,9 @@
   - In `v042-counted-1` all 16 checks PASSed. The gate was FAIL only because the ballast positive control landed R1's USS at 220.1 MiB, 0.1 MiB outside its 215 ± 5 band. See `docs/v0.4.2-RESULTS.md`.
   - v0.4.2 changes only the warmer's refresh ages, which the app never runs. Nate: "ship it".
   - Follow-up S34: a positive control that misses its band should make a run VOID, not FAIL. To be amended for future runs.
+- **2026-10-21: the last Home grid is cached on disk (Nate: "Do both please").**
+  - Norm asked whether to cache the last Home grid, which reflects listening. Nate answered "Do both please": cache it, and send Home's ranking requests in parallel.
+  - **Amends** the 2026-10-18 cache entry's "listening history is never cached on disk". The final Home grid (album ids in listening order, with their art templates) is now cached. Raw history responses (recent plays, heavy rotation, replay summaries, recently added) still are not.
+  - **Where:** the API store, scoped to a hash of the user token, 0600 in a 0700 directory, wiped at sign-out with the API cache.
+  - **Behavior:** after the storefront check passes, Home shows the cached grid, ranks live and swaps the grid in one step only if the result differs. `bramley warm` does not refresh it: that needs the history requests warm never makes.
+  - Measured in `docs/s39-home-fast-PREREG.md`.
