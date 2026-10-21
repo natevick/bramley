@@ -19,7 +19,7 @@ def assert_isolated(env):
     if not config or os.path.realpath(config) == os.path.realpath(REAL_CONFIG) or service in ('', 'bramley') or real_cache:
         raise RuntimeError(f'refusing to launch against the real config, cache or keyring: {config!r}, {cache!r}, {service!r}')
     state = env.get('XDG_STATE_HOME')
-    if not state or os.path.commonpath([os.path.realpath(state), os.path.realpath(config)]) != os.path.realpath(config):
+    if not state or not os.path.isabs(state) or os.path.commonpath([os.path.realpath(state), os.path.realpath(config)]) != os.path.realpath(config):
         raise RuntimeError(f'refusing to launch where the host Omarchy theme could leak in: {state!r}')
 
 

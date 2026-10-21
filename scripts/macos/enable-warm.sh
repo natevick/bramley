@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 APP="${1:-/Applications/Bramley.app}"
+APP="$(cd -- "$APP" >/dev/null 2>&1 && pwd -P)" || { echo "${1:-/Applications/Bramley.app} is not a directory" >&2; exit 1; }
 LABEL="codes.vick.bramley.warm"
 TEMPLATE="$APP/Contents/Resources/$LABEL.plist"
 AGENTS="$HOME/Library/LaunchAgents"

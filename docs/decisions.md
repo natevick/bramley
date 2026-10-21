@@ -40,7 +40,7 @@
   - This supersedes "2026-10-10: artwork cache (Nate)", which kept artwork in memory only. See the compliance interpretation log for the matching amendments.
   - **Where:** `$XDG_CACHE_HOME/bramley` (default `~/.cache/bramley`), directories 0700, files 0600.
   - **Art:** the encoded image bytes as fetched, keyed by URL including size. Capped at 512 MB with least-recently-used eviction. Kept at sign-out.
-  - **API:** browse responses only (library lists and album, playlist and artist track lists), served stale while one background worker refetches. Scoped to the account and wiped at sign-out. Capped at 64 MB. Listening history (recent plays, heavy rotation, replay summaries, recently added) is never cached on disk.
+  - **API:** browse responses only (library lists and album, playlist and artist track lists), served stale while one background worker refetches. Scoped to the account and wiped at sign-out. Capped at 64 MB. Listening history (recent plays, heavy rotation, replay summaries, recently added) is never cached on disk. Amended 2026-10-21, below.
   - **Unchanged:** compliance rule 6. Nothing from the playback or license path, and nothing musickit.js fetches, is cached.
 - **2026-10-19: a cache warmer, `bramley warm` (Nate).**
   - Nate: "this would only be while the app is not running and I was thinking every few minutes. The cache should not go out of date that quickly and can background update while the app is open so the slowness feel just disappears."
