@@ -608,6 +608,14 @@ class ColdCache(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 self.cs.assert_isolated(dict(base, **({} if state is None else {'XDG_STATE_HOME': state})))
 
+    def test_a_relative_state_home_is_refused_because_the_app_ignores_it_and_reads_the_host_theme(self):
+        config = os.path.join(SCRATCH, 'config')
+        base = {'BRAMLEY_CONFIG_DIR': config, 'BRAMLEY_KEYRING_SERVICE': 'bramley-gate-t', 'XDG_CACHE_HOME': os.path.join(config, 'cache')}
+        relative = os.path.relpath(os.path.join(config, 'state'))
+        self.assertFalse(os.path.isabs(relative))
+        with self.assertRaises(RuntimeError):
+            self.cs.assert_isolated(dict(base, XDG_STATE_HOME=relative))
+
     def test_every_launch_in_the_driver_goes_through_the_cold_cache_wipe(self):
         text = open(os.path.join(HERE, 'drive.py')).read()
         self.assertEqual(text.count('subprocess.Popen([*wrap, binary'), 1)
