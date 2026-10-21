@@ -35,4 +35,4 @@ Omarchy generates a colors.toml with `omarchy-theme-colors-from-alacritty` for a
 
 ## XDG_STATE_HOME
 
-`omarchy-theme-set` always writes `$HOME/.local/state/omarchy/current/theme` and ignores `XDG_STATE_HOME`. Bramley honours an absolute `XDG_STATE_HOME`, so with one set the two disagree and Bramley does not see theme changes.
+`omarchy-theme-set` always writes `$HOME/.local/state/omarchy/current/theme` and ignores `XDG_STATE_HOME`. Bramley honours an absolute `XDG_STATE_HOME`, so with one set Bramley looks in `$XDG_STATE_HOME/omarchy`, finds no theme there, and uses the system palette.
