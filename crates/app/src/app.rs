@@ -15,6 +15,7 @@ use crate::cli::{self, Inbox, Request};
 use crate::covers::{self, Grid, Source};
 use crate::credentials::Credentials;
 use crate::playback::{Action, Banner, Playback, Spawn, play_or_pause};
+use crate::theme::{self, Palette, Theme};
 use crate::ui::detail::Detail;
 use crate::ui::library::Library;
 use crate::ui::nav::{Nav, Shell};
@@ -105,6 +106,7 @@ pub struct App {
     #[cfg(feature = "dev")]
     click_cover: Option<usize>,
     playback: Playback,
+    theme: Theme,
     saved_volume: u8,
     volume_file: Option<StatusWriter>,
     user: Credentials,
@@ -155,10 +157,12 @@ impl App {
         rendering.apply_to(&mut fonts);
         ctx.set_fonts(fonts);
         #[cfg(feature = "dev")]
-        let theme = args.theme.map_or(egui::ThemePreference::System, Into::into);
+        let choice = args.theme;
         #[cfg(not(feature = "dev"))]
-        let theme = egui::ThemePreference::System;
-        ctx.set_theme(theme);
+        let choice = theme::Choice::default();
+        let file = theme::colors_file(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"));
+        let mut theme = Theme::new(choice, file, Instant::now());
+        theme.tick(ctx, Instant::now());
         ctx.all_styles_mut(|style| rendering.apply_to_visuals(&mut style.visuals));
         #[cfg(feature = "dev")]
         let actions = args.play.into_iter().map(Action::PlaySong).collect();
@@ -209,6 +213,7 @@ impl App {
             detail,
             #[cfg(feature = "dev")]
             click_cover: args.click_cover,
+            theme,
             saved_volume: percent(playback.volume()),
             playback,
             volume_file: None,
@@ -625,6 +630,7 @@ impl App {
 
     pub fn tick(&mut self, ctx: &egui::Context) {
         let changed = self.pump(ctx);
+        self.theme.tick(ctx, Instant::now());
         #[cfg(feature = "gate-sabotage")]
         self.leak.follow(self.playback.shown().item_id.as_deref());
         #[cfg(feature = "gate-sabotage")]
@@ -708,6 +714,7 @@ impl App {
         let toggle = started.then(|| play_or_pause(shown.state));
         ui::shortcuts(ui.ctx(), toggle, &mut self.actions, &mut self.navs);
         let compact = ui.available_width() < ui::COMPACT_PT;
+        let palette = Palette::of(ui.ctx());
         egui::Panel::bottom("now-playing").show(ui, |ui| {
             ui.add_space(8.0);
             let emit = (&mut self.actions, &mut self.navs);
@@ -718,8 +725,10 @@ impl App {
         let (mut sign_in, mut sign_out, mut dismissed) = (false, false, false);
         let signed_in = covers_allowed(&self.playback);
         if !compact {
+            let frame = egui::Frame::side_top_panel(ui.style()).fill(palette.sidebar);
             egui::Panel::left("library")
                 .default_size(200.0)
+                .frame(frame)
                 .show(ui, |ui| {
                     let (route, library) = (&self.shell.route, &mut self.library);
                     sign_out = ui::sidebar::show(ui, route, library, &mut self.navs, signed_in);
@@ -765,7 +774,7 @@ impl App {
             if !compact {
                 sheet.min.x = free.max.x - ui::QUEUE_PT.min(free.width());
             }
-            ui::overlay(ui, "queue-overlay", sheet, |ui| {
+            ui::overlay(ui, "queue-overlay", (sheet, palette.panel), |ui| {
                 let emit = (&mut self.actions, &mut self.navs);
                 ui::queue_panel::show(ui, &shown, emit)
             });
@@ -773,7 +782,7 @@ impl App {
         if compact && self.shell.drawer_open {
             let mut drawer = free;
             drawer.max.x = free.min.x + ui::DRAWER_PT.min(free.width() * 0.8);
-            let outside = ui::overlay(ui, "drawer", drawer, |ui| {
+            let outside = ui::overlay(ui, "drawer", (drawer, palette.sidebar), |ui| {
                 let (route, library) = (&self.shell.route, &mut self.library);
                 sign_out = ui::sidebar::show(ui, route, library, &mut self.navs, signed_in);
             });

@@ -13,6 +13,7 @@ use super::labeled;
 use super::nav::{Edge, Nav, Route};
 use crate::covers::{self, Tally, allowed_art, art_url};
 use crate::playback::Action;
+use crate::theme::Palette;
 
 #[cfg(test)]
 mod tests;
@@ -686,7 +687,7 @@ fn tile(
         Some(texture) => egui::Image::new(&texture),
         None => egui::Image::new((egui::TextureId::default(), size))
             .uv(blank)
-            .tint(ui.visuals().faint_bg_color),
+            .tint(Palette::of(ui.ctx()).placeholder()),
     }
     .fit_to_exact_size(size);
     let name = item.name.as_deref().unwrap_or("Untitled");

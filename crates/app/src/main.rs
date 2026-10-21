@@ -8,6 +8,7 @@ mod playback;
 mod signin;
 #[cfg(test)]
 mod tests;
+mod theme;
 mod ui;
 mod warm;
 
@@ -135,7 +136,7 @@ pub struct Args {
     #[cfg(feature = "dev")]
     click_last: bool,
     #[cfg(feature = "dev")]
-    theme: Option<egui::Theme>,
+    theme: theme::Choice,
     #[cfg(feature = "dev")]
     size: Option<[f32; 2]>,
     #[cfg(feature = "dev")]
@@ -189,7 +190,10 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
             #[cfg(feature = "dev")]
             "--click-last" => a.click_last = true,
             #[cfg(feature = "dev")]
-            "--theme" => a.theme = Some(theme(&value()?).context("--theme takes dark or light")?),
+            "--theme" => {
+                a.theme = theme::Choice::parse(&value()?)
+                    .context("--theme takes omarchy, system, dark or light")?
+            }
             #[cfg(feature = "dev")]
             "--size" => a.size = Some(size(&value()?).context("--size takes WxH")?),
             #[cfg(feature = "dev")]
@@ -219,15 +223,6 @@ fn parse_args(mut it: impl Iterator<Item = String>) -> Result<Args> {
         }
     }
     Ok(a)
-}
-
-#[cfg(feature = "dev")]
-fn theme(name: &str) -> Option<egui::Theme> {
-    match name {
-        "dark" => Some(egui::Theme::Dark),
-        "light" => Some(egui::Theme::Light),
-        _ => None,
-    }
 }
 
 #[cfg(feature = "dev")]

@@ -18,12 +18,15 @@ def assert_isolated(env):
     real_cache = not cache or os.path.realpath(os.path.join(cache, 'bramley')) == os.path.realpath(REAL_CACHE)
     if not config or os.path.realpath(config) == os.path.realpath(REAL_CONFIG) or service in ('', 'bramley') or real_cache:
         raise RuntimeError(f'refusing to launch against the real config, cache or keyring: {config!r}, {cache!r}, {service!r}')
+    state = env.get('XDG_STATE_HOME')
+    if not state or os.path.commonpath([os.path.realpath(state), os.path.realpath(config)]) != os.path.realpath(config):
+        raise RuntimeError(f'refusing to launch where the host Omarchy theme could leak in: {state!r}')
 
 
 @contextlib.contextmanager
 def isolated(tag, signed_in):
     config = os.path.join(ROOT, 'target', 'tmp', f'config-{tag}-{os.getpid()}')
-    env = {'BRAMLEY_CONFIG_DIR': config, 'BRAMLEY_KEYRING_SERVICE': f'bramley-gate-{tag}', 'XDG_CACHE_HOME': os.path.join(config, 'cache')}
+    env = {'BRAMLEY_CONFIG_DIR': config, 'BRAMLEY_KEYRING_SERVICE': f'bramley-gate-{tag}', 'XDG_CACHE_HOME': os.path.join(config, 'cache'), 'XDG_STATE_HOME': os.path.join(config, 'state')}
     try:
         os.makedirs(config, mode=0o700)
         for f in ('developer-token', 'music-user-token') if signed_in else ('developer-token',):

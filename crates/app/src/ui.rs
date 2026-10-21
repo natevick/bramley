@@ -12,6 +12,7 @@ mod tests;
 use egui::{Color32, Key, Modifiers, RichText, WidgetInfo, WidgetType};
 
 use crate::playback::{Action, Banner};
+use crate::theme::Palette;
 use nav::Nav;
 
 pub const MIN_WINDOW: [f32; 2] = [360.0, 480.0];
@@ -21,13 +22,10 @@ pub const QUEUE_PT: f32 = 260.0;
 pub const DRAWER_PT: f32 = 260.0;
 const OVERLAY_MARGIN_PT: f32 = 8.0;
 
-const ACCENT: Color32 = Color32::from_rgb(250, 45, 72);
-const ACCENT_ON_LIGHT: Color32 = Color32::from_rgb(200, 25, 50);
-
 pub fn overlay(
     ui: &egui::Ui,
     name: &str,
-    rect: egui::Rect,
+    (rect, fill): (egui::Rect, Color32),
     add: impl FnOnce(&mut egui::Ui),
 ) -> egui::Response {
     let area = egui::Area::new(egui::Id::new(name))
@@ -36,7 +34,7 @@ pub fn overlay(
         .constrain(false);
     area.show(ui.ctx(), |ui| {
         ui.set_min_size(rect.size());
-        ui.painter().rect_filled(rect, 0.0, ui.visuals().panel_fill);
+        ui.painter().rect_filled(rect, 0.0, fill);
         let inner = egui::UiBuilder::new().max_rect(rect.shrink(OVERLAY_MARGIN_PT));
         ui.scope_builder(inner, add);
     })
@@ -55,12 +53,12 @@ pub fn banner(ui: &mut egui::Ui, banner: &Banner, offer_sign_in: bool) -> bool {
     };
     let mut sign_in = false;
     egui::Frame::new()
-        .fill(ACCENT)
+        .fill(Palette::of(ui.ctx()).banner())
         .inner_margin(10.0)
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(text).color(Color32::WHITE).strong());
+                ui.label(RichText::new(text).color(Palette::ON_BANNER).strong());
                 sign_in = offer_sign_in && ui.button("Sign in").clicked();
             });
         });
@@ -68,11 +66,7 @@ pub fn banner(ui: &mut egui::Ui, banner: &Banner, offer_sign_in: bool) -> bool {
 }
 
 pub fn notice(ui: &mut egui::Ui, notice: &str) {
-    let color = if ui.visuals().dark_mode {
-        ACCENT
-    } else {
-        ACCENT_ON_LIGHT
-    };
+    let color = Palette::of(ui.ctx()).notice();
     ui.label(RichText::new(notice).color(color).strong());
 }
 
