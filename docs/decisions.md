@@ -63,4 +63,4 @@
   - **Amends** the 2026-10-18 cache entry's "listening history is never cached on disk". The final Home grid (album ids in listening order, with their art templates) is now cached. Raw history responses (recent plays, heavy rotation, replay summaries, recently added) still are not.
   - **Where:** the API store, scoped to a hash of the user token, 0600 in a 0700 directory, wiped at sign-out with the API cache.
   - **Behavior:** after the storefront check passes, Home shows the cached grid, ranks live and swaps the grid in one step only if the result differs. `bramley warm` does not refresh it: that needs the history requests warm never makes.
-  - Measured in `docs/s39-home-fast-PREREG.md`.
+  - Measured in `docs/s39-home-fast-RESULTS.md`: B shows 50 covers in 0.44 s against A's 4.50 s, and parallel ranking alone gets C to 61% of A.

@@ -1,6 +1,6 @@
 # S39 Home fast: results (2026-10-21)
 
-Judged against `docs/s39-home-fast-PREREG.md` (commits 1064e03 and fb7235d, 11:59 and 12:02, first launch 12:14:25), unchanged since. Linux, 24 cores, headless weston, null sink, no playback, isolated config and cache, `scripts/app/s39-home-fast.py`. 16 launches of 20: 1 fill (cold art, not scored), 15 measured, all valid. A = origin/main fbf052d (sha256 afc2b9de...), B and C = a174be3 (sha256 f4b30802...). Load average at launch fell from 10 to 2 over the run; arms alternated A B C.
+Judged against `docs/s39-home-fast-PREREG.md` (commits 1064e03 and fb7235d, 11:59 and 12:02, first launch 12:14:25). The bars did not move; the harness deviated in one way, below. Linux, 24 cores, headless weston, null sink, no playback, isolated config and cache, `scripts/app/s39-home-fast.py`. 16 launches of 20: 1 fill (cold art, not scored), 15 measured, all valid. A = origin/main fbf052d (sha256 afc2b9de...), B and C = a174be3 (sha256 f4b30802...). Load average at launch fell from 10 to 2 over the run; arms alternated A B C.
 
 | median (spread) | A | B | C |
 |---|---|---|---|
@@ -21,7 +21,10 @@ Did-it-run: every measured launch had artHits 50 (A, C; B at least 50), artMisse
 
 **Verdict: ship.** All five bars hold. C's all-50 gap to A (1.75 s) is far outside either spread, so parallel ranking alone is real; B is the cached grid on screen once the storefront check answers.
 
+**Deviation.** The harness snapshotted every file in the API cache directory after the fill, not only the grid, and deleted or restored all of them per arm. So A and C ran without the API client's cached storefront response (apiMisses 1, apiHits 0) and B with it (apiHits 1, apiRevalidations 1); the PREREG said only the grid file moves. The covers thread never reads that entry and `coversRequested` is 9 in every arm. A and C share the extra storefront round trip, which cuts C against A in C's favor by a constant; B's 0.44 s is what a signed-in user with a cached storefront sees. S38's A, with the entry present, took 4.313 s against 4.499 s here, inside A's 0.682 s spread, and C's 1.75 s gain is far outside any spread. Not rerun: 4 launches of budget cannot redo 15.
+
 **Limits.**
+- No B launch swapped, so the transient peak while a swap decodes up to 50 more covers was never measured for USS.
 - B's time is the cached grid, not live ranking. The live pass shows only through requests, USS and the no-swap check.
 - This account's history never filled 50 albums, so the one-extra-library-request case (history alone fills the grid) was not exercised; it is covered only by reasoning and by `home_asks_replay_...` counting 9 on the fixture.
 - C's first cover is unchanged (1.373 vs 1.320 s): the first pass still waits on the storefront check, Replay and the first lookup.
