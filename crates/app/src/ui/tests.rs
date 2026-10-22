@@ -953,6 +953,7 @@ fn shuffle_and_repeat_sit_at_the_right_end_beside_the_queue() {
     assert!(xs.windows(2).all(|w| w[0] < w[1]), "{order:?} at {xs:?}");
 }
 
+#[cfg(not(target_os = "macos"))]
 fn volume_of(nodes: &Nodes) -> Option<f64> {
     let node = nodes.iter().find(|(l, _)| l == "Volume");
     node.and_then(|(_, n)| n.numeric_value())

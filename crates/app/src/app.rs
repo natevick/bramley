@@ -263,6 +263,12 @@ impl App {
     }
 
     #[cfg(test)]
+    pub(crate) fn sign_in_accepted(&self) -> bool {
+        let server = self.sign_in.as_ref().map(|(server, _)| server);
+        server.is_some_and(|s| s.accepted.load(Ordering::SeqCst))
+    }
+
+    #[cfg(test)]
     pub(crate) fn apply(&mut self, action: Action) {
         self.playback.apply(action);
     }
@@ -645,6 +651,10 @@ impl App {
     }
 
     pub fn tick(&mut self, ctx: &egui::Context) {
+        self.tick_at(ctx, Instant::now());
+    }
+
+    pub(crate) fn tick_at(&mut self, ctx: &egui::Context, now: Instant) {
         let changed = self.pump(ctx);
         self.theme.tick(ctx, Instant::now());
         #[cfg(feature = "gate-sabotage")]
@@ -661,7 +671,7 @@ impl App {
         if !covers_allowed(&self.playback) {
             self.shell.scroll = None;
         }
-        let (now, waker) = (Instant::now(), ctx.clone());
+        let waker = ctx.clone();
         let home = self.shell.route == ui::nav::Route::Home;
         self.covers.retry(ctx, now, home);
         let wake = move || waker.request_repaint();
