@@ -727,7 +727,9 @@ def ballast(out, build):
     landed = b.get('uss') is not None and abs(b['uss'] - (R1_BAR + BALLAST_OVER)) <= LANDING_BAND
     flagged = build.get('ballastFeaturesExit') == 1 and 'app/gate-sabotage' in (build.get('ballastFeaturesOutput') or '')
     rose = rise is not None and expected is not None and abs(rise - expected) <= RISE_TOLERANCE
-    return dict(b, ballastMiB=ev.get('ballastMiB'), keptAddedMiB=round(added, 2), ussRise=rise, holds=threshold_only and landed and flagged and rose and one_launch and pre_valid and touched,
+    intact = threshold_only and flagged and rose and one_launch and pre_valid and touched
+    miss = f'ballast control landed at {b["uss"]:.1f} MiB, outside {R1_BAR + BALLAST_OVER:g} \u00b1 {LANDING_BAND:g}' if intact and not landed else None
+    return dict(b, ballastMiB=ev.get('ballastMiB'), keptAddedMiB=round(added, 2), ussRise=rise, holds=intact and landed, bandMiss=miss,
                 oneLaunch=one_launch, preWindowValid=pre_valid, touched=touched,
                 thresholdOnly=threshold_only, landedWithinBand=landed, failsShippedCheck=flagged, ussRoseByBallast=rose)
 
@@ -807,7 +809,7 @@ def verdict(out):
     v['ballast'] = ballast(out, build)
     seen = [c['verdict'] for c in v['checks'].values()]
     v['gate'] = 'FAIL' if not safe else ('VOID' if 'VOID' in seen else 'FAIL' if 'FAIL' in seen else 'PASS' if v['ballast']['holds']
-                 else 'VOID' if v['ballast']['verdict'] == 'VOID' else 'FAIL')
+                 else 'VOID' if v['ballast']['verdict'] == 'VOID' or v['ballast']['bandMiss'] else 'FAIL')
     return v
 
 

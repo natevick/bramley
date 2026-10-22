@@ -389,7 +389,7 @@ BALLAST = [
     ('ballast fails for another reason', edit('ballast.r1.json', lambda d: d['samples'][2].__setitem__('texturesUploaded', 0)), 'thresholdOnly', 'FAIL'),
     ('ballast fails only for another reason', both(every('ballast', 'uss', 150.0), every('ballast', 'rss', 199.0), edit('ballast.r1.json', lambda d: d['samples'][2].__setitem__('procs', 2))), 'thresholdOnly', 'FAIL'),
     ('ballast lands off band', every('ballast', 'uss', 225.0), 'landedWithinBand', 'FAIL'),
-    ('ballast lands off band with a matching rise', both(every('ballast', 'uss', 222.0), put('ballast.r1.json', ballastMiB=73, ballastTouched=73)), 'landedWithinBand', 'FAIL'),
+    ('ballast lands off band with a matching rise', both(every('ballast', 'uss', 222.0), put('ballast.r1.json', ballastMiB=73, ballastTouched=73)), 'landedWithinBand', 'VOID'),
     ('ballast did not raise USS', put('ballast.r1.json', ballastMiB=40, ballastTouched=40), 'ussRoseByBallast', 'FAIL'),
     ('ballast rise beyond its size', put('ballast.r1.json', ballastMiB=63, ballastTouched=63), 'ussRoseByBallast', 'FAIL'),
     ('ballast windows from two launches', edit('ballast.r1.json', lambda d: d['baseSamples'][0].__setitem__('pid', 8)), 'oneLaunch', 'FAIL'),
@@ -405,6 +405,10 @@ BALLAST = [
     ('ballast pre window with a banner', edit('ballast.r1.json', lambda d: d['baseSamples'][4].__setitem__('banner', 'Error')), 'preWindowValid', 'FAIL'),
     ('ballast-only void', put('ballast.guard.json', killed='linked to spdif'), 'thresholdOnly', 'VOID'),
 ]
+
+
+def high_host(out):
+    both(every('ballast', 'uss', 262.7), edit('ballast.r1.json', lambda d: [r.__setitem__('uss', 204.7) for r in d['baseSamples']]), put('ballast.r1.json', ballastMiB=58, ballastTouched=58))(out)
 
 
 class Verdict(unittest.TestCase):
@@ -447,6 +451,39 @@ class Verdict(unittest.TestCase):
                 write_valid(SCRATCH)
                 mutate(SCRATCH)
                 self.assertEqual(gate.verdict(SCRATCH)['gate'], want)
+
+    def test_a_ballast_that_only_misses_its_band_voids_the_gate_and_names_the_miss(self):
+        write_valid(SCRATCH)
+        high_host(SCRATCH)
+        v = gate.verdict(SCRATCH)
+        self.assertEqual({n: c['verdict'] for n, c in v['checks'].items() if c['verdict'] != 'PASS'}, {})
+        self.assertEqual((v['ballast']['thresholdOnly'], v['ballast']['ussRoseByBallast'], v['ballast']['landedWithinBand'], v['ballast']['holds']), (True, True, False, False))
+        self.assertEqual((v['gate'], v['ballast']['bandMiss']), ('VOID', 'ballast control landed at 262.7 MiB, outside 215 \u00b1 5'))
+
+    def test_a_ballast_that_lands_in_its_band_has_no_miss_to_report(self):
+        write_valid(SCRATCH)
+        v = gate.verdict(SCRATCH)
+        self.assertEqual((v['gate'], v['ballast']['bandMiss']), ('PASS', None))
+
+    def test_a_band_miss_beside_any_other_broken_ballast_clause_stays_a_fail(self):
+        for name, mutate, clause, gate_verdict in BALLAST:
+            if clause != 'landedWithinBand' and gate_verdict == 'FAIL':
+                with self.subTest(name):
+                    write_valid(SCRATCH)
+                    high_host(SCRATCH)
+                    mutate(SCRATCH)
+                    v = gate.verdict(SCRATCH)
+                    self.assertEqual((v['ballast'][clause], v['ballast']['bandMiss'], v['gate']), (False, None, 'FAIL'))
+
+    def test_a_band_miss_never_hides_a_failed_check_or_an_unsafe_run(self):
+        for name, mutate, want in (('one F check FAIL', put('f8.json', seen=[]), 'FAIL'), ('one F check VOID', put('f1.json', renderers=[LLVMPIPE]), 'VOID'),
+                                   ('R1 FAIL', every('shipped', 'uss', 230.0), 'FAIL'), ('real state changed', put('realstate.json', after={}), 'FAIL')):
+            with self.subTest(name):
+                write_valid(SCRATCH)
+                high_host(SCRATCH)
+                mutate(SCRATCH)
+                v = gate.verdict(SCRATCH)
+                self.assertEqual((v['ballast']['landedWithinBand'], v['gate']), (False, want))
 
     def test_each_ballast_clause_breaks_the_control_and_the_gate(self):
         for name, mutate, clause, gate_verdict in BALLAST:
