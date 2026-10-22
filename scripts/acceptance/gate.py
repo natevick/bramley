@@ -729,14 +729,18 @@ def ballast(out, build):
     flagged = build.get('ballastFeaturesExit') == 1 and 'app/gate-sabotage' in (build.get('ballastFeaturesOutput') or '')
     rose = rise is not None and expected is not None and abs(rise - expected) <= RISE_TOLERANCE
     intact = threshold_only and flagged and rose and one_launch and pre_valid and touched
-    shipped_rss = memory_check(out, 'shipped', 'r1', sink).get('rss')
+    shipped = memory_check(out, 'shipped', 'r1', sink)
     off_band = intact and not landed
-    footprint = round(b['rss'] - rise, 1) if off_band and shipped_rss is not None else None
-    shared = footprint is not None and abs(footprint - shipped_rss) <= FOOTPRINT_BAND
+    known = off_band and shipped.get('rss') is not None and shipped.get('uss') is not None
+    footprint = round(b['rss'] - rise, 1) if known else None
+    adjusted = round(pre_uss - max(0, shipped['rss'] - shipped['uss'] - (b['rss'] - b['uss'])), 1) if known else None
+    footprint_ok = known and abs(footprint - shipped['rss']) <= FOOTPRINT_BAND
+    shared = footprint_ok and adjusted <= R1_BAR
     miss = (f'ballast control landed at {b["uss"]:.1f} MiB, outside {R1_BAR + BALLAST_OVER:g} \u00b1 {LANDING_BAND:g} '
-            f'(pre-ballast USS {pre_uss:.1f}, RSS-USS {b["rss"] - b["uss"]:.1f})') if off_band and shared else None
-    footprint_miss = None if not off_band or shared else (f'ballast launch footprint {footprint} MiB RSS vs shipped {shipped_rss} (>{FOOTPRINT_BAND:g})'
-                                                          if footprint is not None else 'ballast launch footprint unchecked: no shipped R1 RSS')
+            f'(pre-ballast USS {pre_uss:.1f}, adjusted {adjusted}, RSS-USS {b["rss"] - b["uss"]:.1f})') if off_band and shared else None
+    footprint_miss = (None if not off_band or shared else 'ballast launch footprint unchecked: no shipped R1 RSS' if not known
+                      else f'ballast launch footprint {footprint} MiB RSS vs shipped {shipped["rss"]} (>{FOOTPRINT_BAND:g})' if not footprint_ok
+                      else f'ballast launch pre-ballast USS {pre_uss:.1f}, adjusted {adjusted} for sharing, over {R1_BAR:g}')
     return dict(b, ballastMiB=ev.get('ballastMiB'), keptAddedMiB=round(added, 2), ussRise=rise, holds=intact and landed, bandMiss=miss, footprintMiss=footprint_miss,
                 oneLaunch=one_launch, preWindowValid=pre_valid, touched=touched,
                 thresholdOnly=threshold_only, landedWithinBand=landed, failsShippedCheck=flagged, ussRoseByBallast=rose)

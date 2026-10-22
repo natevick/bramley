@@ -119,8 +119,14 @@ def both(*fns):
 
 
 def high_host(out):
-    both(every('ballast', 'uss', 262.7), every('ballast', 'rss', 271.9), every('shipped', 'rss', 212.2), put('ballast.r1.json', ballastMiB=58, ballastTouched=58),
+    both(every('ballast', 'uss', 262.7), every('ballast', 'rss', 271.9), every('shipped', 'rss', 212.2), every('shipped', 'uss', 157.7), put('ballast.r1.json', ballastMiB=58, ballastTouched=58),
          edit('ballast.r1.json', lambda d: [r.__setitem__('uss', 204.7) for r in d['baseSamples']]))(out)
+
+
+def host_with(out, shipped, pre, post):
+    both(every('shipped', 'uss', shipped[0]), every('shipped', 'rss', shipped[1]), every('ballast', 'uss', post[0]), every('ballast', 'rss', post[1]),
+         edit('ballast.r1.json', lambda d: [r.__setitem__('uss', pre) for r in d['baseSamples']]),
+         put('ballast.r1.json', ballastMiB=post[0] - pre, ballastTouched=post[0] - pre))(out)
 
 
 def regressed(out):
@@ -465,13 +471,24 @@ class Verdict(unittest.TestCase):
         self.assertEqual({n: c['verdict'] for n, c in v['checks'].items() if c['verdict'] != 'PASS'}, {})
         self.assertEqual((v['ballast']['thresholdOnly'], v['ballast']['ussRoseByBallast'], v['ballast']['landedWithinBand'], v['ballast']['holds']), (True, True, False, False))
         self.assertEqual((v['gate'], v['ballast']['bandMiss'], v['ballast']['footprintMiss']),
-                         ('VOID', 'ballast control landed at 262.7 MiB, outside 215 \u00b1 5 (pre-ballast USS 204.7, RSS-USS 9.2)', None))
+                         ('VOID', 'ballast control landed at 262.7 MiB, outside 215 \u00b1 5 (pre-ballast USS 204.7, adjusted 159.4, RSS-USS 9.2)', None))
 
     def test_a_band_miss_with_a_grown_footprint_is_a_fail_naming_both_footprints(self):
         write_valid(SCRATCH)
         regressed(SCRATCH)
         v = gate.verdict(SCRATCH)
         self.assertEqual((v['gate'], v['ballast']['bandMiss'], v['ballast']['footprintMiss']), ('FAIL', None, 'ballast launch footprint 261.9 MiB RSS vs shipped 212.2 (>10)'))
+
+    def test_growth_inside_the_footprint_band_is_a_fail_and_the_adjusted_bar_is_inclusive(self):
+        for name, pre, post, want, reason in (('grown by 8', 203.0, (223.0, 278.0), 'FAIL', 'adjusted 203.0 for sharing, over 200'),
+                                              ('adjusted at the bar', 200.0, (225.0, 280.0), 'VOID', None),
+                                              ('adjusted over the bar', 200.5, (225.0, 280.5), 'FAIL', 'adjusted 200.5 for sharing, over 200')):
+            with self.subTest(name):
+                write_valid(SCRATCH)
+                host_with(SCRATCH, (195.0, 250.0), pre, post)
+                v = gate.verdict(SCRATCH)['ballast']
+                self.assertEqual((gate.verdict(SCRATCH)['gate'], v['bandMiss'] is None), (want, want == 'FAIL'))
+                self.assertTrue(reason is None or reason in v['footprintMiss'], v['footprintMiss'])
 
     def test_the_footprint_guard_is_inclusive_at_ten_mib_in_both_directions(self):
         for rss, want in ((280.0, 'VOID'), (280.5, 'FAIL'), (260.0, 'VOID'), (259.5, 'FAIL')):
