@@ -1613,6 +1613,39 @@ fn the_home_heading_counts_what_is_shown_and_is_absent_without_albums() {
 }
 
 #[test]
+fn skipped_covers_do_not_settle_the_home_grid_before_the_emitted_ones_arrive() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let (tx, rx) = channel();
+    let mut grid = Grid::default();
+    grid.listen(rx);
+    tx.send(covers::Loaded::Total(48)).unwrap();
+    tx.send(covers::Loaded::Failed("2 had no artwork".into(), 2))
+        .unwrap();
+    let mut headings = |range: std::ops::Range<usize>| {
+        for n in range {
+            let image = egui::ColorImage::filled([2, 2], egui::Color32::WHITE);
+            tx.send(covers::Loaded::Cover(0, n, format!("l.{n}"), image))
+                .unwrap();
+        }
+        grid.receive(&ctx);
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| grid.show(ui, &mut vec![]));
+        out.textures_delta.clear();
+        let tree = out.platform_output.accesskit_update.unwrap();
+        let labels = tree
+            .nodes
+            .into_iter()
+            .filter_map(|(_, n)| Some(n.label().or(n.value())?.to_owned()));
+        labels.filter(|l| l.starts_with("Top ")).collect::<Vec<_>>()
+    };
+    assert!(headings(0..46).is_empty());
+    let settled = headings(46..48);
+    let shown = grid.layout(ctx.content_rect().width()).shown;
+    assert!(shown >= 5 && settled.iter().all(|h| *h == covers::home_heading(shown)));
+    assert!(!settled.is_empty());
+}
+
+#[test]
 fn the_home_grid_draws_full_rows_inside_the_width_and_the_caption_stays_one_line() {
     let caption = |nodes: &Nodes| {
         let (_, node) = nodes
@@ -4043,6 +4076,8 @@ mod disk_cache {
         tx.send(cover(0, 0, "stale-0")).unwrap();
         grid.receive(&ctx);
         assert_eq!(grid.album(0), Some("stale-0"));
+        tx.send(covers::Loaded::Missed(0, "old miss".into()))
+            .unwrap();
         tx.send(covers::Loaded::Live(2)).unwrap();
         tx.send(cover(1, 0, "fresh-0")).unwrap();
         grid.receive(&ctx);
@@ -4055,6 +4090,7 @@ mod disk_cache {
         tx.send(cover(0, 1, "stale-1")).unwrap();
         grid.receive(&ctx);
         assert_eq!((grid.album(0), grid.uploaded()), (Some("fresh-0"), 1));
+        assert_eq!(grid.failures(), 1, "only the fresh grid's miss remains");
         tx.send(cover(0, 0, "stale-0")).unwrap();
         grid.receive(&ctx);
         assert_eq!((grid.album(0), grid.uploaded()), (Some("fresh-0"), 1));

@@ -855,6 +855,7 @@ pub struct Grid {
     tally: Arc<Tally>,
     failed: Option<String>,
     failures: usize,
+    skipped: usize,
     rejected: bool,
     empty: bool,
     developer_rejected: Option<String>,
@@ -949,7 +950,7 @@ impl Grid {
                 }
                 Loaded::Failed(why, covers) => {
                     self.failed.get_or_insert(why);
-                    self.failures += covers;
+                    (self.failures, self.skipped) = (self.failures + covers, self.skipped + covers);
                 }
                 Loaded::Retry(after) => {
                     let wait = BACKOFF[self.tries.min(BACKOFF.len() - 1)].max(after);
@@ -967,6 +968,7 @@ impl Grid {
         {
             self.textures = std::mem::take(&mut self.fresh);
             self.total = Some(self.textures.len());
+            self.failures = self.missed + self.skipped;
             (self.generation, self.expecting, self.missed) = (FRESH, None, 0);
         }
         any
@@ -1023,7 +1025,7 @@ impl Grid {
     }
 
     fn settled(&self) -> bool {
-        let loaded = self.textures.len() + self.failures;
+        let loaded = self.textures.len() + self.failures - self.skipped;
         self.total.is_some_and(|total| loaded >= total)
     }
 
