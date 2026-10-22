@@ -440,7 +440,7 @@ fn main() -> Result<()> {
             .with_min_inner_size(ui::MIN_WINDOW)
             .with_title("Bramley")
             .with_app_id("bramley"),
-        ..Default::default()
+        ..renderer_options()
     };
     eframe::run_native(
         "bramley",
@@ -456,4 +456,25 @@ fn main() -> Result<()> {
     )
     .map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn renderer_options() -> eframe::NativeOptions {
+    eframe::NativeOptions::default()
+}
+
+#[cfg(target_os = "macos")]
+fn renderer_options() -> eframe::NativeOptions {
+    use eframe::egui_wgpu::{SurfaceConfig, WgpuConfiguration, wgpu::PresentMode};
+    eframe::NativeOptions {
+        renderer: eframe::Renderer::Wgpu,
+        wgpu_options: WgpuConfiguration {
+            surface: SurfaceConfig {
+                present_mode: PresentMode::Fifo,
+                desired_maximum_frame_latency: Some(1),
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    }
 }

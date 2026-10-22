@@ -36,3 +36,20 @@ After the detach-count fix, gate `s8-4` (eef8d07) PASSed in zone 3: R1 **172.3**
 **Home grid art size, S43 (2026-10-21), estimate only, not measured:** Home covers now scale to fill full rows, up to 200 pt a side, so they are decoded at `min(200 pt × pixels_per_point, 256 px)` instead of 96 pt × pixels_per_point. The size depends on the scale factor alone, never on the window width, so a resize does not refetch. The 256 px cap is hard. Texture cost is 50 × px² × 4 bytes: 96 px is 1.76 MiB, 144 px 3.96, 192 px 7.03, 200 px 7.63, 256 px 12.5. The change adds 5.5 MiB at scale 2, 5.9 at 1, 8.5 at 1.5, and at most about 9.6 at 1.28, where the cap first bites. The R1 reading to add it to is v1 acceptance's 174.3 PSS, so the worst case is about 184 against the 200 bar if every texture byte counts as host memory; on the GPU path part of it sits in VRAM and counts less. Decoded pixels still drop after upload. The acceptance run is the real measurement. `bramley warm` sizes its Home art with the same function, so it fills the cache entries Home reads.
 
 **Home live refresh, review fix (estimate only, not measured):** while a live refresh runs, `fresh` and `textures` both hold covers until the swap, so Home art can briefly double: up to about +12.5 MiB at 256 px (50 × 256² × 4 bytes), on top of the worst case above.
+
+## macOS (2026-10-22, S47b, Nate: "mac budget should be what you suggested")
+
+The Linux budget above is PSS on Linux and does not carry over: macOS has no PSS, and the biggest macOS cost is the window surface, which the 200 MiB split never had a line for. macOS gets its own budget, measured on the MacBook Air with `footprint -p`:
+
+- **At most 100 MB `phys_footprint` at the default window (848 x 1062 pt, 2x), idle on Home, with at most 2 window-sized IOSurface buffers.**
+
+Why: S47 (`~/bramley-spike/s47` on the Air) measured the window surface at the default size. glow (OpenGL) holds 5 window-sized IOSurface buffers, 130 MB phys. wgpu on Metal with the egui fork's `macos-window-resize-jitter-fix` holds 3, 91 MB. wgpu without that feature holds 2, 78 MB. The Mac build uses wgpu without the fix (`crates/app/Cargo.toml`, `crates/app/src/main.rs`): present mode Fifo and a maximum frame latency of 1, the lowest `wgpu-hal`'s Metal backend takes. Linux stays on glow. `scripts/macos/check-renderer.sh` fails if the Linux tree gains wgpu or the macOS tree gains glow, the jitter fix, or a wgpu backend other than Metal.
+
+Window surfaces scale with window pixels, not with the default size. At a 5K display at full screen the surface is about 59 MB per buffer by extrapolation from the measured 13.3 MB at 1696 x 2060 px, so 2 buffers is about 118 MB there. That is extrapolation, not a measurement; the 100 MB bar applies at the default window only.
+
+The jitter fix exists to keep live resizing smooth. Dropping it is the cost of the 2-buffer surface, and resize smoothness is checked by `docs/s47b-PREREG.md` M3.
+
+Measured (S47b, `docs/s47b-RESULTS.md`, Developer ID build, default 848 x 1062 pt window, Home with 50 covers, idle): the counted sample read **102.3 MiB** with 2 window-sized buffers, 2.3 MiB over the bar. Three report-only replicates read 96.3, 94.2 and 95.3 (median 95.3). Two minutes of muted playback read 98.7 to 98.8, flat. The bar is not met on the pre-registered sample; Nate decides whether the replicates are the number.
+
+Round 2 (S47b, commit 215011f, one registered sample under the same bar): **96.3 MiB**, 2 window-sized buffers, 848 x 1062 pt, Developer ID, Home with 50 covers. The bar is met. Round 1's 102.3 on the earlier build stays on record; the median of the round 1 replicates was 95.3.
+
