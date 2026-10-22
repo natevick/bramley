@@ -821,6 +821,7 @@ fn view(
         if let Some(letter) = strip(ui, &lib.list(list).items, id) {
             (lib.jump, lib.typed.0) =
                 (Some((list, letter.to_lowercase().collect())), String::new());
+            super::keys::typing(ui.ctx(), f64::MIN);
         }
     }
     let albums = matches!(list, List::Albums | List::ArtistAlbums);
@@ -836,6 +837,9 @@ fn view(
     };
     let loaded = lib.list(list).items.len();
     let id = egui::Id::new(("rows", list as usize));
+    if *scroll == Some(Edge::End) && !lib.more(list) && lib.built.2 == loaded {
+        cursor::push_all(ui.ctx(), Some(cursor::Step::Last));
+    }
     let cursor = cursor::drive(ui.ctx(), id, Region::Content, (loaded, columns), |_| true);
     let mut area = egui::ScrollArea::vertical()
         .id_salt(list as usize)

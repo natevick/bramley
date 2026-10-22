@@ -1279,6 +1279,55 @@ fn left_and_escape_leave_the_strip() {
 }
 
 #[test]
+fn up_down_j_k_walk_the_strip_clamped_enter_jumps_and_a_jump_ends_the_prefix() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);
+    let id = egui::Id::new(("rows", List::Artists as usize));
+    let key = |k| crate::tests::pressed(&ctx, Some((k, false))).events;
+    let mut walk = |time, events| {
+        at(&ctx, &mut lib, time, events);
+        crate::ui::cursor::spans(&ctx, id, 26)
+    };
+    assert_eq!(walk(1.0, vec![text("l")]), Some(0));
+    assert_eq!(walk(2.0, vec![text("k")]), Some(0));
+    assert_eq!(walk(3.0, vec![text("j")]), Some(1));
+    for time in 6..40 {
+        walk(f64::from(time), vec![text("j")]);
+    }
+    assert_eq!(walk(40.0, key(egui::Key::ArrowDown)), Some(25));
+    assert_eq!(walk(41.0, key(egui::Key::ArrowUp)), Some(24));
+    walk(42.0, vec![]);
+    walk(42.1, vec![text("m")]);
+    walk(42.2, key(egui::Key::Enter));
+    walk(42.3, vec![text("j")]);
+    assert!(lib.typed.0.is_empty(), "a strip jump ends the prefix");
+    assert!(names(&at(&ctx, &mut lib, 44.0, vec![])).contains(&"Yx0"));
+}
+
+#[test]
+fn the_cursor_lands_on_the_true_last_row_once_a_pinned_scroll_end_has_paged_in() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    ctx.enable_accesskit();
+    let (route, mut scroll) = (Route::Playlist("p.1".into()), Some(Edge::End));
+    let mut shown = |lib: &mut Library| {
+        let input = crate::tests::pressed(&ctx, None);
+        let mut out = ctx.run_ui(input, |ui| {
+            show(ui, lib, (&route, &mut scroll), (&mut vec![], &mut vec![]))
+        });
+        out.textures_delta.clear();
+        crate::ui::cursor::settle(&ctx);
+        crate::ui::tests::focus_label(&out.platform_output.accesskit_update.expect("a tree"))
+    };
+    shown(&mut lib);
+    for (range, next) in [(0..100, Some("n.1")), (100..250, None)] {
+        answer(&mut lib, &ctx, now, page(range, next));
+        shown(&mut lib);
+    }
+    let landed = (0..3).map(|_| shown(&mut lib)).last().flatten();
+    assert_eq!(landed, played(249));
+}
+
+#[test]
 fn the_index_strip_jumps_to_a_letter() {
     let (ctx, mut lib) = (egui::Context::default(), Library::default());
     lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);

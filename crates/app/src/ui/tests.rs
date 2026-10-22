@@ -1877,3 +1877,16 @@ fn slash_focuses_search_with_an_empty_query() {
     frame(&ctx, &mut app, typed);
     assert_eq!(caret(&ctx), Some(2));
 }
+
+#[test]
+fn g_scrolls_to_the_end_on_list_routes_only() {
+    let ctx = egui::Context::default();
+    for (route, edge) in [(Route::Songs, Some(Edge::End)), (Route::Search, None)] {
+        let mut app = app(&ctx, true);
+        app.go(route);
+        let mut g = press(Key::G, Modifiers::SHIFT);
+        g.events.push(Event::Text("G".into()));
+        frame(&ctx, &mut app, g);
+        assert_eq!(app.scroll(), edge);
+    }
+}
