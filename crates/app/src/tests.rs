@@ -827,6 +827,55 @@ fn the_volume_is_set_from_the_cli_shown_in_status_and_survives_a_relaunch() {
 }
 
 #[test]
+fn a_hung_text_detector_never_blocks_startup_and_its_answer_applies_when_it_arrives() {
+    use fastframe_text::{Hinting, TextRendering};
+    let dir = std::path::PathBuf::from(format!("../../target/c/text{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let ctx = egui::Context::default();
+    let spawn = spawning(|| unreachable!("no player may start"));
+    let hinted = TextRendering::platform_default().hinting != Hinting::None;
+    let detected = TextRendering {
+        hinting: if hinted {
+            Hinting::None
+        } else {
+            Hinting::Slight
+        },
+        ..TextRendering::default()
+    };
+    let (release, released) = channel::<()>();
+    let detect = Box::new(move || {
+        let _ = released.recv_timeout(Duration::from_secs(3));
+        detected
+    });
+    let begun = Instant::now();
+    let mut app = crate::app::App::new_detecting_text(
+        &ctx,
+        crate::Args::default(),
+        spawn,
+        (mock_user(&dir), true),
+        (channel().1, true),
+        None,
+        detect,
+    );
+    app.tick(&ctx);
+    app.tick(&ctx);
+    let blocked_for = begun.elapsed();
+    let before = ctx.global_style().visuals.text_options.font_hinting;
+    release.send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while ctx.global_style().visuals.text_options.font_hinting == before
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(10));
+        app.tick(&ctx);
+    }
+    let after = ctx.global_style().visuals.text_options.font_hinting;
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(blocked_for < Duration::from_millis(500), "{blocked_for:?}");
+    assert_eq!((before, after), (hinted, !hinted));
+}
+
+#[test]
 fn quitting_right_after_a_volume_change_still_writes_it() {
     let dir = std::path::PathBuf::from(format!("../../target/c/quit{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

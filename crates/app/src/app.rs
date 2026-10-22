@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 #[cfg(feature = "dev")]
 use anyhow::{Context, Result};
 use bramley_engine::PlayerError;
+use fastframe_text::TextRendering;
 use serde_json::{Value, json};
 
 use crate::Args;
@@ -31,6 +32,36 @@ const TOP_UP_FAILED: &str = "More songs from your library could not be added to 
 const NOT_A_LIST: &str = "scroll works in a library list: open playlists, albums, songs, artists, a library playlist or an artist first";
 const STILL_CLEARING: &str =
     "signed out here, but the stored sign-in is still being removed; run sign-out again to check";
+
+type TextDetector = Box<dyn FnOnce() -> TextRendering + Send>;
+
+#[cfg(not(test))]
+fn text_detector() -> TextDetector {
+    Box::new(fastframe_text::detect)
+}
+
+#[cfg(test)]
+fn text_detector() -> TextDetector {
+    Box::new(TextRendering::platform_default)
+}
+
+fn apply_text(ctx: &egui::Context, rendering: &TextRendering) {
+    let mut fonts = fastframe_fonts::FontSetup::default().definitions();
+    rendering.apply_to(&mut fonts);
+    ctx.set_fonts(fonts);
+    ctx.all_styles_mut(|style| rendering.apply_to_visuals(&mut style.visuals));
+}
+
+fn detect_text_in_background(ctx: &egui::Context, detect: TextDetector) -> Receiver<TextRendering> {
+    let (tx, rx) = channel();
+    let waker = ctx.clone();
+    std::thread::spawn(move || {
+        if tx.send(detect()).is_ok() {
+            waker.request_repaint();
+        }
+    });
+    rx
+}
 
 fn load_volume(dir: &Path) -> f32 {
     let text = std::fs::read_to_string(dir.join(VOLUME_FILE)).unwrap_or_default();
@@ -135,6 +166,7 @@ pub struct App {
     queue_fixture: bool,
     frames: u64,
     renderer: Option<String>,
+    text: Option<Receiver<TextRendering>>,
     #[cfg(feature = "dev")]
     born: Instant,
     status_at: Option<Instant>,
@@ -153,10 +185,26 @@ impl App {
         (inbox, guarded): (Inbox, bool),
         source: Option<Source>,
     ) -> Self {
-        let rendering = fastframe_text::detect();
-        let mut fonts = fastframe_fonts::FontSetup::default().definitions();
-        rendering.apply_to(&mut fonts);
-        ctx.set_fonts(fonts);
+        Self::new_detecting_text(
+            ctx,
+            args,
+            spawn,
+            (user, signed_out),
+            (inbox, guarded),
+            source,
+            text_detector(),
+        )
+    }
+
+    pub(crate) fn new_detecting_text(
+        ctx: &egui::Context,
+        args: Args,
+        spawn: Spawn,
+        (user, signed_out): (Credentials, bool),
+        (inbox, guarded): (Inbox, bool),
+        source: Option<Source>,
+        detect: TextDetector,
+    ) -> Self {
         #[cfg(feature = "dev")]
         let choice = args.theme;
         #[cfg(not(feature = "dev"))]
@@ -164,7 +212,8 @@ impl App {
         let file = theme::colors_file(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"));
         let mut theme = Theme::new(choice, file, Instant::now());
         theme.tick(ctx, Instant::now());
-        ctx.all_styles_mut(|style| rendering.apply_to_visuals(&mut style.visuals));
+        apply_text(ctx, &TextRendering::platform_default());
+        let text = detect_text_in_background(ctx, detect);
         #[cfg(feature = "dev")]
         let actions = args.play.into_iter().map(Action::PlaySong).collect();
         #[cfg(not(feature = "dev"))]
@@ -247,6 +296,7 @@ impl App {
             queue_fixture: args.queue_fixture,
             frames: 0,
             renderer: None,
+            text: Some(text),
             #[cfg(feature = "dev")]
             born: Instant::now(),
             status_at: None,
@@ -657,6 +707,16 @@ impl App {
         banner.filter(|b| self.checking.is_none() || *b != Banner::SignInNeeded)
     }
 
+    fn apply_detected_text(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.text else { return };
+        match rx.try_recv() {
+            Ok(rendering) => apply_text(ctx, &rendering),
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => {}
+        }
+        self.text = None;
+    }
+
     pub fn tick(&mut self, ctx: &egui::Context) {
         self.tick_at(ctx, Instant::now());
     }
@@ -664,6 +724,7 @@ impl App {
     pub(crate) fn tick_at(&mut self, ctx: &egui::Context, now: Instant) {
         let changed = self.pump(ctx);
         self.theme.tick(ctx, Instant::now());
+        self.apply_detected_text(ctx);
         #[cfg(feature = "gate-sabotage")]
         self.leak.follow(self.playback.shown().item_id.as_deref());
         #[cfg(feature = "gate-sabotage")]
