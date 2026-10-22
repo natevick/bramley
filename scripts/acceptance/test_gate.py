@@ -118,6 +118,22 @@ def both(*fns):
     return lambda out: [fn(out) for fn in fns]
 
 
+def high_host(out):
+    both(every('ballast', 'uss', 262.7), every('ballast', 'rss', 271.9), every('shipped', 'rss', 212.2), every('shipped', 'uss', 157.7), put('ballast.r1.json', ballastMiB=58, ballastTouched=58),
+         edit('ballast.r1.json', lambda d: [r.__setitem__('uss', 204.7) for r in d['baseSamples']]))(out)
+
+
+def host_with(out, shipped, pre, post):
+    both(every('shipped', 'uss', shipped[0]), every('shipped', 'rss', shipped[1]), every('ballast', 'uss', post[0]), every('ballast', 'rss', post[1]),
+         edit('ballast.r1.json', lambda d: [r.__setitem__('uss', pre) for r in d['baseSamples']]),
+         put('ballast.r1.json', ballastMiB=post[0] - pre, ballastTouched=post[0] - pre))(out)
+
+
+def regressed(out):
+    high_host(out)
+    every('ballast', 'rss', 319.9)(out)
+
+
 def drift(by, ref='reference-after'):
     return edit(f'{ref}.json', lambda d: [r.__setitem__('pss', round(gate.REFERENCE['pss'] + by, 1)) for r in d['samples']])
 
@@ -388,8 +404,8 @@ BALLAST = [
     ('ballast passes the shipped check', put('build.json', ballastFeaturesExit=2), 'failsShippedCheck', 'FAIL'),
     ('ballast fails for another reason', edit('ballast.r1.json', lambda d: d['samples'][2].__setitem__('texturesUploaded', 0)), 'thresholdOnly', 'FAIL'),
     ('ballast fails only for another reason', both(every('ballast', 'uss', 150.0), every('ballast', 'rss', 199.0), edit('ballast.r1.json', lambda d: d['samples'][2].__setitem__('procs', 2))), 'thresholdOnly', 'FAIL'),
-    ('ballast lands off band', every('ballast', 'uss', 225.0), 'landedWithinBand', 'FAIL'),
-    ('ballast lands off band with a matching rise', both(every('ballast', 'uss', 222.0), put('ballast.r1.json', ballastMiB=73, ballastTouched=73)), 'landedWithinBand', 'FAIL'),
+    ('ballast off band and its rise short', every('ballast', 'uss', 225.0), 'ussRoseByBallast', 'FAIL'),
+    ('ballast off band by sharing alone', high_host, 'landedWithinBand', 'VOID'),
     ('ballast did not raise USS', put('ballast.r1.json', ballastMiB=40, ballastTouched=40), 'ussRoseByBallast', 'FAIL'),
     ('ballast rise beyond its size', put('ballast.r1.json', ballastMiB=63, ballastTouched=63), 'ussRoseByBallast', 'FAIL'),
     ('ballast windows from two launches', edit('ballast.r1.json', lambda d: d['baseSamples'][0].__setitem__('pid', 8)), 'oneLaunch', 'FAIL'),
@@ -447,6 +463,72 @@ class Verdict(unittest.TestCase):
                 write_valid(SCRATCH)
                 mutate(SCRATCH)
                 self.assertEqual(gate.verdict(SCRATCH)['gate'], want)
+
+    def test_a_ballast_that_only_misses_its_band_voids_the_gate_and_names_the_miss(self):
+        write_valid(SCRATCH)
+        high_host(SCRATCH)
+        v = gate.verdict(SCRATCH)
+        self.assertEqual({n: c['verdict'] for n, c in v['checks'].items() if c['verdict'] != 'PASS'}, {})
+        self.assertEqual((v['ballast']['thresholdOnly'], v['ballast']['ussRoseByBallast'], v['ballast']['landedWithinBand'], v['ballast']['holds']), (True, True, False, False))
+        self.assertEqual((v['gate'], v['ballast']['bandMiss'], v['ballast']['footprintMiss']),
+                         ('VOID', 'ballast control landed at 262.7 MiB, outside 215 \u00b1 5 (pre-ballast USS 204.7, adjusted 159.4, RSS-USS 9.2)', None))
+
+    def test_a_band_miss_with_a_grown_footprint_is_a_fail_naming_both_footprints(self):
+        write_valid(SCRATCH)
+        regressed(SCRATCH)
+        v = gate.verdict(SCRATCH)
+        self.assertEqual((v['gate'], v['ballast']['bandMiss'], v['ballast']['footprintMiss']), ('FAIL', None, 'ballast launch footprint 261.9 MiB RSS vs shipped 212.2 (>10)'))
+
+    def test_growth_inside_the_footprint_band_is_a_fail_and_the_adjusted_bar_is_inclusive(self):
+        for name, pre, post, want, reason in (('grown by 8', 203.0, (223.0, 278.0), 'FAIL', 'adjusted 203.0 for sharing, over 200'),
+                                              ('adjusted at the bar', 200.0, (225.0, 280.0), 'VOID', None),
+                                              ('adjusted over the bar', 200.5, (225.0, 280.5), 'FAIL', 'adjusted 200.5 for sharing, over 200')):
+            with self.subTest(name):
+                write_valid(SCRATCH)
+                host_with(SCRATCH, (195.0, 250.0), pre, post)
+                v = gate.verdict(SCRATCH)['ballast']
+                self.assertEqual((gate.verdict(SCRATCH)['gate'], v['bandMiss'] is None), (want, want == 'FAIL'))
+                self.assertTrue(reason is None or reason in v['footprintMiss'], v['footprintMiss'])
+
+    def test_the_footprint_guard_is_inclusive_at_ten_mib_in_both_directions(self):
+        for rss, want in ((280.0, 'VOID'), (280.5, 'FAIL'), (260.0, 'VOID'), (259.5, 'FAIL')):
+            with self.subTest(rss=rss):
+                write_valid(SCRATCH)
+                high_host(SCRATCH)
+                both(every('shipped', 'rss', 212.0), every('ballast', 'rss', rss))(SCRATCH)
+                self.assertEqual(gate.verdict(SCRATCH)['gate'], want)
+
+    def test_a_band_miss_without_the_shipped_rss_is_a_fail_never_a_void(self):
+        write_valid(SCRATCH)
+        high_host(SCRATCH)
+        remove('shipped.r1.json')(SCRATCH)
+        v = gate.verdict(SCRATCH)
+        self.assertEqual((v['gate'], v['ballast']['bandMiss'], v['ballast']['footprintMiss']), ('FAIL', None, 'ballast launch footprint unchecked: no shipped R1 RSS'))
+
+    def test_a_ballast_that_lands_in_its_band_has_no_miss_to_report(self):
+        write_valid(SCRATCH)
+        v = gate.verdict(SCRATCH)
+        self.assertEqual((v['gate'], v['ballast']['bandMiss']), ('PASS', None))
+
+    def test_a_band_miss_beside_any_other_broken_ballast_clause_stays_a_fail(self):
+        for name, mutate, clause, gate_verdict in BALLAST:
+            if clause != 'landedWithinBand' and gate_verdict == 'FAIL':
+                with self.subTest(name):
+                    write_valid(SCRATCH)
+                    high_host(SCRATCH)
+                    mutate(SCRATCH)
+                    v = gate.verdict(SCRATCH)
+                    self.assertEqual((v['ballast'][clause], v['ballast']['bandMiss'], v['gate']), (False, None, 'FAIL'))
+
+    def test_a_band_miss_never_hides_a_failed_check_or_an_unsafe_run(self):
+        for name, mutate, want in (('one F check FAIL', put('f8.json', seen=[]), 'FAIL'), ('one F check VOID', put('f1.json', renderers=[LLVMPIPE]), 'VOID'),
+                                   ('R1 FAIL', every('shipped', 'uss', 230.0), 'FAIL'), ('real state changed', put('realstate.json', after={}), 'FAIL')):
+            with self.subTest(name):
+                write_valid(SCRATCH)
+                high_host(SCRATCH)
+                mutate(SCRATCH)
+                v = gate.verdict(SCRATCH)
+                self.assertEqual((v['ballast']['landedWithinBand'], v['gate']), (False, want))
 
     def test_each_ballast_clause_breaks_the_control_and_the_gate(self):
         for name, mutate, clause, gate_verdict in BALLAST:
