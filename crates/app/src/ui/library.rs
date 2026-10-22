@@ -241,6 +241,7 @@ impl Library {
         }
         self.typed.0.push_str(&letters);
         (self.typed.1, self.jump) = (time, Some((list, self.typed.0.clone())));
+        super::keys::typing(ctx, time + TYPING_PAUSE);
     }
 
     pub fn reset(&mut self) {
@@ -491,7 +492,7 @@ fn initial(item: &Item) -> Option<char> {
     item.name.as_deref()?.chars().next()?.to_uppercase().next()
 }
 
-fn strip(ui: &mut egui::Ui, items: &[Item]) -> Option<char> {
+fn strip(ui: &mut egui::Ui, items: &[Item], id: egui::Id) -> Option<char> {
     let full = ui.available_rect_before_wrap();
     let area = egui::Rect::from_min_max(egui::pos2(full.right() - STRIP_PT, full.top()), full.max);
     ui.set_max_width(full.width() - STRIP_PT - ui.spacing().item_spacing.x);
@@ -503,18 +504,24 @@ fn strip(ui: &mut egui::Ui, items: &[Item]) -> Option<char> {
         let (head, tail) = last.split_at(last.len() - 1);
         spans.extend([head, tail].into_iter().filter(|span| !span.is_empty()));
     }
+    let chosen = cursor::spans(ui.ctx(), id, spans.len());
     let height = (area.height() / spans.len() as f32).min(20.0);
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area));
     child.spacing_mut().item_spacing.y = 0.0;
     child.spacing_mut().interact_size.y = 0.0;
     let mut hit = None;
-    for span in spans {
+    for (index, span) in spans.into_iter().enumerate() {
         let first = span.iter().copied().find(|l| present.contains(l));
         let shown = span[0];
         let text = RichText::new(shown).small();
         let text = if first.is_some() { text } else { text.weak() };
         let button = child.add_sized([STRIP_PT, height], egui::Button::new(text).frame(false));
-        if labeled(button, WidgetType::Button, &format!("Jump to {shown}")).clicked() {
+        let button = labeled(button, WidgetType::Button, &format!("Jump to {shown}"));
+        if chosen == Some(index) {
+            button.request_focus();
+            cursor::ring(&child, button.rect);
+        }
+        if button.clicked() {
             hit = Some(first.unwrap_or(shown));
         }
     }
@@ -810,7 +817,8 @@ fn view(
     let jumpable = matches!(list, List::Artists | List::Albums);
     if jumpable {
         lib.typed(ui.ctx(), list);
-        if let Some(letter) = strip(ui, &lib.list(list).items) {
+        let id = egui::Id::new(("rows", list as usize));
+        if let Some(letter) = strip(ui, &lib.list(list).items, id) {
             (lib.jump, lib.typed.0) =
                 (Some((list, letter.to_lowercase().collect())), String::new());
         }

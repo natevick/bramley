@@ -17,6 +17,7 @@ pub enum Gate {
     Always,
     WhenIdle,
     Once,
+    Letters,
     Repeat,
 }
 
@@ -27,6 +28,7 @@ pub enum Intent {
     Dismiss,
     Activate,
     Back,
+    Letters,
     Do(Do),
 }
 
@@ -116,6 +118,8 @@ const fn bind(
     }
 }
 
+const LETTERS: &str = "hjklgG/";
+
 const COMMAND: Modifiers = Modifiers::COMMAND;
 const SHIFT: Modifiers = Modifiers::SHIFT;
 
@@ -175,6 +179,13 @@ pub const BINDINGS: &[Binding] = &[
     bind(&[(ArrowLeft, SHIFT)], WhenIdle, Seek(-10.0), "Position"),
     bind(&UP, WhenIdle, Volume(5), "Volume"),
     bind(&DOWN, WhenIdle, Volume(-5), "Volume"),
+    Binding {
+        keys: &[],
+        gate: Gate::Letters,
+        intent: Intent::Letters,
+        help: "Move like the arrows; g g and G go to the ends; / searches",
+        platforms: Platforms::All,
+    },
     bind(&[(Enter, SHIFT)], Once, PlayNext, "Play next"),
     bind(&[(Enter, COMMAND)], Once, QueueAdd, "Add to queue"),
 ];
@@ -198,10 +209,11 @@ fn idle(ctx: &Context) -> bool {
     !(ctx.text_edit_focused() || on_slider || egui::Popup::is_any_open(ctx))
 }
 
-fn takes(binding: &Binding, event: &Event, idle: bool) -> bool {
+fn takes(binding: &Binding, event: &Event, (idle, typing): (bool, bool)) -> bool {
     let text = |t: &str| match binding.intent {
         Intent::Do(Next) => t == ">",
         Intent::Do(Previous) => t == "<",
+        Intent::Letters => t.len() == 1 && LETTERS.contains(t),
         _ => false,
     };
     let (hit, repeat) = match event {
@@ -221,6 +233,7 @@ fn takes(binding: &Binding, event: &Event, idle: bool) -> bool {
     let open = match binding.gate {
         Gate::Always => true,
         Gate::WhenIdle | Once => idle,
+        Gate::Letters => idle && !typing,
         Gate::Repeat => repeat,
     };
     open && hit && binding.platforms.here()
@@ -233,7 +246,7 @@ fn step(binding: &Binding, key: Key, modifiers: Modifiers) -> Option<Step> {
         Intent::Cursor => Step::of(key),
         Intent::Dismiss => Some(Step::Escape),
         Intent::Back => Some(Step::Back),
-        Intent::Activate | Intent::Do(_) => None,
+        Intent::Activate | Intent::Letters | Intent::Do(_) => None,
     }
 }
 
@@ -250,8 +263,32 @@ pub fn actions(ctx: &Context, shown: &Snapshot, volume: u8) -> Vec<Action> {
     heard.into_iter().filter_map(act).collect()
 }
 
+pub fn typing(ctx: &Context, until: f64) {
+    ctx.data_mut(|d| d.insert_temp(Id::new("keys-typing"), until));
+}
+
+fn letter(ctx: &Context, t: &str, now: f64) -> Vec<Step> {
+    let g = Id::new("keys-g");
+    let pending = ctx.data_mut(|d| d.remove_temp::<f64>(g));
+    match t {
+        "h" => vec![Step::Left],
+        "j" => vec![Step::Down],
+        "k" => vec![Step::Up],
+        "l" => vec![Step::Right],
+        "G" => vec![Step::Last, Step::Bottom],
+        "/" => vec![Step::Search],
+        "g" if pending.is_some_and(|at| now - at <= 1.0) => vec![Step::First],
+        _ => {
+            ctx.data_mut(|d| d.insert_temp(g, now));
+            vec![]
+        }
+    }
+}
+
 pub fn take(ctx: &Context, input: &mut RawInput) {
-    let idle = idle(ctx);
+    let now = input.time.unwrap_or(0.0);
+    let until: Option<f64> = ctx.data(|d| d.get_temp(Id::new("keys-typing")));
+    let idle = (idle(ctx), until.is_some_and(|until| now <= until));
     let mut repeating = false;
     input.events.retain(|event| {
         if let Event::Key { repeat, .. } = event {
@@ -265,6 +302,11 @@ pub fn take(ctx: &Context, input: &mut RawInput) {
             (Intent::Do(_), _) if binding.gate == Once && repeating => {}
             (Intent::Do(d), _) => {
                 ctx.data_mut(|data| data.get_temp_mut_or_default::<Vec<Do>>(Id::NULL).push(d))
+            }
+            (Intent::Letters, Event::Text(t)) => {
+                letter(ctx, t, now)
+                    .into_iter()
+                    .for_each(|step| cursor::push_all(ctx, Some(step)));
             }
             (_, Event::Key { key, modifiers, .. }) => {
                 cursor::push_all(ctx, step(binding, *key, *modifiers))

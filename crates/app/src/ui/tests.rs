@@ -1828,3 +1828,52 @@ fn angle_brackets_arrive_as_key_plus_text_and_a_repeat_does_nothing() {
     assert_eq!(typed(Key::Period, ">", true), []);
     assert_eq!(typed(Key::Comma, "<", true), []);
 }
+
+#[test]
+fn every_vim_letter_pushes_its_steps_and_is_swallowed() {
+    use super::cursor::Step::{Bottom, Down, First, Last, Left, Right, Search, Up};
+    let ctx = egui::Context::default();
+    let all = [Left, Down, Up, Right, Last, Bottom, Search, First];
+    let pressed = |t: &str| {
+        let mut input = RawInput {
+            events: vec![Event::Text(t.into())],
+            ..RawInput::default()
+        };
+        super::keys::take(&ctx, &mut input);
+        assert!(input.events.is_empty(), "{t}");
+        super::cursor::drain(&ctx, &all)
+    };
+    let table = [
+        ("h", vec![Left]),
+        ("j", vec![Down]),
+        ("k", vec![Up]),
+        ("l", vec![Right]),
+    ];
+    for (t, steps) in table
+        .into_iter()
+        .chain([("G", vec![Last, Bottom]), ("/", vec![Search])])
+    {
+        assert_eq!(pressed(t), steps, "{t}");
+    }
+    assert_eq!((pressed("g"), pressed("g")), (vec![], vec![First]));
+}
+
+#[test]
+fn slash_focuses_search_with_an_empty_query() {
+    let ctx = egui::Context::default();
+    let mut app = app(&ctx, true);
+    frame(&ctx, &mut app, RawInput::default());
+    let slash = RawInput {
+        events: vec![Event::Text("/".into())],
+        ..RawInput::default()
+    };
+    frame(&ctx, &mut app, slash);
+    frame(&ctx, &mut app, RawInput::default());
+    assert!(ctx.text_edit_focused());
+    let typed = RawInput {
+        events: vec![Event::Text("ab".into())],
+        ..RawInput::default()
+    };
+    frame(&ctx, &mut app, typed);
+    assert_eq!(caret(&ctx), Some(2));
+}

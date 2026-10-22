@@ -19,6 +19,8 @@ pub enum Step {
     Prev,
     Escape,
     Back,
+    Search,
+    Bottom,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -32,7 +34,10 @@ pub enum Region {
 
 impl Step {
     fn moves(self) -> bool {
-        !matches!(self, Self::Next | Self::Prev | Self::Escape | Self::Back)
+        !matches!(
+            self,
+            Self::Next | Self::Prev | Self::Escape | Self::Back | Self::Search | Self::Bottom
+        )
     }
 
     pub fn of(key: Key) -> Option<Self> {
@@ -96,6 +101,8 @@ impl Step {
 #[derive(Clone, Default)]
 struct Slot {
     at: Option<usize>,
+    strip: Option<usize>,
+    spans: usize,
     seen: Range<usize>,
 }
 
@@ -166,7 +173,7 @@ pub fn cycle(ctx: &Context, back: bool, (sidebar, queue): (bool, bool)) {
     });
 }
 
-fn ring(ui: &Ui, rect: egui::Rect) {
+pub fn ring(ui: &Ui, rect: egui::Rect) {
     let stroke = Stroke::new(2.0, Palette::of(ui.ctx()).focus());
     ui.painter()
         .rect_stroke(rect, 3.0, stroke, StrokeKind::Outside);
@@ -191,6 +198,14 @@ pub struct Cursor {
     moved: bool,
 }
 
+pub fn spans(ctx: &Context, id: Id, count: usize) -> Option<usize> {
+    with(ctx, |focus| {
+        let slot = focus.slots.entry(id).or_default();
+        slot.spans = count;
+        slot.strip
+    })
+}
+
 pub fn drive(
     ctx: &Context,
     id: Id,
@@ -198,28 +213,44 @@ pub fn drive(
     (len, columns): (usize, usize),
     enabled: impl Fn(usize) -> bool,
 ) -> Cursor {
-    let (at, seen, moved) = with(ctx, |focus| {
+    let (at, seen, moved, woke) = with(ctx, |focus| {
         let stop = focus.counted;
         focus.counted += usize::from(region == Region::Content && len > 0);
         let mine = focus.region == region && (region != Region::Content || focus.stop == stop);
+        let on_strip = focus.slots.get(&id).is_some_and(|s| s.strip.is_some());
         let mut steps = vec![];
         if mine && len > 0 {
             let all = std::mem::take(&mut focus.steps);
-            (steps, focus.steps) = all.into_iter().partition(|s| s.moves());
+            let own = |s: &Step| s.moves() || (on_strip && *s == Step::Escape);
+            (steps, focus.steps) = all.into_iter().partition(own);
         }
         let slot = focus.slots.entry(id).or_default();
         let page = slot.seen.len().max(1) * columns;
+        let mut left = false;
         for step in &steps {
-            if columns > 1 || !matches!(step, Step::Left | Step::Right) {
-                slot.at = step.land(slot.at, page, (len - 1, columns), &enabled);
+            let now = slot.at.unwrap_or(0);
+            let last_column = (now + 1) % columns == 0 || now + 1 == len;
+            match (slot.strip, step) {
+                (Some(i), Step::Up) => slot.strip = Some(i.saturating_sub(1)),
+                (Some(i), Step::Down) => slot.strip = Some((i + 1).min(slot.spans - 1)),
+                (Some(_), Step::Left | Step::Escape) => (slot.strip, left) = (None, true),
+                (None, Step::Right) if slot.spans > 0 && last_column => slot.strip = Some(0),
+                (None, _) if columns > 1 || !matches!(step, Step::Left | Step::Right) => {
+                    slot.at = step.land(slot.at, page, (len - 1, columns), &enabled);
+                }
+                _ => {}
             }
         }
         slot.at = slot
             .at
             .map(|at| at.min(len.saturating_sub(1)))
             .filter(|_| len > 0);
-        (slot.at, slot.seen.clone(), !steps.is_empty())
+        let moved = left || (!steps.is_empty() && slot.strip.is_none());
+        (slot.at, slot.seen.clone(), moved, !steps.is_empty())
     });
+    if woke {
+        ctx.request_repaint();
+    }
     Cursor {
         ctx: ctx.clone(),
         id,

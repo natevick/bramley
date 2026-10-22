@@ -819,6 +819,12 @@ impl App {
             }
         }
         self.library.art.flush(ui.ctx());
+        for step in ui::cursor::drain(ui.ctx(), &[Step::Search, Step::Bottom]) {
+            let end = Nav::Scroll(ui::nav::Edge::End);
+            let nav = (step == Step::Search).then_some(Nav::FocusSearch);
+            self.navs
+                .extend(nav.or(self.shell.route.lists().then_some(end)));
+        }
         for step in ui::cursor::drain(ui.ctx(), &[Step::Escape, Step::Back]) {
             let overlay = (step == Step::Escape)
                 .then(|| self.overlay_nav(docked, compact))

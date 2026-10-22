@@ -1137,16 +1137,18 @@ fn on(
 ) -> Vec<String> {
     ctx.enable_accesskit();
     let screen = Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0));
-    let input = RawInput {
+    let mut input = RawInput {
         screen_rect: Some(screen),
         time: Some(time),
         events,
         ..RawInput::default()
     };
+    crate::ui::keys::take(ctx, &mut input);
     let mut out = ctx.run_ui(input, |ui| {
         show(ui, lib, (&route, &mut None), (&mut vec![], &mut vec![]))
     });
     out.textures_delta.clear();
+    crate::ui::cursor::settle(ctx);
     let nodes = out.platform_output.accesskit_update.expect("a tree").nodes;
     let labels = nodes.iter().filter_map(|(_, n)| n.label());
     let verb = format!("{verb} ");
@@ -1196,7 +1198,7 @@ fn typing_a_letter_or_a_prefix_jumps_to_the_first_matching_artist() {
 fn typing_ignores_punctuation_and_spaces_in_the_names_it_matches() {
     let (ctx, mut lib) = (egui::Context::default(), Library::default());
     let mut items = lettered(b'A'..b'Z' + 1);
-    for (at, name) in [(100, "Led Zeppelin"), (200, "AC/DC")] {
+    for (at, name) in [(100, "Mled Zeppelin"), (200, "AC/DC")] {
         let named = Item {
             id: format!("i.{at}"),
             name: Some(name.into()),
@@ -1206,13 +1208,74 @@ fn typing_ignores_punctuation_and_spaces_in_the_names_it_matches() {
     }
     lib.lists[List::Artists as usize].items = items;
     let first = at(&ctx, &mut lib, 0.0, vec![]);
-    assert!(!names(&first).contains(&"Led Zeppelin"), "{first:?}");
-    at(&ctx, &mut lib, 1.0, vec![text("led z")]);
-    let shown = at(&ctx, &mut lib, 1.1, vec![]);
-    assert!(names(&shown).contains(&"Led Zeppelin"), "{shown:?}");
+    assert!(!names(&first).contains(&"Mled Zeppelin"), "{first:?}");
+    for (time, letter) in [(1.0, "m"), (1.1, "l"), (1.2, "e"), (1.3, "d")] {
+        at(&ctx, &mut lib, time, vec![text(letter)]);
+    }
+    let shown = at(&ctx, &mut lib, 1.4, vec![]);
+    assert!(names(&shown).contains(&"Mled Zeppelin"), "{shown:?}");
     at(&ctx, &mut lib, 5.0, vec![text("acdc")]);
     let shown = at(&ctx, &mut lib, 5.1, vec![]);
     assert!(names(&shown).contains(&"AC/DC"), "{shown:?}");
+}
+
+#[test]
+fn j_moves_and_a_started_prefix_still_jumps() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    let mut items = lettered(b'A'..b'Z' + 1);
+    items.insert(
+        120,
+        Item {
+            name: Some("Mjolnir".into()),
+            ..item(0)
+        },
+    );
+    lib.lists[List::Artists as usize].items = items;
+    at(&ctx, &mut lib, 0.5, vec![text("j")]);
+    assert!(lib.typed.0.is_empty(), "a bare j moves, it does not type");
+    at(&ctx, &mut lib, 1.0, vec![text("m")]);
+    at(&ctx, &mut lib, 1.1, vec![text("j")]);
+    assert_eq!(lib.typed.0, "mj");
+    assert!(names(&at(&ctx, &mut lib, 1.2, vec![])).contains(&"Mjolnir"));
+}
+
+#[test]
+fn right_past_the_last_column_enters_the_strip_and_enter_jumps() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);
+    at(&ctx, &mut lib, 0.0, vec![]);
+    for (time, letter) in (1..)
+        .map(|n| n as f64)
+        .zip(["l", "j", "j", "j", "j", "j", "j", "j"])
+    {
+        at(&ctx, &mut lib, time, vec![text(letter)]);
+    }
+    let enter = crate::tests::pressed(&ctx, Some((egui::Key::Enter, false))).events;
+    at(&ctx, &mut lib, 20.0, enter);
+    let shown = at(&ctx, &mut lib, 21.0, vec![]);
+    assert!(names(&shown).contains(&"Hx0") && !names(&shown).contains(&"Ax0"));
+    assert!(lib.typed.0.is_empty());
+}
+
+#[test]
+fn left_and_escape_leave_the_strip() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);
+    at(&ctx, &mut lib, 0.0, vec![]);
+    let id = egui::Id::new(("rows", List::Artists as usize));
+    let strip = || crate::ui::cursor::spans(&ctx, id, 26);
+    for (time, escape) in [(2.0, false), (4.0, true)] {
+        at(&ctx, &mut lib, time - 1.0, vec![text("l")]);
+        assert_eq!(strip(), Some(0));
+        let esc = || crate::tests::pressed(&ctx, Some((egui::Key::Escape, false))).events;
+        at(
+            &ctx,
+            &mut lib,
+            time,
+            if escape { esc() } else { vec![text("h")] },
+        );
+        assert_eq!(strip(), None);
+    }
 }
 
 #[test]
