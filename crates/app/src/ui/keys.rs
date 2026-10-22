@@ -93,7 +93,11 @@ fn takes(binding: &Binding, event: &Event, idle: bool) -> bool {
 
 pub fn take(ctx: &Context, input: &mut RawInput) {
     let idle = idle(ctx);
-    input
-        .events
-        .retain(|e| !BINDINGS.iter().any(|b| takes(b, e, idle)));
+    input.events.retain(|event| {
+        let taken = BINDINGS.iter().any(|b| takes(b, event, idle));
+        if let (true, Event::Key { key, .. }) = (taken, event) {
+            log::debug!("took {key:?}");
+        }
+        !taken
+    });
 }
