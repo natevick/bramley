@@ -351,32 +351,30 @@ fn the_cursor_skips_disabled_rows_so_focus_always_lands_on_a_playable_one() {
 fn a_second_album_walks_from_its_own_first_row_not_the_first_ones_place() {
     let (ctx, mut d, t0) = (egui::Context::default(), Detail::new(None), Instant::now());
     ctx.enable_accesskit();
-    let songs =
-        |first: &str| -> Vec<_> { (0..9).map(|n| (format!("{first}{n}"), "songs")).collect() };
-    let mut focus = |d: &mut Detail, key: Option<egui::Key>| {
-        let input = key.map_or_else(egui::RawInput::default, |k| {
-            crate::ui::tests::hooked(&ctx, k)
-        });
-        let mut out = ctx.run_ui(input, |ui| super::show(ui, d, &mut Vec::new()));
-        out.textures_delta.clear();
-        crate::ui::cursor::settle(&ctx);
-        crate::ui::tests::focus_label(&out.platform_output.accesskit_update.unwrap())
-    };
-    for (id, first) in [("1", "a"), ("2", "b")] {
+    let mut label = None;
+    for id in ["1", "2"] {
         tick(&mut d, t0, true, &Route::Album(id.into()));
-        let rows = songs(first);
-        let refs: Vec<_> = rows.iter().map(|(i, k)| (i.as_str(), *k)).collect();
-        let found = Found {
-            item: item(id, "albums", 0),
-            tracks: page(&refs, None),
-        };
-        answer(&mut d, &ctx, Ok(Reply::Detail(found)));
-        focus(&mut d, None);
-        for _ in 0..3 {
-            focus(&mut d, Some(egui::Key::ArrowDown));
-            focus(&mut d, None);
+        let ids: Vec<_> = (0..9).map(|n| format!("{id}-{n}")).collect();
+        let rows: Vec<_> = ids.iter().map(|i| (i.as_str(), "songs")).collect();
+        let tracks = page(&rows, None);
+        answer(
+            &mut d,
+            &ctx,
+            Ok(Reply::Detail(Found {
+                item: item(id, "albums", 0),
+                tracks,
+            })),
+        );
+        for n in 0..6 {
+            let key = (n % 2 == 0).then_some(egui::Key::ArrowDown);
+            let input = key.map_or_else(egui::RawInput::default, |k| {
+                crate::ui::tests::hooked(&ctx, k)
+            });
+            let mut out = ctx.run_ui(input, |ui| super::show(ui, &mut d, &mut Vec::new()));
+            out.textures_delta.clear();
+            crate::ui::cursor::settle(&ctx);
+            label = crate::ui::tests::focus_label(&out.platform_output.accesskit_update.unwrap());
         }
     }
-    let label = focus(&mut d, None);
-    assert_eq!(label.as_deref(), Some("Play songs b2"));
+    assert_eq!(label.as_deref(), Some("Play songs 2-2"));
 }

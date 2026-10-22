@@ -6,11 +6,11 @@ use super::cursor::{self, Step};
 use crate::playback::Action;
 use Do::*;
 use Gate::{Once, WhenIdle};
-use Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Enter, Equals, Minus, PageDown, PageUp};
+use Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Enter, PageDown, PageUp};
 use bramley_engine::Snapshot;
 
-const UP: [(Key, Modifiers); 2] = [(Equals, Modifiers::NONE), (ArrowUp, COMMAND)];
-const DOWN: [(Key, Modifiers); 2] = [(Minus, Modifiers::NONE), (ArrowDown, COMMAND)];
+const UP: [(Key, Modifiers); 1] = [(ArrowUp, COMMAND)];
+const DOWN: [(Key, Modifiers); 1] = [(ArrowDown, COMMAND)];
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Gate {
@@ -216,6 +216,8 @@ fn texts(intent: Intent) -> &'static str {
     match intent {
         Intent::Do(Next) => ">",
         Intent::Do(Previous) => "<",
+        Intent::Do(Volume(by)) if by > 0 => "=",
+        Intent::Do(Volume(_)) => "-",
         Intent::Letters => LETTERS,
         Intent::Help => "?",
         _ => "",
