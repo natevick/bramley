@@ -1305,6 +1305,19 @@ fn up_down_j_k_walk_the_strip_clamped_enter_jumps_and_a_jump_ends_the_prefix() {
 }
 
 #[test]
+fn tab_out_of_the_strip_leaves_it_and_the_ring_does_not_come_back() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    ctx.enable_accesskit();
+    lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);
+    let mut at = |key| cursor_key(&ctx, &mut lib, (&Route::Artists, key)).focus;
+    at(egui::Key::ArrowDown);
+    assert_eq!(at(egui::Key::ArrowRight).as_deref(), Some("Jump to A"));
+    crate::ui::cursor::cycle(&ctx, false, (false, false));
+    assert_ne!(at(egui::Key::ArrowDown).as_deref(), Some("Jump to A"));
+    assert_ne!(at(egui::Key::ArrowDown).as_deref(), Some("Jump to B"));
+}
+
+#[test]
 fn the_cursor_lands_on_the_true_last_row_once_a_pinned_scroll_end_has_paged_in() {
     let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
     ctx.enable_accesskit();

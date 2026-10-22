@@ -166,6 +166,7 @@ pub fn cycle(ctx: &Context, back: bool, (sidebar, queue): (bool, bool)) {
         })
         .collect();
     with(ctx, |focus| {
+        focus.slots.values_mut().for_each(|slot| slot.strip = None);
         let last = focus.stops.saturating_sub(1);
         match (focus.region, back) {
             (Region::Content, false) if focus.stop < last => focus.stop += 1,
