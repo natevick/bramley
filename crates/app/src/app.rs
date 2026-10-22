@@ -752,6 +752,7 @@ impl App {
             let regions = (!compact, self.shell.queue_open);
             ui::cursor::cycle(ui.ctx(), step == Step::Prev, regions);
         }
+        ui::cursor::walk(ui.ctx());
         let palette = Palette::of(ui.ctx());
         egui::Panel::bottom("now-playing").show(ui, |ui| {
             ui.add_space(8.0);

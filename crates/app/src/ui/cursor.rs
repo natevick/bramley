@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use egui::{Context, Id, Key, Response, Stroke, StrokeKind, Ui};
+use egui::{Context, FocusDirection, Id, Key, Response, Stroke, StrokeKind, Ui};
 
 use crate::theme::Palette;
 
@@ -112,6 +112,7 @@ struct Slot {
     spans: usize,
     seen: Range<usize>,
     follow: bool,
+    drawn: usize,
 }
 
 #[derive(Clone, Default)]
@@ -123,6 +124,9 @@ struct Focus {
     stops: usize,
     counted: usize,
     entering: bool,
+    frame: usize,
+    ring: bool,
+    shown: bool,
 }
 
 fn with<R>(ctx: &Context, f: impl FnOnce(&mut Focus) -> R) -> R {
@@ -137,6 +141,7 @@ pub fn settle(ctx: &Context) {
     with(ctx, |focus| {
         focus.steps.clear();
         (focus.stops, focus.counted, focus.entering) = (focus.counted, 0, false);
+        (focus.frame, focus.shown, focus.ring) = (focus.frame + 1, focus.ring, false);
     });
 }
 
@@ -168,6 +173,9 @@ pub fn cycle(ctx: &Context, back: bool, (sidebar, queue): (bool, bool)) {
         .collect();
     with(ctx, |focus| {
         focus.slots.values_mut().for_each(|slot| slot.strip = None);
+        if focus.region == Region::Content && focus.stops > 0 && !focus.shown {
+            return focus.steps.push(Step::First);
+        }
         let last = focus.stops.saturating_sub(1);
         match (focus.region, back) {
             (Region::Content, false) if focus.stop < last => focus.stop += 1,
@@ -182,10 +190,13 @@ pub fn cycle(ctx: &Context, back: bool, (sidebar, queue): (bool, bool)) {
     });
 }
 
+pub const RING_GAP_PT: f32 = 2.0;
+
 pub fn ring(ui: &Ui, rect: egui::Rect) {
-    let stroke = Stroke::new(2.0, Palette::of(ui.ctx()).focus());
-    ui.painter()
-        .rect_stroke(rect, 3.0, stroke, StrokeKind::Outside);
+    let stroke = Stroke::new(2.5, Palette::of(ui.ctx()).focus());
+    let rect = rect.expand(RING_GAP_PT);
+    let painter = ui.painter().with_clip_rect(rect.expand(stroke.width + 1.0));
+    painter.rect_stroke(rect, 3.0, stroke, StrokeKind::Outside);
 }
 
 pub fn entry(ui: &Ui, region: Region, response: &Response) {
@@ -224,6 +235,23 @@ pub fn shift(ctx: &Context, id: Id, by: isize) {
     });
 }
 
+pub fn walk(ctx: &Context) {
+    let ((back, up), (forth, down)) = match with(ctx, |focus| focus.region) {
+        Region::Sidebar => (
+            (Step::Up, FocusDirection::Up),
+            (Step::Down, FocusDirection::Down),
+        ),
+        Region::Player => (
+            (Step::Left, FocusDirection::Left),
+            (Step::Right, FocusDirection::Right),
+        ),
+        _ => return,
+    };
+    for step in drain(ctx, &[back, forth]) {
+        ctx.memory_mut(|m| m.move_focus(if step == back { up } else { down }));
+    }
+}
+
 pub fn drive(
     ctx: &Context,
     id: Id,
@@ -243,12 +271,17 @@ pub fn drive(
             (steps, focus.steps) = all.into_iter().partition(own);
         }
         let slot = focus.slots.entry(id).or_default();
+        slot.follow |= mine && slot.at.is_some() && focus.frame > slot.drawn + 1;
+        slot.drawn = focus.frame;
         let page = slot.seen.len().max(1) * columns;
         let mut left = false;
         for step in &steps {
             let now = slot.at.unwrap_or(0);
             let last_column = (now + 1) % columns == 0 || now + 1 == len;
             match (slot.strip, step) {
+                (None, Step::Left | Step::Right) if slot.at.is_none() => {
+                    slot.at = Step::First.land(None, page, (len - 1, columns), &enabled);
+                }
                 (Some(i), Step::Up) => slot.strip = Some(i.saturating_sub(1)),
                 (Some(i), Step::Down) => slot.strip = Some((i + 1).min(slot.spans - 1)),
                 (Some(_), Step::Left | Step::Escape) => (slot.strip, left) = (None, true),
@@ -269,6 +302,7 @@ pub fn drive(
             .filter(|_| slot.spans > 0);
         let moved =
             left || std::mem::take(&mut slot.follow) || (!steps.is_empty() && slot.strip.is_none());
+        focus.ring |= mine && slot.at.is_some();
         (slot.at, slot.seen.clone(), moved, !steps.is_empty())
     });
     if woke {

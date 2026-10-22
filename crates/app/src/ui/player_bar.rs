@@ -20,9 +20,9 @@ pub fn clock(seconds: f64) -> String {
     format!("{}:{:02}", s / 60, s % 60)
 }
 
-fn glyph(ui: &mut egui::Ui, text: &str, size: f32, label: &str) -> bool {
+fn glyph(ui: &mut egui::Ui, text: &str, size: f32, label: &str) -> egui::Response {
     let response = ui.button(RichText::new(text).size(size));
-    labeled(response, WidgetType::Button, label).clicked()
+    labeled(response, WidgetType::Button, label)
 }
 
 fn queue_button(ui: &mut egui::Ui, open: bool, navs: &mut Vec<Nav>) {
@@ -162,7 +162,11 @@ fn controls(
     roomy: bool,
 ) {
     ui.add_enabled_ui(started, |ui| {
-        if glyph(ui, "⏮", 18.0, "Previous track") {
+        let previous = glyph(ui, "⏮", 18.0, "Previous track");
+        if started {
+            super::cursor::entry(ui, super::cursor::Region::Player, &previous);
+        }
+        if previous.clicked() {
             actions.push(Action::Previous);
         }
         let action = play_or_pause(shown.state);
@@ -171,10 +175,10 @@ fn controls(
         } else {
             ("⏵", "Play")
         };
-        if glyph(ui, text, 22.0, label) {
+        if glyph(ui, text, 22.0, label).clicked() {
             actions.push(action);
         }
-        if glyph(ui, "⏭", 18.0, "Next track") {
+        if glyph(ui, "⏭", 18.0, "Next track").clicked() {
             actions.push(Action::Next);
         }
         let duration = shown.duration.unwrap_or(0.0);

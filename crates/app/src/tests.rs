@@ -4334,7 +4334,7 @@ pub fn pressed(ctx: &egui::Context, key: Option<(egui::Key, bool)>) -> egui::Raw
 }
 
 #[test]
-fn down_moves_one_home_row_of_columns_and_enter_opens_the_focused_cover_once() {
+fn home_keys_walk_rows_reveal_restore_and_scroll_and_enter_opens_the_focused_cover_once() {
     let ctx = egui::Context::default();
     ctx.enable_accesskit();
     let (tx, rx) = channel();
@@ -4348,18 +4348,29 @@ fn down_moves_one_home_row_of_columns_and_enter_opens_the_focused_cover_once() {
     tx.send(covers::Loaded::Total(50)).unwrap();
     grid.receive(&ctx);
     let columns = grid.layout(800.0).columns;
+    let heading = std::cell::Cell::new(None);
     let press = |key, repeat| {
         let (mut label, mut navs) = (None, Vec::new());
         for key in [Some((key, repeat)), None] {
-            let mut out = ctx.run_ui(pressed(&ctx, key), |ui| grid.show(ui, &mut navs));
+            let mut input = pressed(&ctx, key);
+            input.screen_rect = Some(egui::Rect::from_x_y_ranges(0.0..=800.0, 0.0..=300.0));
+            let mut out = ctx.run_ui(input, |ui| grid.show(ui, &mut navs));
             out.textures_delta.clear();
             crate::ui::cursor::settle(&ctx);
             let tree = out.platform_output.accesskit_update.expect("a tree");
             label = crate::ui::tests::focus_label(&tree);
+            heading.set(
+                tree.nodes
+                    .iter()
+                    .find_map(|(_, n)| n.value()?.starts_with("Top ").then_some(n.bounds()?.y0)),
+            );
         }
         (label, navs)
     };
-    press(egui::Key::ArrowDown, false);
+    let idle = || press(egui::Key::Escape, false).0;
+    idle();
+    crate::ui::cursor::cycle(&ctx, false, (false, false));
+    assert_eq!(idle(), Some("Open album 1".to_owned()));
     let down = press(egui::Key::ArrowDown, false).0;
     assert_eq!(down, Some(format!("Open album {}", columns + 1)));
     let right = press(egui::Key::ArrowRight, false).0;
@@ -4369,4 +4380,17 @@ fn down_moves_one_home_row_of_columns_and_enter_opens_the_focused_cover_once() {
     for _ in 0..4 {
         assert_eq!(press(egui::Key::Enter, true).1, []);
     }
+    for _ in 0..3 {
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        crate::ui::cursor::settle(&ctx);
+    }
+    idle();
+    assert_eq!(idle(), right);
+    for key in [egui::Key::End, egui::Key::Home] {
+        press(key, false);
+        (0..45).for_each(|_| drop(idle()));
+    }
+    assert!(heading.get().is_some_and(|y| y >= 0.0));
 }

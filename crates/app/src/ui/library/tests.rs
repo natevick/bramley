@@ -1243,7 +1243,7 @@ fn j_moves_and_a_started_prefix_still_jumps() {
 fn right_past_the_last_column_enters_the_strip_and_enter_jumps() {
     let (ctx, mut lib) = (egui::Context::default(), Library::default());
     lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);
-    at(&ctx, &mut lib, 0.0, vec![]);
+    at(&ctx, &mut lib, 0.0, vec![text("k")]);
     for (time, letter) in (1..)
         .map(|n| n as f64)
         .zip(["l", "j", "j", "j", "j", "j", "j", "j"])
@@ -1261,7 +1261,7 @@ fn right_past_the_last_column_enters_the_strip_and_enter_jumps() {
 fn left_and_escape_leave_the_strip() {
     let (ctx, mut lib) = (egui::Context::default(), Library::default());
     lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);
-    at(&ctx, &mut lib, 0.0, vec![]);
+    at(&ctx, &mut lib, 0.0, vec![text("k")]);
     let id = egui::Id::new(("rows", List::Artists as usize));
     let strip = || crate::ui::cursor::spans(&ctx, id, 26);
     for (time, escape) in [(2.0, false), (4.0, true)] {
@@ -1288,6 +1288,7 @@ fn up_down_j_k_walk_the_strip_clamped_enter_jumps_and_a_jump_ends_the_prefix() {
         at(&ctx, &mut lib, time, events);
         crate::ui::cursor::spans(&ctx, id, 26)
     };
+    walk(0.5, vec![text("k")]);
     assert_eq!(walk(1.0, vec![text("l")]), Some(0));
     assert_eq!(walk(2.0, vec![text("k")]), Some(0));
     assert_eq!(walk(3.0, vec![text("j")]), Some(1));

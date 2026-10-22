@@ -1055,6 +1055,7 @@ impl Grid {
                 ui.label(egui::RichText::new(HOME_CAPTION).weak().size(12.0));
             }
             ui.spacing_mut().item_spacing = egui::vec2(HOME_GAP_PT, HOME_GAP_PT);
+            let top = egui::Rect::from_min_size(ui.max_rect().min, egui::Vec2::splat(1.0));
             let size = egui::vec2(layout.cell, layout.cell);
             let shape = (layout.shown, layout.columns);
             let cursor = cursor::drive(
@@ -1079,7 +1080,7 @@ impl Grid {
                         let label = format!("Open album {}", n + 1);
                         let cover = crate::ui::labeled(cover, egui::WidgetType::Button, &label);
                         if cursor.mark(ui, n, &cover) {
-                            cover.scroll_to_me(None);
+                            ui.scroll_to_rect(if n == 0 { top } else { cover.rect }, None);
                         }
                         if cover.clicked() {
                             navs.push(Nav::Go(Route::Album(id.clone())));

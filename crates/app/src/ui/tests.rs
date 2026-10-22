@@ -1637,6 +1637,52 @@ fn the_queue_ring_stays_on_its_entry_as_the_queue_advances() {
     assert_eq!(at(1, None).as_deref(), Some("Play Row 3"));
 }
 
+#[test]
+fn the_sidebar_and_player_bar_walk_with_j_k_h_l_and_the_bar_is_entered_on_its_first_control() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let walk = |step: Option<Step>, bar: bool| {
+        super::cursor::push_all(&ctx, step);
+        let mut out = ctx.run_ui(RawInput::default(), |ui| {
+            super::cursor::walk(ui.ctx());
+            let (shown, emit) = (Default::default(), (&mut vec![], &mut vec![]));
+            match bar {
+                true => super::player_bar::show(ui, &shown, true, 50, (false, false), emit),
+                false => drop(super::sidebar::show(
+                    ui,
+                    &Route::Home,
+                    &mut Default::default(),
+                    emit.1,
+                    true,
+                )),
+            }
+        });
+        out.textures_delta.clear();
+        super::cursor::settle(&ctx);
+        focus_label(&out.platform_output.accesskit_update.expect("a tree"))
+    };
+    super::cursor::cycle(&ctx, true, (true, false));
+    walk(None, false);
+    assert_eq!(walk(Some(Step::Down), false).as_deref(), Some("Search"));
+    super::cursor::cycle(&ctx, true, (true, false));
+    walk(None, true);
+    assert_eq!(walk(None, true).as_deref(), Some("Previous track"));
+    assert_eq!(walk(Some(Step::Right), true).as_deref(), Some("Play"));
+}
+
+#[test]
+fn the_focus_ring_floats_outside_the_cover_by_a_gap() {
+    let ctx = egui::Context::default();
+    let cover = egui::Rect::from_min_size(egui::pos2(50.0, 50.0), egui::vec2(96.0, 96.0));
+    let mut out = ctx.run_ui(RawInput::default(), |ui| super::cursor::ring(ui, cover));
+    out.textures_delta.clear();
+    let ring = out.shapes.iter().find_map(|s| match &s.shape {
+        egui::Shape::Rect(r) if r.stroke.width > 0.0 => Some(r.rect),
+        _ => None,
+    });
+    assert_eq!(ring, Some(cover.expand(2.0)));
+}
+
 fn narrow(events: Vec<Event>) -> RawInput {
     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(500.0, 700.0));
     RawInput {
