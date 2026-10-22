@@ -23,7 +23,7 @@ pub const HOME_GAP_PT: f32 = 8.0;
 pub const HOME_CELL_MIN_PT: f32 = 64.0;
 pub const HOME_CELL_MAX_PT: f32 = 200.0;
 const HOME_DECODE_CAP_PX: u32 = 256;
-const HOME_CAPTION: &str = "From your library, ranked by what you've been playing.";
+const HOME_CAPTION: &str = "From your library, led by your recent plays.";
 pub const API_BASE: &str = "https://api.music.apple.com";
 const STOREFRONT: &str = "/v1/me/storefront";
 const LIBRARY_ALBUMS: &str = "/v1/me/library/albums?limit=100";

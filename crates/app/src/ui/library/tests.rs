@@ -1198,7 +1198,7 @@ fn typing_a_letter_or_a_prefix_jumps_to_the_first_matching_artist() {
 fn typing_ignores_punctuation_and_spaces_in_the_names_it_matches() {
     let (ctx, mut lib) = (egui::Context::default(), Library::default());
     let mut items = lettered(b'A'..b'Z' + 1);
-    for (at, name) in [(100, "Mled Zeppelin"), (200, "AC/DC")] {
+    for (at, name) in [(100, "Mled Quartet"), (200, "XY/ZW")] {
         let named = Item {
             id: format!("i.{at}"),
             name: Some(name.into()),
@@ -1208,15 +1208,15 @@ fn typing_ignores_punctuation_and_spaces_in_the_names_it_matches() {
     }
     lib.lists[List::Artists as usize].items = items;
     let first = at(&ctx, &mut lib, 0.0, vec![]);
-    assert!(!names(&first).contains(&"Mled Zeppelin"), "{first:?}");
+    assert!(!names(&first).contains(&"Mled Quartet"), "{first:?}");
     for (time, letter) in [(1.0, "m"), (1.1, "l"), (1.2, "e"), (1.3, "d")] {
         at(&ctx, &mut lib, time, vec![text(letter)]);
     }
     let shown = at(&ctx, &mut lib, 1.4, vec![]);
-    assert!(names(&shown).contains(&"Mled Zeppelin"), "{shown:?}");
-    at(&ctx, &mut lib, 5.0, vec![text("acdc")]);
+    assert!(names(&shown).contains(&"Mled Quartet"), "{shown:?}");
+    at(&ctx, &mut lib, 5.0, vec![text("xyzw")]);
     let shown = at(&ctx, &mut lib, 5.1, vec![]);
-    assert!(names(&shown).contains(&"AC/DC"), "{shown:?}");
+    assert!(names(&shown).contains(&"XY/ZW"), "{shown:?}");
 }
 
 #[test]

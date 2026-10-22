@@ -415,7 +415,7 @@ mod search {
     fn item(id: &str, kind: &str) -> Item {
         let art = json!({ "url": format!("{LOCAL}/{id}/{{w}}x{{h}}bb.jpg") });
         let attributes =
-            json!({ "name": format!("{kind} {id}"), "artistName": "Queen", "artwork": art });
+            json!({ "name": format!("{kind} {id}"), "artistName": "Test Artist", "artwork": art });
         serde_json::from_value(json!({ "id": id, "type": kind, "attributes": attributes })).unwrap()
     }
 
@@ -739,7 +739,7 @@ mod search {
     #[test]
     fn the_results_column_keeps_the_full_width_whatever_the_names() {
         let short = list_width("Hi");
-        let long = list_width(&"Bohemian ".repeat(6));
+        let long = list_width(&"Longword ".repeat(6));
         assert_eq!(short, long);
         assert!(short > 450.0, "{short}");
     }
@@ -833,7 +833,10 @@ mod search {
         labels.sort();
         assert_eq!(
             labels,
-            ["Open album albums 2 · Queen", "Play songs 1 · Queen"]
+            [
+                "Open album albums 2 · Test Artist",
+                "Play songs 1 · Test Artist"
+            ]
         );
     }
 }

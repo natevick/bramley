@@ -1596,7 +1596,7 @@ fn the_home_heading_counts_what_is_shown_and_is_absent_without_albums() {
     assert_eq!(covers::home_heading(50), "Top 50 albums");
     assert_eq!(covers::home_heading(12), "Top 12 albums");
     assert_eq!(covers::home_heading(1), "Top 1 album");
-    let caption = "From your library, ranked by what you've been playing.";
+    let caption = "From your library, led by your recent plays.";
     for (count, heading) in [(50, "Top 50 albums"), (12, "Top 12 albums")] {
         let nodes = home_nodes(count, true, 800.0);
         let labels: Vec<_> = nodes.iter().map(|(l, _)| l.as_str()).collect();
