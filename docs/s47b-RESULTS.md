@@ -6,8 +6,8 @@ Commit 98b8d5e, built on the Air from `git archive`. Pre-registration: `docs/s47
 
 | Check | Result | Against the PREREG |
 |---|---|---|
-| Harness can fail (glow control) | 5 window-sized regions, 125.8 MiB normalized | FAILs criteria 1 and 2, as it must |
-| M1 surface, ad-hoc, signed out | 57.9 MiB measured, 73.3 normalized, 2 regions, frames rising, Metal | PASS |
+| Harness can fail (glow control, round 2) | 137.4 MiB, 5 window-sized regions, 848 x 1062 pt | FAILs criteria 1 and 2, as it must |
+| M1 surface, ad-hoc, signed out, round 2 | 73.8, 73.3, 73.8 MiB (median 73.8), 2 regions, frames rising, Metal | PASS |
 | M2 maximized | not attempted (needs Accessibility) | SKIPPED |
 | M3 live resize | not run (needs a human) | NOT RUN |
 | M4 probe | `authorized`, developerBytes 206, userBytes 244 | PASS |
@@ -18,7 +18,7 @@ Report-only idle replicates (signed, same protocol as M1): 96.3, 94.2, 95.3 MiB,
 
 ## Details
 
-- **M1:** the window was 360 x 1062 pt (macOS fills the free tile of Nate's tiled desktop), so the verdict reads the number normalized to 848 x 1062 pt (PREREG amendment). Launches: 58.0, 57.9, 57.9 measured; 73.4, 73.3, 73.2 normalized; `framesPainted` 49 to 56, 49 to 56, 49 to 55; `glRenderer` "Metal Apple M2"; no OpenGL category. S47's C2 read 74 to 78.
+- **M1:** round 1 got a 360 x 1062 pt window (macOS fills the free tile of Nate's tiled desktop), which voids it as first registered; its normalized numbers (73.4, 73.3, 73.2; control 125.8) are report-only. Round 2 got 848 x 1062 and counts: new build 73.8, 73.3, 73.8 MiB measured, `framesPainted` 49 to 55, 49 to 56, 49 to 56, `glRenderer` "Metal Apple M2", no OpenGL category; glow control 137.4 MiB with 5 regions. The round 1 normalization predicted 73.3 and the measurement was 73.3 to 73.8. S47's C2 read 74 to 78.
 - **Signed out:** ad-hoc builds read `banner: true`, no covers, so M1 is the surface plus an empty Home. The budget verdict is the signed idle sample.
 - **M4 playback:** sample 0 (2 s after `play`) was Paused at position 0, so it is void by the PREREG rule. Samples 1 to 8 were Playing with position 14.5 to 119.7 s. Footprint while playing was lower than the idle sample (98.8 against 102.3). Volume settings before and after were identical (`output volume:38, input volume:27, alert volume:33, output muted:false`). No process was left running.
 - **Binary size:** 16,000,048 B unsigned (16,019,120 signed) against 12,387,664 for v0.7.0 glow (S47 A), +3.6 MB. Linux release binary unchanged at 23,622,016 B.
