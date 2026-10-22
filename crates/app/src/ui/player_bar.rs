@@ -89,6 +89,7 @@ fn volume_slider(ui: &mut egui::Ui, percent: &mut u8) -> egui::Response {
         ui.add(slider)
     });
     let shown = *percent;
+    super::keys::mark_slider(ui.ctx(), response.inner.id);
     let response = response.inner.on_hover_text(format!("{shown}%"));
     let enabled = response.enabled();
     response.widget_info(|| WidgetInfo::slider(enabled, f64::from(shown), "Volume"));
@@ -194,6 +195,7 @@ fn controls(
             WidgetType::Slider,
             "Position",
         );
+        super::keys::mark_slider(ui.ctx(), response.id);
         if response.drag_stopped() || (response.changed() && !response.dragged()) {
             actions.push(Action::Seek(position));
         }

@@ -3,6 +3,7 @@ use std::sync::mpsc::channel;
 use egui::{Event, Key, Modifiers, RawInput};
 
 use super::content::search_id;
+use super::keys::BINDINGS;
 use super::nav::{BACK_LIMIT, Edge, Nav, Route, Shell};
 use super::shortcuts;
 use crate::playback::Action;
@@ -196,7 +197,12 @@ fn app(ctx: &egui::Context, signed_out: bool) -> crate::app::App {
     )
 }
 
-fn frame(ctx: &egui::Context, app: &mut crate::app::App, input: RawInput) -> egui::FullOutput {
+fn frame(ctx: &egui::Context, app: &mut crate::app::App, mut input: RawInput) -> egui::FullOutput {
+    eframe::App::raw_input_hook(app, ctx, &mut input);
+    unhooked(ctx, app, input)
+}
+
+fn unhooked(ctx: &egui::Context, app: &mut crate::app::App, input: RawInput) -> egui::FullOutput {
     let mut out = ctx.run_ui(input, |ui| app.draw(ui));
     out.textures_delta.clear();
     out
@@ -1439,4 +1445,102 @@ fn no_route_has_overlapping_controls_at_the_minimum_phone_and_small_desktop_size
             assert_apart(&nodes, size, &format!("{route:?} at {size:?}"));
         }
     }
+}
+
+fn focus_after((k, tabs): (Key, usize), hooked: bool) -> (Option<egui::Id>, Option<egui::Id>) {
+    let ctx = egui::Context::default();
+    let mut app = app(&ctx, true);
+    let focused = || ctx.memory(|m| m.focused());
+    let mut start = None;
+    for _ in 0..tabs {
+        unhooked(&ctx, &mut app, press(Key::Tab, Modifiers::NONE));
+        unhooked(&ctx, &mut app, RawInput::default());
+        start = focused();
+    }
+    let step = if hooked { frame } else { unhooked };
+    step(&ctx, &mut app, press(k, Modifiers::NONE));
+    step(&ctx, &mut app, RawInput::default());
+    (start, focused())
+}
+
+#[test]
+fn tab_and_arrows_never_reach_egui_focus_outside_a_text_field() {
+    let cases = [(Key::Tab, 3), (Key::Escape, 3), (Key::ArrowUp, 4)];
+    let cases = cases.into_iter().chain([
+        (Key::ArrowDown, 4),
+        (Key::ArrowRight, 4),
+        (Key::ArrowLeft, 10),
+    ]);
+    for case in cases {
+        let (start, end) = focus_after(case, false);
+        assert!(
+            start.is_some() && start != end,
+            "{case:?} must move focus unhooked"
+        );
+        let (start, end) = focus_after(case, true);
+        assert_eq!(start, end, "{case:?} moved focus through the hook");
+    }
+}
+
+fn typed_in_search(text: &str) -> (egui::Context, crate::app::App) {
+    let ctx = egui::Context::default();
+    let mut app = app(&ctx, true);
+    frame(&ctx, &mut app, press(Key::L, Modifiers::COMMAND));
+    frame(&ctx, &mut app, RawInput::default());
+    let typed = RawInput {
+        events: vec![Event::Text(text.into())],
+        ..RawInput::default()
+    };
+    frame(&ctx, &mut app, typed);
+    assert!(ctx.text_edit_focused());
+    (ctx, app)
+}
+
+fn caret(ctx: &egui::Context) -> Option<usize> {
+    let state = egui::text_edit::TextEditState::load(ctx, search_id())?;
+    Some(state.cursor.char_range()?.primary.index.into())
+}
+
+#[test]
+fn every_bound_key_typed_into_search_fires_nothing() {
+    let chords = BINDINGS.iter().flat_map(|b| b.keys);
+    for &(k, modifiers) in chords {
+        let (ctx, mut app) = typed_in_search("ab");
+        frame(&ctx, &mut app, press(k, modifiers));
+        let status = app.status_json();
+        assert_eq!(status["route"], "Search", "{k:?}");
+        assert_eq!(status["engineStarted"], false, "{k:?}");
+        let expected = match k {
+            Key::ArrowUp => 0,
+            Key::ArrowLeft => 1,
+            _ => 2,
+        };
+        assert_eq!(caret(&ctx), Some(expected), "{k:?}");
+        assert_eq!(ctx.text_edit_focused(), k != Key::Escape, "{k:?}");
+    }
+}
+
+#[test]
+fn a_focused_slider_or_an_open_popup_keeps_arrows_and_escape_and_taking_is_idempotent() {
+    let ctx = egui::Context::default();
+    let slider = egui::Id::new("slider");
+    super::keys::mark_slider(&ctx, slider);
+    let taken = |ctx: &egui::Context| {
+        let events = [Key::ArrowLeft, Key::Escape, Key::Tab].map(|k| key(k, true, Modifiers::NONE));
+        let mut input = RawInput {
+            events: events.to_vec(),
+            ..RawInput::default()
+        };
+        super::keys::take(ctx, &mut input);
+        let once = input.events.len();
+        super::keys::take(ctx, &mut input);
+        assert_eq!(input.events.len(), once);
+        3 - once
+    };
+    assert_eq!(taken(&ctx), 3);
+    ctx.memory_mut(|m| m.request_focus(slider));
+    assert_eq!(taken(&ctx), 1);
+    ctx.memory_mut(|m| m.surrender_focus(slider));
+    egui::Popup::open_id(&ctx, egui::Id::new("menu"));
+    assert_eq!(taken(&ctx), 1);
 }

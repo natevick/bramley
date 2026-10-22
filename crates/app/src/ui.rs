@@ -1,5 +1,6 @@
 pub mod content;
 pub mod detail;
+pub mod keys;
 pub mod library;
 pub mod nav;
 pub mod player_bar;

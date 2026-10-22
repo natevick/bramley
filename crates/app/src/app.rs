@@ -885,6 +885,10 @@ impl eframe::App for App {
         self.draw(ui);
     }
 
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        ui::keys::take(ctx, raw_input);
+    }
+
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.save_volume();
         self.playback.shutdown();
