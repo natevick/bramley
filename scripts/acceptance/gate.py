@@ -3,6 +3,7 @@ import glob, hashlib, json, math, os, re, statistics, time
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 REFERENCE = {'binary': os.path.join(ROOT, 'target', 'reference', 'bramley-main-4961e27'), 'sha256': '1a72eb4b2880ac5a', 'pss': 88.6}
 R1_BAR, R2_BAR, R3_BAR, R4_BAR, R5_BAR, DRIFT_BAR, BALLAST_OVER, LANDING_BAND = 200.0, 100.0, 10.0, 5.0, 1.0, 5.0, 15.0, 5.0
+FOOTPRINT_BAND = 10.0
 COVERS, ADVANCE_S, MIN_WINDOW_POLLS, RISE_TOLERANCE, REPS = 50, 50.0, 30, 3.0, 5
 F1_MS, F3_MS, F4_MS, F5_MS, F4_PLAYED_S, FULL_SONG_S, R3_TRACKS = 500, 2000, 3000, 500, 35.0, 300.0, 8
 REFERENCE_RUNS = ('reference', 'reference-after')
@@ -728,8 +729,15 @@ def ballast(out, build):
     flagged = build.get('ballastFeaturesExit') == 1 and 'app/gate-sabotage' in (build.get('ballastFeaturesOutput') or '')
     rose = rise is not None and expected is not None and abs(rise - expected) <= RISE_TOLERANCE
     intact = threshold_only and flagged and rose and one_launch and pre_valid and touched
-    miss = f'ballast control landed at {b["uss"]:.1f} MiB, outside {R1_BAR + BALLAST_OVER:g} \u00b1 {LANDING_BAND:g}' if intact and not landed else None
-    return dict(b, ballastMiB=ev.get('ballastMiB'), keptAddedMiB=round(added, 2), ussRise=rise, holds=intact and landed, bandMiss=miss,
+    shipped_rss = memory_check(out, 'shipped', 'r1', sink).get('rss')
+    off_band = intact and not landed
+    footprint = round(b['rss'] - rise, 1) if off_band and shipped_rss is not None else None
+    shared = footprint is not None and abs(footprint - shipped_rss) <= FOOTPRINT_BAND
+    miss = (f'ballast control landed at {b["uss"]:.1f} MiB, outside {R1_BAR + BALLAST_OVER:g} \u00b1 {LANDING_BAND:g} '
+            f'(pre-ballast USS {pre_uss:.1f}, RSS-USS {b["rss"] - b["uss"]:.1f})') if off_band and shared else None
+    footprint_miss = None if not off_band or shared else (f'ballast launch footprint {footprint} MiB RSS vs shipped {shipped_rss} (>{FOOTPRINT_BAND:g})'
+                                                          if footprint is not None else 'ballast launch footprint unchecked: no shipped R1 RSS')
+    return dict(b, ballastMiB=ev.get('ballastMiB'), keptAddedMiB=round(added, 2), ussRise=rise, holds=intact and landed, bandMiss=miss, footprintMiss=footprint_miss,
                 oneLaunch=one_launch, preWindowValid=pre_valid, touched=touched,
                 thresholdOnly=threshold_only, landedWithinBand=landed, failsShippedCheck=flagged, ussRoseByBallast=rose)
 
