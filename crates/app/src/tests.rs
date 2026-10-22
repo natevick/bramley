@@ -2795,7 +2795,11 @@ fn a_token_post_in_flight_across_sign_out_is_refused_and_never_stored() {
         "POST {home}token HTTP/1.1\r\nHost: {addr}\r\n{MARKED}Content-Length: 10\r\n\r\n"
     )
     .unwrap();
-    std::thread::sleep(Duration::from_millis(100));
+    let until = Instant::now() + Duration::from_secs(10);
+    while !app.sign_in_accepted() && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(app.sign_in_accepted(), "the sign-in server never accepted");
     let out = ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignOut);
     stream.write_all(b"late-token").unwrap();
     let mut reply = String::new();
@@ -3109,29 +3113,28 @@ fn the_app_retries_a_failed_home_chart_only_while_home_is_the_route() {
     let (source, config) = fixture_source(&fx, true);
     let ctx = egui::Context::default();
     let spawn = spawning(|| Err(anyhow!("no player in this test")));
-    let user = (mock_user(&config), false);
+    let user = (source.user.clone(), false);
     let inbox = channel().1;
     let args = crate::Args::default();
     let mut app = crate::app::App::new(&ctx, args, spawn, user, (inbox, true), Some(source));
     app.go(Route::Search);
-    let ticked = |app: &mut crate::app::App, for_ms: u64| {
-        let until = Instant::now() + Duration::from_millis(for_ms);
-        while Instant::now() < until {
-            app.tick(&ctx);
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        charts(&fx)
-    };
-    let on_search = ticked(&mut app, 6500);
-    app.go(Route::Home);
-    let until = Instant::now() + Duration::from_millis(5000);
-    while Instant::now() < until && charts(&fx) < 2 {
+    let failed = |app: &crate::app::App| app.status_json()["coversFailed"].as_u64();
+    let until = Instant::now() + Duration::from_secs(20);
+    while failed(&app) != Some(50) && Instant::now() < until {
         app.tick(&ctx);
-        std::thread::sleep(Duration::from_millis(20));
+        std::thread::sleep(Duration::from_millis(10));
     }
-    let on_home = ticked(&mut app, 500);
+    let backoff_over = Instant::now() + Duration::from_secs(10);
+    app.tick_at(&ctx, backoff_over);
+    let on_search = (failed(&app), charts(&fx));
+    app.go(Route::Home);
+    let until = Instant::now() + Duration::from_secs(10);
+    while charts(&fx) < 2 && Instant::now() < until {
+        app.tick_at(&ctx, backoff_over);
+        std::thread::sleep(Duration::from_millis(10));
+    }
     std::fs::remove_dir_all(&config).unwrap();
-    assert_eq!((on_search, on_home), (1, 2));
+    assert_eq!((on_search, charts(&fx)), ((Some(50), 1), 2));
 }
 
 #[test]
@@ -4063,17 +4066,17 @@ mod disk_cache {
         let base = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
         let (open, peak) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
-        let (library, overlapped) = (
-            Arc::new(AtomicBool::new(false)),
+        let (kinds, overlapped) = (
+            Arc::new([AtomicUsize::new(0), AtomicUsize::new(0)]),
             Arc::new(AtomicBool::new(false)),
         );
         let (seen, gauge) = (
             requests.clone(),
-            (open, peak.clone(), library, overlapped.clone()),
+            (open, peak.clone(), kinds, overlapped.clone()),
         );
         std::thread::spawn(move || {
             for stream in listener.incoming() {
-                let (seen, (open, peak, library, overlapped)) = (seen.clone(), gauge.clone());
+                let (seen, (open, peak, kinds, overlapped)) = (seen.clone(), gauge.clone());
                 std::thread::spawn(move || {
                     let mut stream = stream.unwrap();
                     let mut reader = BufReader::new(stream.try_clone().unwrap());
@@ -4084,20 +4087,23 @@ mod disk_cache {
                         line.clear();
                     }
                     seen.lock().unwrap().push((path.clone(), None, None));
-                    peak.fetch_max(open.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
                     let history = path.contains("music-summaries")
                         || path.contains("/history/")
                         || path.contains("/recent/")
                         || path.contains("recently-added");
-                    if path.starts_with("/v1/me/library/albums?") {
-                        library.store(true, Ordering::SeqCst);
+                    let library = path.starts_with("/v1/me/library/albums?");
+                    let kind = library.then_some(0).or(history.then_some(1));
+                    if let Some(kind) = kind {
+                        peak.fetch_max(open.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+                        kinds[kind].fetch_add(1, Ordering::SeqCst);
+                        let until = Instant::now() + Duration::from_secs(2);
+                        let met = || kinds[1 - kind].load(Ordering::SeqCst) > 0;
+                        while !met() && !overlapped.load(Ordering::SeqCst) && Instant::now() < until
+                        {
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        overlapped.fetch_or(met(), Ordering::SeqCst);
                     }
-                    let until = Instant::now() + Duration::from_secs(2);
-                    while history && !library.load(Ordering::SeqCst) && Instant::now() < until {
-                        std::thread::sleep(Duration::from_millis(5));
-                    }
-                    overlapped
-                        .fetch_or(history && library.load(Ordering::SeqCst), Ordering::SeqCst);
                     let body = match path.as_str() {
                         "/v1/me/storefront" => r#"{"data":[{"id":"zz"}]}"#,
                         _ => r#"{"data":[]}"#,
@@ -4107,7 +4113,10 @@ mod disk_cache {
                         body.len()
                     );
                     let _ = stream.write_all(head.as_bytes());
-                    open.fetch_sub(1, Ordering::SeqCst);
+                    if let Some(kind) = kind {
+                        kinds[kind].fetch_sub(1, Ordering::SeqCst);
+                        open.fetch_sub(1, Ordering::SeqCst);
+                    }
                 });
             }
         });
@@ -4120,7 +4129,7 @@ mod disk_cache {
         std::fs::remove_dir_all(&config).unwrap();
         assert!(
             overlapped.load(Ordering::SeqCst),
-            "the library page waited for the history"
+            "the history and library requests never overlapped"
         );
         assert!(peak.load(Ordering::SeqCst) > 1);
     }
