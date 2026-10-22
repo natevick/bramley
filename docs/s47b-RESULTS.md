@@ -29,3 +29,20 @@ Report-only idle replicates (signed, same protocol as M1): 96.3, 94.2, 95.3 MiB,
 - **Live resize (M3):** drag the corner and the left edge of `~/bramley-spike/s47b/new/Bramley.app` against `~/bramley-spike/s47/C/Bramley.app` (with the jitter fix), slowly then fast, looking for the four signs in the PREREG.
 - **Maximized window (M2):** zoom the window and read the IOSurface count. Expected 2 regions; the size is extrapolated, not measured.
 - **The 2.3 MiB miss:** accept the median, or find what the counted run carried that the replicates did not.
+
+## Round 2 (commit 215011f: portal detect off the startup path, `Backend::File` gated)
+
+Registered under the 13:35 PREREG amendment, before measuring.
+
+| Check | Result |
+|---|---|
+| M4-idle, Developer ID, Home with 50 covers, 848 x 1062 pt, 45 s, one registered sample | **96.3 MiB**, 2 regions. PASS (bar 100) |
+| M1 again, ad-hoc | no counted set: 10 launches all opened at 1700 x 1062 (the desktop changed), report-only normalized 78.2 to 79.4 |
+| Signed replicates | not taken (off-size) |
+
+- Round 1's 102.3 MiB stays recorded as the first registered sample of the first build. Round 2 is a different build (a 3 to 4 s startup stall removed, no change to what the window or covers hold), so both numbers stand and the bar was not moved.
+- Void launches before the counted one were voided for window size only: 562, 1199 and 891 pt wide, and a 1710 x 1073 full-screen window (138.1 MiB, which matches the budget's 5K extrapolation of about 2 x 59 MB of surface).
+- `decodedBytesKept` reads 0 in the idle sample. It is a `gate-sabotage` accounting field (50 x 200 x 200 x 4 = 8,000,000 B only in that build); the shipped build keeps no decoded pixels, and `fifty_covers_become_textures_and_nothing_decoded_stays_once_a_frame_ends` already asserts it.
+- Mac clippy `-D warnings` is clean and `cargo test -p bramley --bin bramley` passes (310) on the Air.
+- Signed binary 16,035,568 B.
+

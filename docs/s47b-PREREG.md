@@ -87,4 +87,8 @@ Restore, always (trap): pause, quit the app by pid, restore the saved output vol
   - **One registered sample.** The first launch whose window is 848 x 1062 and whose harness completes is the counted sample and is reported first. A launch with another window size or a harness abort is void and redone; a launch that completes and misses the bar is NOT redone. Replicates (3 more signed idle launches with `tools/measure.sh`) are report-only.
   - **M1 again:** 3 ad-hoc launches of the same build, the original M1 rules and bar (median at most 100 MiB and at most 2 regions, frames rising, Metal), 848 x 1062 only. The glow control is not repeated; the harness and its control are unchanged.
   - `decodedBytesKept` is read from `bramley now` in the idle sample. The shipped build reports 0 by construction (it is a `gate-sabotage` accounting field), so this is a did-it-run check, not a memory claim.
+- 2026-10-22 13:50, round 2 outcome notes, written after the data. Nate's desktop changed during the run (Xcode and 1Password windows opened), so macOS stopped giving 848 pt windows.
+  - Counted M4 sample: the third launch of the driver was the first at 848 x 1062. Launches before it were void for window size (562, 1199, 891 and a 1710 x 1073 full-screen window), each recorded; none was voided for its footprint. The one-sample rule held: the 848 launch was not repeated.
+  - M1 again: 10 ad-hoc launches all opened at 1700 x 1062, so no counted M1 set exists at 848. The three that were summarized are report-only with the round 1 normalization.
+  - The report-only signed replicates were not taken: they would also have been off-size.
 

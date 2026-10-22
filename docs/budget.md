@@ -51,3 +51,5 @@ The jitter fix exists to keep live resizing smooth. Dropping it is the cost of t
 
 Measured (S47b, `docs/s47b-RESULTS.md`, Developer ID build, default 848 x 1062 pt window, Home with 50 covers, idle): the counted sample read **102.3 MiB** with 2 window-sized buffers, 2.3 MiB over the bar. Three report-only replicates read 96.3, 94.2 and 95.3 (median 95.3). Two minutes of muted playback read 98.7 to 98.8, flat. The bar is not met on the pre-registered sample; Nate decides whether the replicates are the number.
 
+Round 2 (S47b, commit 215011f, one registered sample under the same bar): **96.3 MiB**, 2 window-sized buffers, 848 x 1062 pt, Developer ID, Home with 50 covers. The bar is met. Round 1's 102.3 on the earlier build stays on record; the median of the round 1 replicates was 95.3.
+
