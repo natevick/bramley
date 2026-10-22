@@ -16,6 +16,24 @@ pub enum Intent {
     Cursor,
     Dismiss,
     Activate,
+    Back,
+}
+
+#[derive(Clone, Copy)]
+pub enum Platforms {
+    All,
+    NotMac,
+    Mac,
+}
+
+impl Platforms {
+    pub fn here(self) -> bool {
+        match self {
+            Self::All => true,
+            Self::NotMac => !cfg!(target_os = "macos"),
+            Self::Mac => cfg!(target_os = "macos"),
+        }
+    }
 }
 
 #[expect(dead_code)]
@@ -24,7 +42,7 @@ pub struct Binding {
     pub gate: Gate,
     pub intent: Intent,
     pub help: &'static str,
-    pub on_macos: bool,
+    pub platforms: Platforms,
 }
 
 const CURSOR_KEYS: [(Key, Modifiers); 8] = [
@@ -44,28 +62,49 @@ pub const BINDINGS: &[Binding] = &[
         gate: Gate::Always,
         intent: Intent::Region,
         help: "Next or previous region",
-        on_macos: true,
+        platforms: Platforms::All,
     },
     Binding {
         keys: &CURSOR_KEYS,
         gate: Gate::WhenIdle,
         intent: Intent::Cursor,
         help: "Move the cursor",
-        on_macos: true,
+        platforms: Platforms::All,
     },
     Binding {
         keys: &[(Key::Escape, Modifiers::NONE)],
         gate: Gate::WhenIdle,
         intent: Intent::Dismiss,
         help: "Leave, close or go back",
-        on_macos: true,
+        platforms: Platforms::All,
     },
     Binding {
         keys: &[(Key::Enter, Modifiers::NONE)],
         gate: Gate::Repeat,
         intent: Intent::Activate,
         help: "Activate",
-        on_macos: true,
+        platforms: Platforms::All,
+    },
+    Binding {
+        keys: &[(Key::Backspace, Modifiers::NONE)],
+        gate: Gate::WhenIdle,
+        intent: Intent::Back,
+        help: "Back",
+        platforms: Platforms::All,
+    },
+    Binding {
+        keys: &[(Key::ArrowLeft, Modifiers::ALT)],
+        gate: Gate::WhenIdle,
+        intent: Intent::Back,
+        help: "Back",
+        platforms: Platforms::NotMac,
+    },
+    Binding {
+        keys: &[(Key::OpenBracket, Modifiers::COMMAND)],
+        gate: Gate::WhenIdle,
+        intent: Intent::Back,
+        help: "Back",
+        platforms: Platforms::Mac,
     },
 ];
 
@@ -104,23 +143,35 @@ fn takes(binding: &Binding, event: &Event, idle: bool) -> bool {
         Gate::WhenIdle => idle,
         Gate::Repeat => *repeat,
     };
-    open && (binding.on_macos || !cfg!(target_os = "macos"))
+    open && binding.platforms.here()
         && binding
             .keys
             .iter()
             .any(|&(k, m)| k == *key && modifiers.matches_exact(m))
 }
 
+fn step(binding: &Binding, key: Key, modifiers: Modifiers) -> Option<Step> {
+    match binding.intent {
+        Intent::Region if modifiers.shift => Some(Step::Prev),
+        Intent::Region => Some(Step::Next),
+        Intent::Cursor => Step::of(key),
+        Intent::Dismiss => Some(Step::Escape),
+        Intent::Back => Some(Step::Back),
+        Intent::Activate => None,
+    }
+}
+
 pub fn take(ctx: &Context, input: &mut RawInput) {
     let idle = idle(ctx);
     input.events.retain(|event| {
-        let taken = BINDINGS.iter().any(|b| takes(b, event, idle));
-        if let (true, Event::Key { key, .. }) = (taken, event) {
-            log::debug!("took {key:?}");
-            if let Some(step) = Step::of(*key) {
-                cursor::push(ctx, step);
-            }
-        }
-        !taken
+        let Event::Key { key, modifiers, .. } = event else {
+            return true;
+        };
+        let Some(binding) = BINDINGS.iter().find(|b| takes(b, event, idle)) else {
+            return true;
+        };
+        log::debug!("took {key:?}");
+        cursor::push_all(ctx, step(binding, *key, *modifiers));
+        false
     });
 }

@@ -9,7 +9,7 @@ use bramley_engine::{Queue, STOREFRONT_BACKOFF, Snapshot};
 use egui::{ColorImage, RichText, TextureHandle, WidgetType};
 use serde_json::{Value, json};
 
-use super::cursor;
+use super::cursor::{self, Region};
 use super::labeled;
 use super::nav::{Edge, Nav, Route};
 use crate::covers::{self, Tally, allowed_art, art_url};
@@ -828,7 +828,7 @@ fn view(
     };
     let loaded = lib.list(list).items.len();
     let id = egui::Id::new(("rows", list as usize));
-    let cursor = cursor::drive(ui.ctx(), id, (loaded, columns), |_| true);
+    let cursor = cursor::drive(ui.ctx(), id, Region::Content, (loaded, columns), |_| true);
     let mut area = egui::ScrollArea::vertical()
         .id_salt(list as usize)
         .max_height(max_height)

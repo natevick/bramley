@@ -16,6 +16,7 @@ use crate::covers::{self, Grid, Source};
 use crate::credentials::Credentials;
 use crate::playback::{Action, Banner, Playback, Spawn, play_or_pause};
 use crate::theme::{self, Palette, Theme};
+use crate::ui::cursor::Step;
 use crate::ui::detail::Detail;
 use crate::ui::library::Library;
 use crate::ui::nav::{Nav, Shell};
@@ -269,6 +270,16 @@ impl App {
     #[cfg(test)]
     pub(crate) fn go(&mut self, route: ui::nav::Route) {
         self.shell.apply(Nav::Go(route));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn nav(&mut self, nav: Nav) {
+        self.shell.apply(nav);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show_agent_notice(&mut self) {
+        self.agent_notice = true;
     }
 
     pub fn status_json(&self) -> Value {
@@ -712,6 +723,12 @@ impl App {
         ctx.request_repaint_after(REPAINT_EVERY);
     }
 
+    fn overlay_nav(&self, docked: bool, compact: bool) -> Option<Nav> {
+        (self.shell.queue_open && !docked)
+            .then_some(Nav::ToggleQueue)
+            .or((compact && self.shell.drawer_open).then_some(Nav::ToggleDrawer))
+    }
+
     pub fn draw(&mut self, ui: &mut egui::Ui) {
         self.frames += 1;
         let (shown, started) = (self.playback.shown(), self.playback.started());
@@ -719,6 +736,10 @@ impl App {
         let toggle = started.then(|| play_or_pause(shown.state));
         ui::shortcuts(ui.ctx(), toggle, &mut self.actions, &mut self.navs);
         let compact = ui.available_width() < ui::COMPACT_PT;
+        for step in ui::cursor::drain(ui.ctx(), &[Step::Next, Step::Prev]) {
+            let regions = (!compact, self.shell.queue_open);
+            ui::cursor::cycle(ui.ctx(), step == Step::Prev, regions);
+        }
         let palette = Palette::of(ui.ctx());
         egui::Panel::bottom("now-playing").show(ui, |ui| {
             ui.add_space(8.0);
@@ -796,6 +817,12 @@ impl App {
             }
         }
         self.library.art.flush(ui.ctx());
+        for step in ui::cursor::drain(ui.ctx(), &[Step::Escape, Step::Back]) {
+            let overlay = (step == Step::Escape)
+                .then(|| self.overlay_nav(docked, compact))
+                .flatten();
+            self.navs.push(overlay.unwrap_or(Nav::Back));
+        }
         ui::cursor::settle(ui.ctx());
         if sign_out {
             self.sign_out();

@@ -26,7 +26,9 @@ fn glyph(ui: &mut egui::Ui, text: &str, size: f32, label: &str) -> bool {
 }
 
 fn queue_button(ui: &mut egui::Ui, open: bool, navs: &mut Vec<Nav>) {
-    if ui.selectable_label(open, "Queue").clicked() {
+    let response = ui.selectable_label(open, "Queue");
+    super::cursor::entry(ui, super::cursor::Region::Player, &response);
+    if response.clicked() {
         navs.push(Nav::ToggleQueue);
     }
 }

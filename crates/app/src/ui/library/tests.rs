@@ -1550,7 +1550,7 @@ fn a_letter_the_thin_strip_hides_still_jumps_through_its_neighbour_and_by_typing
     assert_eq!(lib.typed.0, "a", "every letter still types");
 }
 
-fn cursor_key(ctx: &egui::Context, lib: &mut Library, key: egui::Key) -> Landed {
+fn cursor_key(ctx: &egui::Context, lib: &mut Library, (route, key): (&Route, egui::Key)) -> Landed {
     let mut landed = Landed::default();
     for pressed in [true, false] {
         let mut input = RawInput::default();
@@ -1560,8 +1560,7 @@ fn cursor_key(ctx: &egui::Context, lib: &mut Library, key: egui::Key) -> Landed 
         input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 300.0)));
         let (mut actions, mut navs) = (Vec::new(), Vec::new());
         let mut out = ctx.run_ui(input, |ui| {
-            let route = (&Route::Songs, &mut None);
-            show(ui, lib, route, (&mut actions, &mut navs))
+            show(ui, lib, (route, &mut None), (&mut actions, &mut navs))
         });
         out.textures_delta.clear();
         lib.art.flush(ctx);
@@ -1592,7 +1591,7 @@ fn thirty_downs_build_focus_and_announce_row_thirty() {
     ctx.enable_accesskit();
     let mut landed = Landed::default();
     for _ in 0..30 {
-        landed = cursor_key(&ctx, &mut lib, egui::Key::ArrowDown);
+        landed = cursor_key(&ctx, &mut lib, (&Route::Songs, egui::Key::ArrowDown));
     }
     assert_eq!(landed.focus, played(29));
 }
@@ -1601,7 +1600,7 @@ fn thirty_downs_build_focus_and_announce_row_thirty() {
 fn home_end_and_page_keys_move_by_list_and_viewport() {
     let (ctx, mut lib) = songs(0..100);
     ctx.enable_accesskit();
-    let mut at = |key| cursor_key(&ctx, &mut lib, key);
+    let mut at = |key| cursor_key(&ctx, &mut lib, (&Route::Songs, key));
     assert_eq!(at(egui::Key::End).focus, played(99));
     let top = at(egui::Key::Home);
     assert_eq!(top.focus, played(0));
@@ -1622,7 +1621,10 @@ fn moving_focus_never_emits_an_action() {
         egui::Key::PageUp,
         egui::Key::Home,
     ];
-    assert!(keys.iter().all(|k| !cursor_key(&ctx, &mut lib, *k).emitted));
+    assert!(
+        keys.iter()
+            .all(|k| !cursor_key(&ctx, &mut lib, (&Route::Songs, *k)).emitted)
+    );
 }
 
 #[test]
@@ -1641,4 +1643,20 @@ fn enter_on_albums_plays_the_focused_album_and_a_repeated_enter_plays_nothing() 
     assert_eq!(press(egui::Key::Enter, true), (vec![], vec![]));
     let played = Action::PlayIn(Queue::Album("i.0".into()), 0);
     assert_eq!(press(egui::Key::Enter, false), (vec![played], vec![]));
+}
+
+#[test]
+fn tab_reaches_the_artist_songs_list_and_down_then_moves_it() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    ctx.enable_accesskit();
+    let route = Route::Artist("i.0".into());
+    frame(&ctx, &mut lib, &route, 600.0, vec![]);
+    lib.lists[List::ArtistAlbums as usize].items = (100..110).map(item).collect();
+    lib.lists[List::ArtistSongs as usize].items = (0..60).map(item).collect();
+    let down = (&route, egui::Key::ArrowDown);
+    let albums = cursor_key(&ctx, &mut lib, down).focus.unwrap();
+    assert!(albums.starts_with("Play album Secret Song 100"), "{albums}");
+    crate::ui::cursor::cycle(&ctx, false, (false, false));
+    let songs = cursor_key(&ctx, &mut lib, down).focus;
+    assert_eq!(songs, played(0));
 }

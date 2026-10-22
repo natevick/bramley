@@ -15,6 +15,7 @@ use bramley_engine::{STOREFRONT_BACKOFF, STOREFRONT_DEADLINE, redact, user_agent
 use egui::{ColorImage, TextureHandle, TextureOptions};
 use serde_json::Value;
 
+use crate::ui::cursor::{self, Region};
 use crate::ui::nav::{Nav, Route};
 
 pub const COVER_PT: f32 = 96.0;
@@ -1054,8 +1055,13 @@ impl Grid {
             ui.spacing_mut().item_spacing = egui::vec2(HOME_GAP_PT, HOME_GAP_PT);
             let size = egui::vec2(layout.cell, layout.cell);
             let shape = (layout.shown, layout.columns);
-            let cursor =
-                crate::ui::cursor::drive(ui.ctx(), egui::Id::new("home-grid"), shape, |_| true);
+            let cursor = cursor::drive(
+                ui.ctx(),
+                egui::Id::new("home-grid"),
+                Region::Content,
+                shape,
+                |_| true,
+            );
             cursor.seen(&(0..(ui.clip_rect().height() / (layout.cell + HOME_GAP_PT)) as usize));
             let shown: Vec<_> = self
                 .textures

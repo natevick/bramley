@@ -6,7 +6,7 @@ use bramley_engine::Queue;
 use egui::{RichText, WidgetType};
 use serde_json::{Value, json};
 
-use super::cursor;
+use super::cursor::{self, Region};
 use super::labeled;
 use super::nav::Route;
 use super::player_bar::clock;
@@ -316,9 +316,13 @@ pub fn show(ui: &mut egui::Ui, detail: &mut Detail, actions: &mut Vec<Action>) {
     }
     ui.add_space(8.0);
     let rows = model.tracks.len();
-    let cursor = cursor::drive(ui.ctx(), egui::Id::new("detail-rows"), (rows, 1), |i| {
-        model.at[i].is_some()
-    });
+    let cursor = cursor::drive(
+        ui.ctx(),
+        egui::Id::new("detail-rows"),
+        Region::Content,
+        (rows, 1),
+        |i| model.at[i].is_some(),
+    );
     let row_pt = ROW_PT + ui.spacing().item_spacing.y;
     let area = cursor.scroll(egui::ScrollArea::vertical(), row_pt);
     area.show_rows(ui, ROW_PT, rows, |ui, range| {

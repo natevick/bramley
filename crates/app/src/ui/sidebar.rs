@@ -1,6 +1,7 @@
 use egui::collapsing_header::paint_default_icon;
 use egui::{RichText, Sense, WidgetType, vec2};
 
+use super::cursor::{self, Region};
 use super::labeled;
 use super::library::Library;
 use super::nav::{Nav, Route};
@@ -12,6 +13,9 @@ fn entry(ui: &mut egui::Ui, current: &Route, route: Route, navs: &mut Vec<Nav>) 
     let size = [ui.available_width(), ENTRY_PT];
     let item = egui::Button::selectable(*current == route, route.title());
     let response = ui.add_sized(size, item);
+    if *current == route {
+        cursor::entry(ui, Region::Sidebar, &response);
+    }
     if response.clicked() {
         navs.push(Nav::Go(route));
     }

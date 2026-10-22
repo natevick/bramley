@@ -3,7 +3,7 @@ use std::sync::mpsc::channel;
 use egui::{Event, Key, Modifiers, RawInput};
 
 use super::content::search_id;
-use super::keys::BINDINGS;
+use super::keys::{BINDINGS, Intent};
 use super::nav::{BACK_LIMIT, Edge, Nav, Route, Shell};
 use super::shortcuts;
 use crate::playback::Action;
@@ -196,8 +196,12 @@ fn command_l_focuses_search_even_while_typing() {
 
 fn app(ctx: &egui::Context, signed_out: bool) -> crate::app::App {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/no-config");
+    app_in(ctx, signed_out, &dir)
+}
+
+fn app_in(ctx: &egui::Context, signed_out: bool, dir: &std::path::Path) -> crate::app::App {
     let spawn = crate::tests::spawning(|| unreachable!("no player may start in these tests"));
-    let user = (crate::tests::mock_user(&dir), signed_out);
+    let user = (crate::tests::mock_user(dir), signed_out);
     crate::app::App::new(
         ctx,
         crate::Args::default(),
@@ -1476,7 +1480,7 @@ fn focus_after((k, tabs): (Key, usize), hooked: bool) -> (Option<egui::Id>, Opti
 
 #[test]
 fn tab_and_arrows_never_reach_egui_focus_outside_a_text_field() {
-    let cases = [(Key::Tab, 3), (Key::Escape, 3), (Key::ArrowUp, 4)];
+    let cases = [(Key::Escape, 3), (Key::ArrowUp, 4)];
     let cases = cases.into_iter().chain([
         (Key::ArrowDown, 4),
         (Key::ArrowRight, 4),
@@ -1523,13 +1527,14 @@ fn every_bound_key_typed_into_search_fires_nothing() {
         assert_eq!(status["engineStarted"], false, "{k:?}");
         let expected = match k {
             Key::ArrowUp | Key::Home => 0,
-            Key::ArrowLeft => 1,
+            Key::ArrowLeft if modifiers.alt => 0,
+            Key::ArrowLeft | Key::Backspace => 1,
             _ => 2,
         };
         assert_eq!(caret(&ctx), Some(expected), "{k:?}");
         assert_eq!(
             ctx.text_edit_focused(),
-            !matches!(k, Key::Escape | Key::Enter),
+            !matches!(k, Key::Escape | Key::Enter | Key::Tab),
             "{k:?}"
         );
     }
@@ -1573,6 +1578,7 @@ fn down_arrows_focus_queue_rows_and_play_nothing() {
         })
         .collect();
     shown.queue_length = 40;
+    super::cursor::cycle(&ctx, false, (false, true));
     let (mut actions, mut navs) = (Vec::new(), Vec::new());
     let mut label = None;
     for n in 0..16 {
@@ -1590,4 +1596,120 @@ fn down_arrows_focus_queue_rows_and_play_nothing() {
     }
     assert_eq!(label.as_deref(), Some("Play Row 7"));
     assert!(actions.is_empty() && navs.is_empty());
+}
+
+fn narrow(events: Vec<Event>) -> RawInput {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(500.0, 700.0));
+    RawInput {
+        screen_rect: Some(screen),
+        events,
+        ..RawInput::default()
+    }
+}
+
+fn focus_after_tabs(
+    app: &mut crate::app::App,
+    ctx: &egui::Context,
+    tabs: usize,
+) -> Vec<Option<String>> {
+    let mut seen = Vec::new();
+    for _ in 0..tabs {
+        frame(ctx, app, press(Key::Tab, Modifiers::NONE));
+        let out = frame(ctx, app, RawInput::default());
+        let tree = out.platform_output.accesskit_update.expect("a tree");
+        seen.push(focus_label(&tree));
+    }
+    seen
+}
+
+#[test]
+fn tab_cycles_regions_skipping_a_closed_queue() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut app = app(&ctx, true);
+    frame(&ctx, &mut app, RawInput::default());
+    let closed = focus_after_tabs(&mut app, &ctx, 4);
+    assert_eq!(
+        closed,
+        [
+            Some("Queue".into()),
+            Some("Home".into()),
+            None,
+            Some("Queue".into())
+        ]
+    );
+    app.nav(Nav::ToggleQueue);
+    let open = focus_after_tabs(&mut app, &ctx, 4);
+    assert_eq!(
+        open,
+        [Some("Home".into()), None, None, Some("Queue".into())]
+    );
+}
+
+#[test]
+fn esc_unwinds_field_help_overlay_then_back() {
+    let ctx = egui::Context::default();
+    let mut app = app(&ctx, true);
+    app.nav(Nav::FocusSearch);
+    app.nav(Nav::ToggleQueue);
+    frame(&ctx, &mut app, narrow(vec![]));
+    frame(&ctx, &mut app, narrow(vec![]));
+    assert!(ctx.text_edit_focused());
+    let mut esc = || {
+        frame(
+            &ctx,
+            &mut app,
+            narrow(vec![key(Key::Escape, true, Modifiers::NONE)]),
+        );
+        let status = app.status_json();
+        (
+            ctx.text_edit_focused(),
+            status["queueOpen"].as_bool(),
+            status["route"].clone(),
+        )
+    };
+    assert_eq!(esc(), (false, Some(true), "Search".into()));
+    assert_eq!(esc(), (false, Some(false), "Search".into()));
+    assert_eq!(esc(), (false, Some(false), "Home".into()));
+}
+
+#[test]
+fn every_back_key_pops_but_backspace_types_in_search() {
+    let backs = BINDINGS
+        .iter()
+        .filter(|b| matches!(b.intent, Intent::Back) && b.platforms.here());
+    for &(k, modifiers) in backs.flat_map(|b| b.keys) {
+        let ctx = egui::Context::default();
+        let mut app = app(&ctx, true);
+        app.go(super::nav::Route::Songs);
+        frame(&ctx, &mut app, press(k, modifiers));
+        assert_eq!(app.status_json()["route"], "Home", "{k:?}");
+    }
+    let (ctx, mut app) = typed_in_search("ab");
+    frame(&ctx, &mut app, press(Key::Backspace, Modifiers::NONE));
+    assert_eq!(
+        (app.status_json()["route"].clone(), caret(&ctx)),
+        ("Search".into(), Some(1))
+    );
+}
+
+#[test]
+fn enter_in_content_never_dismisses_the_agent_notice() {
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/notice-fresh");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let ctx = egui::Context::default();
+    let mut app = app_in(&ctx, true, &dir);
+    app.show_agent_notice();
+    for k in [Key::Tab, Key::Tab, Key::Tab, Key::Enter, Key::Enter] {
+        frame(&ctx, &mut app, press(k, Modifiers::NONE));
+        frame(&ctx, &mut app, RawInput::default());
+    }
+    let written = dir.join(crate::mcp::DISCLOSED).exists();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        (app.status_json()["agentNotice"].clone(), written),
+        (true.into(), false)
+    );
 }
