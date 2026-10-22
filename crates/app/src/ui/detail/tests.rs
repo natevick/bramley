@@ -300,3 +300,81 @@ fn a_narrow_header_stacks_the_cover_above_the_title_and_wraps_the_buttons_inside
         );
     }
 }
+
+fn after_downs(songs: &[(&str, &str)], downs: usize) -> (Option<String>, Vec<Action>) {
+    let (ctx, mut d, t0) = (egui::Context::default(), Detail::new(None), Instant::now());
+    ctx.enable_accesskit();
+    tick(&mut d, t0, true, &Route::Album("1".into()));
+    answer(&mut d, &ctx, Ok(Reply::Detail(found(page(songs, None)))));
+    let (mut actions, mut label) = (Vec::new(), None);
+    for n in 0..downs * 2 {
+        let input = match n % 2 {
+            0 => crate::ui::tests::hooked(&ctx, egui::Key::ArrowDown),
+            _ => egui::RawInput::default(),
+        };
+        let mut out = ctx.run_ui(input, |ui| super::show(ui, &mut d, &mut actions));
+        out.textures_delta.clear();
+        crate::ui::cursor::settle(&ctx);
+        let tree = out.platform_output.accesskit_update.expect("a tree");
+        label = crate::ui::tests::focus_label(&tree);
+    }
+    (label, actions)
+}
+
+#[test]
+fn down_arrows_focus_track_rows_and_play_nothing() {
+    let ids: Vec<String> = (0..40).map(|n| format!("s{n}")).collect();
+    let songs: Vec<(&str, &str)> = ids.iter().map(|id| (id.as_str(), "songs")).collect();
+    let (label, actions) = after_downs(&songs, 8);
+    assert_eq!(label.as_deref(), Some("Play songs s7"));
+    assert!(actions.is_empty());
+}
+
+#[test]
+fn the_cursor_skips_disabled_rows_so_focus_always_lands_on_a_playable_one() {
+    let songs = [
+        ("u0", "songs"),
+        ("s", "songs"),
+        ("u1", "songs"),
+        ("a", "songs"),
+    ];
+    for (downs, want) in [
+        (1, "Play songs s"),
+        (2, "Play songs a"),
+        (3, "Play songs a"),
+    ] {
+        assert_eq!(after_downs(&songs, downs).0.as_deref(), Some(want));
+    }
+}
+
+#[test]
+fn a_second_album_walks_from_its_own_first_row_not_the_first_ones_place() {
+    let (ctx, mut d, t0) = (egui::Context::default(), Detail::new(None), Instant::now());
+    ctx.enable_accesskit();
+    let mut label = None;
+    for id in ["1", "2"] {
+        tick(&mut d, t0, true, &Route::Album(id.into()));
+        let ids: Vec<_> = (0..9).map(|n| format!("{id}-{n}")).collect();
+        let rows: Vec<_> = ids.iter().map(|i| (i.as_str(), "songs")).collect();
+        let tracks = page(&rows, None);
+        answer(
+            &mut d,
+            &ctx,
+            Ok(Reply::Detail(Found {
+                item: item(id, "albums", 0),
+                tracks,
+            })),
+        );
+        for n in 0..6 {
+            let key = (n % 2 == 0).then_some(egui::Key::ArrowDown);
+            let input = key.map_or_else(egui::RawInput::default, |k| {
+                crate::ui::tests::hooked(&ctx, k)
+            });
+            let mut out = ctx.run_ui(input, |ui| super::show(ui, &mut d, &mut Vec::new()));
+            out.textures_delta.clear();
+            crate::ui::cursor::settle(&ctx);
+            label = crate::ui::tests::focus_label(&out.platform_output.accesskit_update.unwrap());
+        }
+    }
+    assert_eq!(label.as_deref(), Some("Play songs 2-2"));
+}

@@ -9,7 +9,7 @@ use bramley_api::store::{API_CAP, ART_CAP, Store, cache_dir, write_private};
 use bramley_api::warm::{Limiter, Report, Sizes, Stop, run};
 use fastframe_instance::Slot;
 
-use crate::covers::{self, COVER_PT, Refused, Tally};
+use crate::covers::{self, Refused, Tally};
 use crate::credentials::{Credentials, keyring_locked};
 use crate::devtoken::{self, DeveloperToken};
 use crate::ui::library::{CELL_PT, ROW_PT};
@@ -57,7 +57,7 @@ pub(crate) fn sizes(scale: f32) -> Sizes {
     Sizes {
         cell: px(CELL_PT),
         row: px(ROW_PT),
-        home: px(COVER_PT),
+        home: covers::home_px(scale),
     }
 }
 

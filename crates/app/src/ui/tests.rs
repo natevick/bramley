@@ -3,6 +3,8 @@ use std::sync::mpsc::channel;
 use egui::{Event, Key, Modifiers, RawInput};
 
 use super::content::search_id;
+use super::cursor::Step;
+use super::keys::{BINDINGS, Intent};
 use super::nav::{BACK_LIMIT, Edge, Nav, Route, Shell};
 use super::shortcuts;
 use crate::playback::Action;
@@ -22,6 +24,17 @@ fn press(k: Key, modifiers: Modifiers) -> RawInput {
         events: vec![key(k, true, modifiers)],
         ..RawInput::default()
     }
+}
+
+pub fn hooked(ctx: &egui::Context, k: Key) -> RawInput {
+    let mut input = press(k, Modifiers::NONE);
+    super::keys::take(ctx, &mut input);
+    input
+}
+
+pub fn focus_label(tree: &egui::accesskit::TreeUpdate) -> Option<String> {
+    let (_, node) = tree.nodes.iter().find(|(id, _)| *id == tree.focus)?;
+    Some(node.label()?.to_owned())
 }
 
 fn tap(k: Key) -> RawInput {
@@ -184,8 +197,12 @@ fn command_l_focuses_search_even_while_typing() {
 
 fn app(ctx: &egui::Context, signed_out: bool) -> crate::app::App {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/no-config");
+    app_in(ctx, signed_out, &dir)
+}
+
+fn app_in(ctx: &egui::Context, signed_out: bool, dir: &std::path::Path) -> crate::app::App {
     let spawn = crate::tests::spawning(|| unreachable!("no player may start in these tests"));
-    let user = (crate::tests::mock_user(&dir), signed_out);
+    let user = (crate::tests::mock_user(dir), signed_out);
     crate::app::App::new(
         ctx,
         crate::Args::default(),
@@ -196,7 +213,12 @@ fn app(ctx: &egui::Context, signed_out: bool) -> crate::app::App {
     )
 }
 
-fn frame(ctx: &egui::Context, app: &mut crate::app::App, input: RawInput) -> egui::FullOutput {
+fn frame(ctx: &egui::Context, app: &mut crate::app::App, mut input: RawInput) -> egui::FullOutput {
+    eframe::App::raw_input_hook(app, ctx, &mut input);
+    unhooked(ctx, app, input)
+}
+
+fn unhooked(ctx: &egui::Context, app: &mut crate::app::App, input: RawInput) -> egui::FullOutput {
     let mut out = ctx.run_ui(input, |ui| app.draw(ui));
     out.textures_delta.clear();
     out
@@ -393,7 +415,7 @@ mod search {
     fn item(id: &str, kind: &str) -> Item {
         let art = json!({ "url": format!("{LOCAL}/{id}/{{w}}x{{h}}bb.jpg") });
         let attributes =
-            json!({ "name": format!("{kind} {id}"), "artistName": "Queen", "artwork": art });
+            json!({ "name": format!("{kind} {id}"), "artistName": "Test Artist", "artwork": art });
         serde_json::from_value(json!({ "id": id, "type": kind, "attributes": attributes })).unwrap()
     }
 
@@ -717,7 +739,7 @@ mod search {
     #[test]
     fn the_results_column_keeps_the_full_width_whatever_the_names() {
         let short = list_width("Hi");
-        let long = list_width(&"Bohemian ".repeat(6));
+        let long = list_width(&"Longword ".repeat(6));
         assert_eq!(short, long);
         assert!(short > 450.0, "{short}");
     }
@@ -811,7 +833,10 @@ mod search {
         labels.sort();
         assert_eq!(
             labels,
-            ["Open album albums 2 · Queen", "Play songs 1 · Queen"]
+            [
+                "Open album albums 2 · Test Artist",
+                "Play songs 1 · Test Artist"
+            ]
         );
     }
 }
@@ -931,6 +956,7 @@ fn shuffle_and_repeat_sit_at_the_right_end_beside_the_queue() {
     assert!(xs.windows(2).all(|w| w[0] < w[1]), "{order:?} at {xs:?}");
 }
 
+#[cfg(not(target_os = "macos"))]
 fn volume_of(nodes: &Nodes) -> Option<f64> {
     let node = nodes.iter().find(|(l, _)| l == "Volume");
     node.and_then(|(_, n)| n.numeric_value())
@@ -1439,4 +1465,719 @@ fn no_route_has_overlapping_controls_at_the_minimum_phone_and_small_desktop_size
             assert_apart(&nodes, size, &format!("{route:?} at {size:?}"));
         }
     }
+}
+
+fn focus_after((k, tabs): (Key, usize), hooked: bool) -> (Option<egui::Id>, Option<egui::Id>) {
+    let ctx = egui::Context::default();
+    let mut app = app(&ctx, true);
+    let focused = || ctx.memory(|m| m.focused());
+    let mut start = None;
+    for _ in 0..tabs {
+        unhooked(&ctx, &mut app, press(Key::Tab, Modifiers::NONE));
+        unhooked(&ctx, &mut app, RawInput::default());
+        start = focused();
+    }
+    let step = if hooked { frame } else { unhooked };
+    step(&ctx, &mut app, press(k, Modifiers::NONE));
+    step(&ctx, &mut app, RawInput::default());
+    (start, focused())
+}
+
+#[test]
+fn tab_and_arrows_never_reach_egui_focus_outside_a_text_field() {
+    let cases = [(Key::Escape, 3), (Key::ArrowUp, 4)];
+    let cases = cases.into_iter().chain([
+        (Key::ArrowDown, 4),
+        (Key::ArrowRight, 4),
+        (Key::ArrowLeft, 10),
+    ]);
+    for case in cases {
+        let (start, end) = focus_after(case, false);
+        assert!(
+            start.is_some() && start != end,
+            "{case:?} must move focus unhooked"
+        );
+        let (start, end) = focus_after(case, true);
+        assert_eq!(start, end, "{case:?} moved focus through the hook");
+    }
+}
+
+fn typed_in_search(text: &str) -> (egui::Context, crate::app::App) {
+    let ctx = egui::Context::default();
+    let mut app = app(&ctx, true);
+    frame(&ctx, &mut app, press(Key::L, Modifiers::COMMAND));
+    frame(&ctx, &mut app, RawInput::default());
+    let typed = RawInput {
+        events: vec![Event::Text(text.into())],
+        ..RawInput::default()
+    };
+    frame(&ctx, &mut app, typed);
+    assert!(ctx.text_edit_focused());
+    (ctx, app)
+}
+
+fn caret(ctx: &egui::Context) -> Option<usize> {
+    let state = egui::text_edit::TextEditState::load(ctx, search_id())?;
+    Some(state.cursor.char_range()?.primary.index.into())
+}
+
+#[test]
+fn every_bound_key_typed_into_search_fires_nothing() {
+    let chords = BINDINGS.iter().flat_map(|b| b.keys);
+    for &(k, modifiers) in chords {
+        let (ctx, mut app) = typed_in_search("ab");
+        frame(&ctx, &mut app, press(k, modifiers));
+        let status = app.status_json();
+        assert_eq!(status["route"], "Search", "{k:?}");
+        assert_eq!(status["engineStarted"], false, "{k:?}");
+        let expected = match k {
+            Key::ArrowUp | Key::Home => 0,
+            Key::ArrowLeft if modifiers.alt => 0,
+            Key::ArrowLeft | Key::Backspace => 1,
+            _ => 2,
+        };
+        assert_eq!(caret(&ctx), Some(expected), "{k:?}");
+        assert_eq!(
+            ctx.text_edit_focused(),
+            !(matches!(k, Key::Escape | Key::Tab) || (k == Key::Enter && !modifiers.command)),
+            "{k:?}"
+        );
+    }
+}
+
+#[test]
+fn a_focused_slider_or_an_open_popup_keeps_arrows_and_escape_and_taking_is_idempotent() {
+    let ctx = egui::Context::default();
+    let slider = egui::Id::new("slider");
+    super::keys::mark_slider(&ctx, slider);
+    let taken = |ctx: &egui::Context| {
+        let events = [Key::ArrowLeft, Key::Escape, Key::Tab].map(|k| key(k, true, Modifiers::NONE));
+        let mut input = RawInput {
+            events: events.to_vec(),
+            ..RawInput::default()
+        };
+        super::keys::take(ctx, &mut input);
+        let once = input.events.len();
+        super::keys::take(ctx, &mut input);
+        assert_eq!(input.events.len(), once);
+        3 - once
+    };
+    assert_eq!(taken(&ctx), 3);
+    ctx.memory_mut(|m| m.request_focus(slider));
+    assert_eq!(taken(&ctx), 1);
+    ctx.memory_mut(|m| m.surrender_focus(slider));
+    egui::Popup::open_id(&ctx, egui::Id::new("menu"));
+    assert_eq!(taken(&ctx), 1);
+}
+
+#[test]
+fn down_arrows_focus_queue_rows_and_play_nothing() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut shown = bramley_engine::Snapshot::default();
+    shown.queue = (0..40)
+        .map(|n| bramley_engine::QueueItem {
+            id: format!("i.{n}"),
+            title: Some(format!("Row {n}")),
+            duration: None,
+        })
+        .collect();
+    shown.queue_length = 40;
+    super::cursor::cycle(&ctx, false, (false, true));
+    let (mut actions, mut navs) = (Vec::new(), Vec::new());
+    let mut label = None;
+    for n in 0..16 {
+        let input = if n % 2 == 0 {
+            hooked(&ctx, Key::ArrowDown)
+        } else {
+            RawInput::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| {
+            super::queue_panel::show(ui, &shown, (&mut actions, &mut navs));
+        });
+        out.textures_delta.clear();
+        super::cursor::settle(&ctx);
+        label = focus_label(&out.platform_output.accesskit_update.expect("a tree"));
+    }
+    assert_eq!(label.as_deref(), Some("Play Row 7"));
+    assert!(actions.is_empty() && navs.is_empty());
+}
+
+#[test]
+fn the_queue_ring_stays_on_its_entry_as_the_queue_advances() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let snapshot = |from: usize| {
+        let mut shown = bramley_engine::Snapshot::default();
+        let entry = |n: usize| bramley_engine::QueueItem {
+            id: format!("i.{n}"),
+            title: Some(format!("Row {n}")),
+            duration: None,
+        };
+        shown.queue = (from..40).map(entry).collect();
+        (shown.queue_length, shown.queue_position) = (40 - from, Some(from));
+        shown
+    };
+    super::cursor::cycle(&ctx, false, (false, true));
+    let at = |from: usize, key: Option<Key>| {
+        let input = key.map_or_else(RawInput::default, |k| hooked(&ctx, k));
+        let shown = snapshot(from);
+        let mut out = ctx.run_ui(input, |ui| {
+            super::queue_panel::show(ui, &shown, (&mut vec![], &mut vec![]))
+        });
+        out.textures_delta.clear();
+        super::cursor::settle(&ctx);
+        focus_label(&out.platform_output.accesskit_update.expect("a tree"))
+    };
+    for _ in 0..3 {
+        at(0, Some(Key::ArrowDown));
+        at(0, None);
+    }
+    at(1, None);
+    assert_eq!(at(1, None).as_deref(), Some("Play Row 3"));
+}
+
+#[test]
+fn the_sidebar_and_player_bar_walk_with_j_k_h_l_and_the_bar_is_entered_on_its_first_control() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let walk = |step: Option<Step>, bar: bool| {
+        super::cursor::push_all(&ctx, step);
+        let mut out = ctx.run_ui(RawInput::default(), |ui| {
+            super::cursor::walk(ui.ctx());
+            let (shown, emit) = (Default::default(), (&mut vec![], &mut vec![]));
+            match bar {
+                true => super::player_bar::show(ui, &shown, true, 50, (false, false), emit),
+                false => drop(super::sidebar::show(
+                    ui,
+                    &Route::Home,
+                    &mut Default::default(),
+                    emit.1,
+                    true,
+                )),
+            }
+        });
+        out.textures_delta.clear();
+        super::cursor::settle(&ctx);
+        focus_label(&out.platform_output.accesskit_update.expect("a tree"))
+    };
+    super::cursor::cycle(&ctx, true, (true, false));
+    walk(None, false);
+    assert_eq!(walk(Some(Step::Down), false).as_deref(), Some("Search"));
+    super::cursor::cycle(&ctx, true, (true, false));
+    walk(None, true);
+    assert_eq!(walk(None, true).as_deref(), Some("Previous track"));
+    assert_eq!(walk(Some(Step::Right), true).as_deref(), Some("Play"));
+}
+
+#[test]
+fn a_focused_slider_keeps_its_arrows_but_lets_letters_and_help_through() {
+    let ctx = egui::Context::default();
+    let slider = egui::Id::new("slider");
+    super::keys::mark_slider(&ctx, slider);
+    ctx.memory_mut(|m| m.request_focus(slider));
+    let taken = |event: Event| {
+        let mut input = RawInput {
+            events: vec![event],
+            ..RawInput::default()
+        };
+        super::keys::take(&ctx, &mut input);
+        input.events.is_empty()
+    };
+    assert!(!taken(key(Key::ArrowRight, true, Modifiers::NONE)));
+    assert!(taken(Event::Text("l".into())) && taken(Event::Text("?".into())));
+    assert_eq!(
+        super::cursor::drain(&ctx, &[Step::Right, Step::Help]),
+        [Step::Right, Step::Help]
+    );
+}
+
+#[test]
+fn the_focus_ring_floats_outside_the_cover_by_a_gap() {
+    let ctx = egui::Context::default();
+    let cover = egui::Rect::from_min_size(egui::pos2(50.0, 50.0), egui::vec2(96.0, 96.0));
+    let mut out = ctx.run_ui(RawInput::default(), |ui| super::cursor::ring(ui, cover));
+    out.textures_delta.clear();
+    let ring = out.shapes.iter().find_map(|s| match &s.shape {
+        egui::Shape::Rect(r) if r.stroke.width > 0.0 => Some(r.rect),
+        _ => None,
+    });
+    assert_eq!(ring, Some(cover.expand(2.0)));
+}
+
+fn narrow(events: Vec<Event>) -> RawInput {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(500.0, 700.0));
+    RawInput {
+        screen_rect: Some(screen),
+        events,
+        ..RawInput::default()
+    }
+}
+
+fn focus_after_tabs(
+    app: &mut crate::app::App,
+    ctx: &egui::Context,
+    tabs: usize,
+) -> Vec<Option<String>> {
+    let mut seen = Vec::new();
+    for _ in 0..tabs {
+        frame(ctx, app, press(Key::Tab, Modifiers::NONE));
+        let out = frame(ctx, app, RawInput::default());
+        let tree = out.platform_output.accesskit_update.expect("a tree");
+        seen.push(focus_label(&tree));
+    }
+    seen
+}
+
+#[test]
+fn tab_cycles_regions_skipping_a_closed_queue() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut app = app(&ctx, true);
+    frame(&ctx, &mut app, RawInput::default());
+    let closed = focus_after_tabs(&mut app, &ctx, 4);
+    assert_eq!(
+        closed,
+        [
+            Some("Queue".into()),
+            Some("Home".into()),
+            None,
+            Some("Queue".into())
+        ]
+    );
+    app.nav(Nav::ToggleQueue);
+    let open = focus_after_tabs(&mut app, &ctx, 4);
+    assert_eq!(
+        open,
+        [Some("Home".into()), None, None, Some("Queue".into())]
+    );
+}
+
+#[test]
+fn esc_unwinds_field_help_overlay_then_back() {
+    let ctx = egui::Context::default();
+    let mut app = app(&ctx, true);
+    app.nav(Nav::FocusSearch);
+    app.nav(Nav::ToggleQueue);
+    frame(&ctx, &mut app, narrow(vec![]));
+    frame(&ctx, &mut app, narrow(vec![]));
+    assert!(ctx.text_edit_focused());
+    let mut esc = || {
+        frame(
+            &ctx,
+            &mut app,
+            narrow(vec![key(Key::Escape, true, Modifiers::NONE)]),
+        );
+        let status = app.status_json();
+        (
+            ctx.text_edit_focused(),
+            status["queueOpen"].as_bool(),
+            status["route"].clone(),
+        )
+    };
+    assert_eq!(esc(), (false, Some(true), "Search".into()));
+    assert_eq!(esc(), (false, Some(false), "Search".into()));
+    assert_eq!(esc(), (false, Some(false), "Home".into()));
+}
+
+#[test]
+fn every_back_key_pops_but_backspace_types_in_search() {
+    let backs = BINDINGS
+        .iter()
+        .filter(|b| matches!(b.intent, Intent::Back) && b.platforms.here());
+    for &(k, modifiers) in backs.flat_map(|b| b.keys) {
+        let ctx = egui::Context::default();
+        let mut app = app(&ctx, true);
+        app.go(super::nav::Route::Songs);
+        frame(&ctx, &mut app, press(k, modifiers));
+        assert_eq!(app.status_json()["route"], "Home", "{k:?}");
+    }
+    let (ctx, mut app) = typed_in_search("ab");
+    frame(&ctx, &mut app, press(Key::Backspace, Modifiers::NONE));
+    assert_eq!(
+        (app.status_json()["route"].clone(), caret(&ctx)),
+        ("Search".into(), Some(1))
+    );
+}
+
+#[test]
+fn enter_in_content_never_dismisses_the_agent_notice() {
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/notice-fresh");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let ctx = egui::Context::default();
+    let mut app = app_in(&ctx, true, &dir);
+    app.show_agent_notice();
+    for k in [Key::Tab, Key::Tab, Key::Tab, Key::Enter, Key::Enter] {
+        frame(&ctx, &mut app, press(k, Modifiers::NONE));
+        frame(&ctx, &mut app, RawInput::default());
+    }
+    let written = dir.join(crate::mcp::DISCLOSED).exists();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        (app.status_json()["agentNotice"].clone(), written),
+        (true.into(), false)
+    );
+}
+
+#[test]
+fn transport_help_matches_the_player_bar_labels() {
+    let mut shown = bramley_engine::Snapshot::default();
+    (shown.position, shown.duration) = (Some(100.0), Some(200.0));
+    let nodes = bar(&egui::Context::default(), &shown, true, vec![]).0;
+    let mut checked = 0;
+    for b in BINDINGS.iter().filter(|b| b.platforms.here()) {
+        let Intent::Do(d) = b.intent else { continue };
+        let Some(want) = d.action(&shown, 50, None) else {
+            continue;
+        };
+        assert!(nodes.iter().any(|(label, _)| label == b.help), "{}", b.help);
+        if matches!(want, Action::Next | Action::Previous) {
+            assert_eq!(click_bar(&shown, true, b.help), [want], "{}", b.help);
+        }
+        checked += 1;
+    }
+    assert_eq!(checked, if cfg!(target_os = "macos") { 4 } else { 6 });
+    let ctx = egui::Context::default();
+    let mut input = press(Key::Period, Modifiers::SHIFT);
+    input.events.push(Event::Text(">".into()));
+    super::keys::take(&ctx, &mut input);
+    assert_eq!(super::keys::actions(&ctx, &shown, 50), [Action::Next]);
+}
+
+#[test]
+fn space_help_names_the_player_bars_play_and_pause_buttons() {
+    let mut shown = bramley_engine::Snapshot::default();
+    let play = click_bar(&shown, true, "Play");
+    shown.state = bramley_engine::PlayState::Playing;
+    let pause = click_bar(&shown, true, "Pause");
+    assert_eq!((play, pause), (vec![Action::Play], vec![Action::Pause]));
+    assert!(BINDINGS.iter().any(|b| b.help == "Play or pause"));
+}
+
+fn song_row(ctx: &egui::Context, input: RawInput) -> Vec<Action> {
+    let mut actions = Vec::new();
+    ctx.run_ui(input, |ui| {
+        actions.extend(super::keys::actions(ui.ctx(), &Default::default(), 100));
+        let row = ui.button("Song");
+        row.request_focus();
+        if row.clicked() {
+            actions.push(Action::PlaySong("s".into()));
+        }
+        super::track_menu(&row, "s", &mut actions);
+    })
+    .textures_delta
+    .clear();
+    actions
+}
+
+#[test]
+fn shift_enter_queues_once_and_plays_nothing() {
+    let ctx = egui::Context::default();
+    let row = |input| song_row(&ctx, input);
+    let take = |mut input: RawInput| {
+        input
+            .events
+            .insert(0, key(Key::Enter, false, Modifiers::NONE));
+        super::keys::take(&ctx, &mut input);
+        input
+    };
+    row(RawInput::default());
+    let shift = press(Key::Enter, Modifiers::SHIFT);
+    assert_eq!(row(shift.clone()), [Action::PlaySong("s".into())]);
+    assert_eq!(row(take(shift)), [Action::PlayNext("s".into())]);
+    assert_eq!(row(take(RawInput::default())), []);
+    let command = press(Key::Enter, Modifiers::COMMAND);
+    assert_eq!(row(take(command)), [Action::QueueAdd("s".into())]);
+}
+
+#[test]
+fn typing_transport_characters_into_search_changes_only_the_text() {
+    let (ctx, mut app) = typed_in_search("ab");
+    let volume = app.status_json()["volume"].clone();
+    let mut input = press(Key::Equals, Modifiers::NONE);
+    input.events.push(Event::Text("=".into()));
+    input.events.push(key(Key::Minus, true, Modifiers::NONE));
+    input.events.push(Event::Text("-".into()));
+    input.events.push(Event::Text(">".into()));
+    frame(&ctx, &mut app, input);
+    assert_eq!(caret(&ctx), Some(5));
+    assert_eq!(app.status_json()["volume"], volume);
+}
+
+#[test]
+fn every_bound_chord_is_taken_and_a_do_chord_queues_its_own_action() {
+    let ctx = egui::Context::default();
+    let mut shown = bramley_engine::Snapshot::default();
+    (shown.position, shown.duration) = (Some(100.0), Some(200.0));
+    for b in BINDINGS.iter().filter(|b| b.platforms.here()) {
+        if matches!(b.intent, Intent::Shortcut) {
+            continue;
+        }
+        for &(k, m) in b.keys {
+            let mut input = press(k, m);
+            if let Event::Key { repeat, .. } = &mut input.events[0] {
+                *repeat = b.gate == super::keys::Gate::Repeat;
+            }
+            super::keys::take(&ctx, &mut input);
+            assert!(input.events.is_empty(), "{k:?} {m:?}");
+            let want = match b.intent {
+                Intent::Do(d) => d.action(&shown, 50, None),
+                _ => None,
+            };
+            let got = super::keys::actions(&ctx, &shown, 50);
+            assert_eq!(got, want.into_iter().collect::<Vec<_>>(), "{k:?} {m:?}");
+            let mut release = RawInput {
+                events: vec![key(k, false, m)],
+                ..RawInput::default()
+            };
+            super::keys::take(&ctx, &mut release);
+        }
+    }
+}
+
+#[test]
+fn angle_brackets_arrive_as_key_plus_text_and_a_repeat_does_nothing() {
+    let ctx = egui::Context::default();
+    let shown = bramley_engine::Snapshot::default();
+    let typed = |k: Key, text: &str, repeat: bool| {
+        let mut input = press(k, Modifiers::SHIFT);
+        if let Event::Key { repeat: r, .. } = &mut input.events[0] {
+            *r = repeat;
+        }
+        input.events.push(Event::Text(text.into()));
+        super::keys::take(&ctx, &mut input);
+        assert!(!input.events.iter().any(|e| matches!(e, Event::Text(_))));
+        super::keys::actions(&ctx, &shown, 50)
+    };
+    assert_eq!(typed(Key::Period, ">", false), [Action::Next]);
+    assert_eq!(typed(Key::Comma, "<", false), [Action::Previous]);
+    assert_eq!(typed(Key::Period, ">", true), []);
+    assert_eq!(typed(Key::Comma, "<", true), []);
+}
+
+#[test]
+fn holding_greater_than_or_command_right_skips_once_as_egui_winit_reports_it() {
+    let shown = bramley_engine::Snapshot::default();
+    let held = |k: Key, m: Modifiers, text: Option<&str>| {
+        let ctx = egui::Context::default();
+        (0..4)
+            .flat_map(|_| {
+                let mut input = press(k, m);
+                input.events.extend(text.map(|t| Event::Text(t.into())));
+                super::keys::take(&ctx, &mut input);
+                super::keys::actions(&ctx, &shown, 50)
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        held(Key::Period, Modifiers::SHIFT, Some(">")),
+        [Action::Next]
+    );
+    assert_eq!(
+        held(Key::ArrowRight, Modifiers::COMMAND, None),
+        [Action::Next]
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "macos"))]
+fn equals_and_minus_are_taken_as_text_so_every_layout_gets_them() {
+    let ctx = egui::Context::default();
+    let volume = |t: &str| {
+        let mut input = RawInput {
+            events: vec![Event::Text(t.into())],
+            ..RawInput::default()
+        };
+        super::keys::take(&ctx, &mut input);
+        super::keys::actions(&ctx, &Default::default(), 50)
+    };
+    assert_eq!(volume("="), [Action::Volume(0.55)]);
+    assert_eq!(volume("-"), [Action::Volume(0.45)]);
+}
+
+#[test]
+fn every_vim_letter_pushes_its_steps_and_is_swallowed() {
+    use super::cursor::Step::{Bottom, Down, First, Last, Left, Right, Search, Up};
+    let ctx = egui::Context::default();
+    let all = [Left, Down, Up, Right, Last, Bottom, Search, First];
+    let pressed = |t: &str| {
+        let mut input = RawInput {
+            events: vec![Event::Text(t.into())],
+            ..RawInput::default()
+        };
+        super::keys::take(&ctx, &mut input);
+        assert!(input.events.is_empty(), "{t}");
+        super::cursor::drain(&ctx, &all)
+    };
+    let table = [
+        ("h", vec![Left]),
+        ("j", vec![Down]),
+        ("k", vec![Up]),
+        ("l", vec![Right]),
+    ];
+    for (t, steps) in table
+        .into_iter()
+        .chain([("G", vec![Last, Bottom]), ("/", vec![Search])])
+    {
+        assert_eq!(pressed(t), steps, "{t}");
+    }
+    assert_eq!((pressed("g"), pressed("g")), (vec![], vec![First]));
+}
+
+#[test]
+fn slash_focuses_search_with_an_empty_query() {
+    let ctx = egui::Context::default();
+    let mut app = app(&ctx, true);
+    frame(&ctx, &mut app, RawInput::default());
+    let slash = RawInput {
+        events: vec![Event::Text("/".into())],
+        ..RawInput::default()
+    };
+    frame(&ctx, &mut app, slash);
+    frame(&ctx, &mut app, RawInput::default());
+    assert!(ctx.text_edit_focused());
+    let typed = RawInput {
+        events: vec![Event::Text("ab".into())],
+        ..RawInput::default()
+    };
+    frame(&ctx, &mut app, typed);
+    assert_eq!(caret(&ctx), Some(2));
+}
+
+#[test]
+fn g_scrolls_to_the_end_on_list_routes_only() {
+    let ctx = egui::Context::default();
+    for (route, edge) in [(Route::Songs, Some(Edge::End)), (Route::Search, None)] {
+        let mut app = app(&ctx, true);
+        app.go(route);
+        let mut g = press(Key::G, Modifiers::SHIFT);
+        g.events.push(Event::Text("G".into()));
+        frame(&ctx, &mut app, g);
+        assert_eq!(app.scroll(), edge);
+    }
+}
+
+fn texts_of(out: &egui::FullOutput) -> Vec<(egui::accesskit::Role, String)> {
+    let tree = out.platform_output.accesskit_update.as_ref().unwrap();
+    let text = |n: &egui::accesskit::Node| n.label().or(n.value()).map(str::to_owned);
+    let all = tree.nodes.iter();
+    all.filter_map(|(_, n)| Some((n.role(), text(n)?)))
+        .collect()
+}
+
+#[test]
+fn every_binding_has_one_help_row() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut out = ctx.run_ui(RawInput::default(), super::keys::help);
+    out.textures_delta.clear();
+    let texts: Vec<_> = texts_of(&out)
+        .into_iter()
+        .filter(|(role, _)| *role == egui::accesskit::Role::Label)
+        .collect();
+    let all = || BINDINGS.iter().filter(|b| b.platforms.here());
+    for b in all() {
+        let text = super::keys::shown(b);
+        let rows = all().filter(|o| super::keys::shown(o) == text).count();
+        let seen = texts.iter().filter(|(_, t)| *t == text).count();
+        assert!(!text.is_empty() && seen == rows, "{text:?}: {seen}/{rows}");
+    }
+    for chord in [(Key::Space, Modifiers::NONE), (Key::L, Modifiers::COMMAND)] {
+        assert!(BINDINGS.iter().any(|b| b.keys == [chord]), "{chord:?}");
+    }
+}
+
+fn help_open(ctx: &egui::Context, app: &mut crate::app::App, events: Vec<Event>) -> bool {
+    frame(
+        ctx,
+        app,
+        RawInput {
+            events,
+            ..RawInput::default()
+        },
+    );
+    frame(ctx, app, RawInput::default());
+    let out = texts_of(&frame(ctx, app, RawInput::default()));
+    out.contains(&(egui::accesskit::Role::Dialog, "Keyboard shortcuts".into()))
+}
+
+#[test]
+fn question_mark_toggles_help_and_escape_closes_it_first() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut app = app(&ctx, true);
+    app.go(Route::Songs);
+    let question = || vec![Event::Text("?".into())];
+    let escape = || vec![key(Key::Escape, true, Modifiers::NONE)];
+    assert!(help_open(&ctx, &mut app, question()));
+    assert!(!help_open(&ctx, &mut app, question()));
+    assert!(help_open(&ctx, &mut app, question()));
+    assert!(!help_open(&ctx, &mut app, escape()));
+    assert_eq!(app.status_json()["route"], "Songs");
+    help_open(&ctx, &mut app, escape());
+    assert_eq!(app.status_json()["route"], "Home");
+}
+
+#[test]
+fn a_question_mark_typed_into_search_is_text_and_opens_no_help() {
+    let (ctx, mut app) = typed_in_search("ab");
+    ctx.enable_accesskit();
+    assert!(!help_open(&ctx, &mut app, vec![Event::Text("?".into())]));
+    assert_eq!(caret(&ctx), Some(3));
+}
+
+#[test]
+fn an_open_help_swallows_enter_and_keeps_escape_off_the_strip() {
+    let ctx = egui::Context::default();
+    let taken = |k| {
+        let mut input = press(k, Modifiers::NONE);
+        super::keys::take(&ctx, &mut input);
+        input
+    };
+    song_row(&ctx, RawInput::default());
+    let play = [Action::PlaySong("s".into())];
+    assert_eq!(song_row(&ctx, taken(Key::Enter)), play);
+    super::keys::modal(&ctx, true);
+    assert_eq!(song_row(&ctx, taken(Key::Enter)), []);
+    assert!(taken(Key::Escape).events.is_empty());
+    let steps = super::cursor::drain(&ctx, &[Step::Escape, Step::Help]);
+    assert_eq!(steps, [Step::Help]);
+}
+
+#[test]
+fn an_open_help_swallows_space_and_command_l_so_nothing_behind_it_fires() {
+    let ctx = egui::Context::default();
+    song_row(&ctx, RawInput::default());
+    let mut space = press(Key::Space, Modifiers::NONE);
+    space.events.push(Event::Text(" ".into()));
+    let play = [Action::PlaySong("s".into())];
+    assert_eq!(song_row(&ctx, space.clone()), play);
+    super::keys::modal(&ctx, true);
+    for mut input in [space, press(Key::L, Modifiers::COMMAND)] {
+        super::keys::take(&ctx, &mut input);
+        assert!(!input.events.iter().any(|e| matches!(e, Event::Key { .. })));
+    }
+}
+
+#[test]
+fn page_down_scrolls_an_open_help_in_a_short_window() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    super::keys::modal(&ctx, true);
+    let top = |events| {
+        let mut input = narrow(events);
+        input.screen_rect = Some(egui::Rect::from_x_y_ranges(0.0..=300.0, 0.0..=150.0));
+        super::keys::take(&ctx, &mut input);
+        let mut out = ctx.run_ui(input, super::keys::help);
+        out.textures_delta.clear();
+        let is_row = |n: &egui::accesskit::Node| n.value() == Some("Tab, Shift+Tab");
+        let tree = out.platform_output.accesskit_update.unwrap();
+        let row = tree.nodes.into_iter().map(|(_, n)| n).find(is_row).unwrap();
+        row.bounds().unwrap().y0
+    };
+    let page = vec![key(Key::PageDown, true, Modifiers::NONE)];
+    let tops = [vec![], page, vec![], vec![]].map(top);
+    assert!(tops[3] < tops[0]);
 }

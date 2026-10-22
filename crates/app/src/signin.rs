@@ -20,6 +20,8 @@ pub struct Server {
     pub url: String,
     pub done: Receiver<()>,
     stop: Arc<AtomicBool>,
+    #[cfg(test)]
+    pub accepted: Arc<AtomicBool>,
 }
 
 impl Drop for Server {
@@ -79,12 +81,18 @@ pub fn start(developer: &str, lifetime: Duration, mut keep: Keep) -> std::io::Re
     let (tx, done) = channel();
     let stop = Arc::new(AtomicBool::new(false));
     let halt = stop.clone();
+    #[cfg(test)]
+    let accepted = Arc::new(AtomicBool::new(false));
+    #[cfg(test)]
+    let seen = accepted.clone();
     std::thread::Builder::new()
         .name("sign-in".into())
         .spawn(move || {
             while !halt.load(Ordering::SeqCst) && Instant::now() < deadline {
                 match listener.accept() {
                     Ok((stream, _)) => {
+                        #[cfg(test)]
+                        seen.store(true, Ordering::SeqCst);
                         if site.answer(stream, &mut keep) {
                             let _ = tx.send(());
                         }
@@ -93,7 +101,13 @@ pub fn start(developer: &str, lifetime: Duration, mut keep: Keep) -> std::io::Re
                 }
             }
         })?;
-    Ok(Server { url, done, stop })
+    Ok(Server {
+        url,
+        done,
+        stop,
+        #[cfg(test)]
+        accepted,
+    })
 }
 
 fn nonce() -> std::io::Result<String> {

@@ -1,5 +1,7 @@
 pub mod content;
+pub mod cursor;
 pub mod detail;
+pub mod keys;
 pub mod library;
 pub mod nav;
 pub mod player_bar;
@@ -7,7 +9,7 @@ pub mod queue_panel;
 pub mod search;
 pub mod sidebar;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use egui::{Color32, Key, Modifiers, RichText, WidgetInfo, WidgetType};
 
@@ -71,6 +73,9 @@ pub fn notice(ui: &mut egui::Ui, notice: &str) {
 }
 
 pub fn track_menu(response: &egui::Response, id: &str, actions: &mut Vec<Action>) {
+    if response.has_focus() {
+        keys::focused_song(&response.ctx, id);
+    }
     response.context_menu(|ui| {
         if ui.button("Play next").clicked() {
             actions.push(Action::PlayNext(id.to_owned()));

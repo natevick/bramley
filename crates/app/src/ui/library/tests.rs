@@ -1137,16 +1137,18 @@ fn on(
 ) -> Vec<String> {
     ctx.enable_accesskit();
     let screen = Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0));
-    let input = RawInput {
+    let mut input = RawInput {
         screen_rect: Some(screen),
         time: Some(time),
         events,
         ..RawInput::default()
     };
+    crate::ui::keys::take(ctx, &mut input);
     let mut out = ctx.run_ui(input, |ui| {
         show(ui, lib, (&route, &mut None), (&mut vec![], &mut vec![]))
     });
     out.textures_delta.clear();
+    crate::ui::cursor::settle(ctx);
     let nodes = out.platform_output.accesskit_update.expect("a tree").nodes;
     let labels = nodes.iter().filter_map(|(_, n)| n.label());
     let verb = format!("{verb} ");
@@ -1196,7 +1198,7 @@ fn typing_a_letter_or_a_prefix_jumps_to_the_first_matching_artist() {
 fn typing_ignores_punctuation_and_spaces_in_the_names_it_matches() {
     let (ctx, mut lib) = (egui::Context::default(), Library::default());
     let mut items = lettered(b'A'..b'Z' + 1);
-    for (at, name) in [(100, "Led Zeppelin"), (200, "AC/DC")] {
+    for (at, name) in [(100, "Mled Quartet"), (200, "XY/ZW")] {
         let named = Item {
             id: format!("i.{at}"),
             name: Some(name.into()),
@@ -1206,13 +1208,137 @@ fn typing_ignores_punctuation_and_spaces_in_the_names_it_matches() {
     }
     lib.lists[List::Artists as usize].items = items;
     let first = at(&ctx, &mut lib, 0.0, vec![]);
-    assert!(!names(&first).contains(&"Led Zeppelin"), "{first:?}");
-    at(&ctx, &mut lib, 1.0, vec![text("led z")]);
-    let shown = at(&ctx, &mut lib, 1.1, vec![]);
-    assert!(names(&shown).contains(&"Led Zeppelin"), "{shown:?}");
-    at(&ctx, &mut lib, 5.0, vec![text("acdc")]);
+    assert!(!names(&first).contains(&"Mled Quartet"), "{first:?}");
+    for (time, letter) in [(1.0, "m"), (1.1, "l"), (1.2, "e"), (1.3, "d")] {
+        at(&ctx, &mut lib, time, vec![text(letter)]);
+    }
+    let shown = at(&ctx, &mut lib, 1.4, vec![]);
+    assert!(names(&shown).contains(&"Mled Quartet"), "{shown:?}");
+    at(&ctx, &mut lib, 5.0, vec![text("xyzw")]);
     let shown = at(&ctx, &mut lib, 5.1, vec![]);
-    assert!(names(&shown).contains(&"AC/DC"), "{shown:?}");
+    assert!(names(&shown).contains(&"XY/ZW"), "{shown:?}");
+}
+
+#[test]
+fn j_moves_and_a_started_prefix_still_jumps() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    let mut items = lettered(b'A'..b'Z' + 1);
+    items.insert(
+        120,
+        Item {
+            name: Some("Mjolnir".into()),
+            ..item(0)
+        },
+    );
+    lib.lists[List::Artists as usize].items = items;
+    at(&ctx, &mut lib, 0.5, vec![text("j")]);
+    assert!(lib.typed.0.is_empty(), "a bare j moves, it does not type");
+    at(&ctx, &mut lib, 1.0, vec![text("m")]);
+    at(&ctx, &mut lib, 1.1, vec![text("j")]);
+    assert_eq!(lib.typed.0, "mj");
+    assert!(names(&at(&ctx, &mut lib, 1.2, vec![])).contains(&"Mjolnir"));
+}
+
+#[test]
+fn right_past_the_last_column_enters_the_strip_and_enter_jumps() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);
+    at(&ctx, &mut lib, 0.0, vec![text("k")]);
+    for (time, letter) in (1..)
+        .map(|n| n as f64)
+        .zip(["l", "j", "j", "j", "j", "j", "j", "j"])
+    {
+        at(&ctx, &mut lib, time, vec![text(letter)]);
+    }
+    let enter = crate::tests::pressed(&ctx, Some((egui::Key::Enter, false))).events;
+    at(&ctx, &mut lib, 20.0, enter);
+    let shown = at(&ctx, &mut lib, 21.0, vec![]);
+    assert!(names(&shown).contains(&"Hx0") && !names(&shown).contains(&"Ax0"));
+    assert!(lib.typed.0.is_empty());
+}
+
+#[test]
+fn left_and_escape_leave_the_strip() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);
+    at(&ctx, &mut lib, 0.0, vec![text("k")]);
+    let id = egui::Id::new(("rows", List::Artists as usize));
+    let strip = || crate::ui::cursor::spans(&ctx, id, 26);
+    for (time, escape) in [(2.0, false), (4.0, true)] {
+        at(&ctx, &mut lib, time - 1.0, vec![text("l")]);
+        assert_eq!(strip(), Some(0));
+        let esc = || crate::tests::pressed(&ctx, Some((egui::Key::Escape, false))).events;
+        at(
+            &ctx,
+            &mut lib,
+            time,
+            if escape { esc() } else { vec![text("h")] },
+        );
+        assert_eq!(strip(), None);
+    }
+}
+
+#[test]
+fn up_down_j_k_walk_the_strip_clamped_enter_jumps_and_a_jump_ends_the_prefix() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);
+    let id = egui::Id::new(("rows", List::Artists as usize));
+    let key = |k| crate::tests::pressed(&ctx, Some((k, false))).events;
+    let mut walk = |time, events| {
+        at(&ctx, &mut lib, time, events);
+        crate::ui::cursor::spans(&ctx, id, 26)
+    };
+    walk(0.5, vec![text("k")]);
+    assert_eq!(walk(1.0, vec![text("l")]), Some(0));
+    assert_eq!(walk(2.0, vec![text("k")]), Some(0));
+    assert_eq!(walk(3.0, vec![text("j")]), Some(1));
+    for time in 6..40 {
+        walk(f64::from(time), vec![text("j")]);
+    }
+    assert_eq!(walk(40.0, key(egui::Key::ArrowDown)), Some(25));
+    assert_eq!(walk(41.0, key(egui::Key::ArrowUp)), Some(24));
+    walk(42.0, vec![]);
+    walk(42.1, vec![text("m")]);
+    walk(42.2, key(egui::Key::Enter));
+    walk(42.3, vec![text("j")]);
+    assert!(lib.typed.0.is_empty(), "a strip jump ends the prefix");
+    assert!(names(&at(&ctx, &mut lib, 44.0, vec![])).contains(&"Yx0"));
+}
+
+#[test]
+fn tab_out_of_the_strip_leaves_it_and_the_ring_does_not_come_back() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    ctx.enable_accesskit();
+    lib.lists[List::Artists as usize].items = lettered(b'A'..b'Z' + 1);
+    let mut at = |key| cursor_key(&ctx, &mut lib, (&Route::Artists, key)).focus;
+    at(egui::Key::ArrowDown);
+    assert_eq!(at(egui::Key::ArrowRight).as_deref(), Some("Jump to A"));
+    crate::ui::cursor::cycle(&ctx, false, (false, false));
+    assert_ne!(at(egui::Key::ArrowDown).as_deref(), Some("Jump to A"));
+    assert_ne!(at(egui::Key::ArrowDown).as_deref(), Some("Jump to B"));
+}
+
+#[test]
+fn the_cursor_lands_on_the_true_last_row_once_a_pinned_scroll_end_has_paged_in() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    ctx.enable_accesskit();
+    let (route, mut scroll) = (Route::Playlist("p.1".into()), Some(Edge::End));
+    let mut shown = |lib: &mut Library| {
+        let input = crate::tests::pressed(&ctx, None);
+        let mut out = ctx.run_ui(input, |ui| {
+            show(ui, lib, (&route, &mut scroll), (&mut vec![], &mut vec![]))
+        });
+        out.textures_delta.clear();
+        crate::ui::cursor::settle(&ctx);
+        crate::ui::tests::focus_label(&out.platform_output.accesskit_update.expect("a tree"))
+    };
+    shown(&mut lib);
+    for (range, next) in [(0..100, Some("n.1")), (100..250, None)] {
+        answer(&mut lib, &ctx, now, page(range, next));
+        shown(&mut lib);
+    }
+    let landed = (0..3).map(|_| shown(&mut lib)).last().flatten();
+    assert_eq!(landed, played(249));
 }
 
 #[test]
@@ -1548,4 +1674,132 @@ fn a_letter_the_thin_strip_hides_still_jumps_through_its_neighbour_and_by_typing
     );
     strip_at(&ctx, &mut lib, 200.0, vec![text("a")]);
     assert_eq!(lib.typed.0, "a", "every letter still types");
+}
+
+fn cursor_key(ctx: &egui::Context, lib: &mut Library, (route, key): (&Route, egui::Key)) -> Landed {
+    let mut landed = Landed::default();
+    for pressed in [true, false] {
+        let mut input = RawInput::default();
+        if pressed {
+            input = crate::ui::tests::hooked(ctx, key);
+        }
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 300.0)));
+        let (mut actions, mut navs) = (Vec::new(), Vec::new());
+        let mut out = ctx.run_ui(input, |ui| {
+            show(ui, lib, (route, &mut None), (&mut actions, &mut navs))
+        });
+        out.textures_delta.clear();
+        lib.art.flush(ctx);
+        crate::ui::cursor::settle(ctx);
+        let tree = out.platform_output.accesskit_update.expect("a tree");
+        let built = tree.nodes.iter().filter_map(|(_, n)| n.label());
+        landed.built = built.filter(|l| l.contains("Secret Song")).count();
+        landed.focus = crate::ui::tests::focus_label(&tree);
+        landed.emitted |= !actions.is_empty() || !navs.is_empty();
+        landed.ring = out.shapes.iter().find_map(|s| match &s.shape {
+            egui::Shape::Rect(r) if r.stroke.width == 2.5 => Some(r.rect),
+            _ => None,
+        });
+    }
+    landed
+}
+
+fn played(n: usize) -> Option<String> {
+    Some(format!("Play Secret Song {n} · Secret Artist"))
+}
+
+#[derive(Default)]
+struct Landed {
+    focus: Option<String>,
+    built: usize,
+    emitted: bool,
+    ring: Option<Rect>,
+}
+
+#[test]
+fn thirty_downs_build_focus_and_announce_row_thirty() {
+    let (ctx, mut lib) = songs(0..100);
+    ctx.enable_accesskit();
+    let mut landed = Landed::default();
+    for _ in 0..30 {
+        landed = cursor_key(&ctx, &mut lib, (&Route::Songs, egui::Key::ArrowDown));
+    }
+    assert_eq!(landed.focus, played(29));
+}
+
+#[test]
+fn the_ringed_row_and_its_ring_are_fully_inside_the_view_after_every_move() {
+    let (ctx, mut lib) = songs(0..100);
+    ctx.enable_accesskit();
+    let down = std::iter::repeat_n(egui::Key::ArrowDown, 14);
+    for key in [egui::Key::End, egui::Key::Home].into_iter().chain(down) {
+        let ring = cursor_key(&ctx, &mut lib, (&Route::Songs, key)).ring;
+        let ring = ring.unwrap();
+        assert!(ring.min.y >= 2.5 && ring.max.y <= 297.5, "{key:?} {ring:?}");
+    }
+}
+
+#[test]
+fn home_end_and_page_keys_move_by_list_and_viewport() {
+    let (ctx, mut lib) = songs(0..100);
+    ctx.enable_accesskit();
+    let mut at = |key| cursor_key(&ctx, &mut lib, (&Route::Songs, key));
+    assert_eq!(at(egui::Key::End).focus, played(99));
+    let top = at(egui::Key::Home);
+    assert_eq!(top.focus, played(0));
+    let page = top.built;
+    assert!((5..40).contains(&page), "a viewport builds {page} rows");
+    let down = at(egui::Key::PageDown).focus;
+    assert_eq!(down, played(page));
+    assert_eq!(at(egui::Key::PageUp).focus, played(0));
+}
+
+#[test]
+fn moving_focus_never_emits_an_action() {
+    let (ctx, mut lib) = songs(0..100);
+    ctx.enable_accesskit();
+    let keys = [
+        egui::Key::ArrowDown,
+        egui::Key::End,
+        egui::Key::PageUp,
+        egui::Key::Home,
+    ];
+    assert!(
+        keys.iter()
+            .all(|k| !cursor_key(&ctx, &mut lib, (&Route::Songs, *k)).emitted)
+    );
+}
+
+#[test]
+fn enter_on_albums_plays_the_focused_album_and_a_repeated_enter_plays_nothing() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    frame(&ctx, &mut lib, &Route::Albums, 600.0, vec![]);
+    answer(&mut lib, &ctx, Instant::now(), page(0..30, None));
+    let mut press = |key, repeat| {
+        let events = crate::tests::pressed(&ctx, Some((key, repeat))).events;
+        let route = (&Route::Albums, &mut None);
+        let emitted = scrolled(&ctx, &mut lib, route, 600.0, events);
+        crate::ui::cursor::settle(&ctx);
+        emitted
+    };
+    assert_eq!(press(egui::Key::ArrowDown, false), (vec![], vec![]));
+    let played = Action::PlayIn(Queue::Album("i.0".into()), 0);
+    assert_eq!(press(egui::Key::Enter, false), (vec![played], vec![]));
+    assert_eq!(press(egui::Key::Enter, true), (vec![], vec![]));
+}
+
+#[test]
+fn tab_reaches_the_artist_songs_list_and_down_then_moves_it() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    ctx.enable_accesskit();
+    let route = Route::Artist("i.0".into());
+    frame(&ctx, &mut lib, &route, 600.0, vec![]);
+    lib.lists[List::ArtistAlbums as usize].items = (100..110).map(item).collect();
+    lib.lists[List::ArtistSongs as usize].items = (0..60).map(item).collect();
+    let down = (&route, egui::Key::ArrowDown);
+    let albums = cursor_key(&ctx, &mut lib, down).focus.unwrap();
+    assert!(albums.starts_with("Play album Secret Song 100"), "{albums}");
+    crate::ui::cursor::cycle(&ctx, false, (false, false));
+    let songs = cursor_key(&ctx, &mut lib, down).focus;
+    assert_eq!(songs, played(0));
 }

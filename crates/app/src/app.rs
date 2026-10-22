@@ -16,6 +16,7 @@ use crate::covers::{self, Grid, Source};
 use crate::credentials::Credentials;
 use crate::playback::{Action, Banner, Playback, Spawn, play_or_pause};
 use crate::theme::{self, Palette, Theme};
+use crate::ui::cursor::Step;
 use crate::ui::detail::Detail;
 use crate::ui::library::Library;
 use crate::ui::nav::{Nav, Shell};
@@ -262,6 +263,12 @@ impl App {
     }
 
     #[cfg(test)]
+    pub(crate) fn sign_in_accepted(&self) -> bool {
+        let server = self.sign_in.as_ref().map(|(server, _)| server);
+        server.is_some_and(|s| s.accepted.load(Ordering::SeqCst))
+    }
+
+    #[cfg(test)]
     pub(crate) fn apply(&mut self, action: Action) {
         self.playback.apply(action);
     }
@@ -269,6 +276,16 @@ impl App {
     #[cfg(test)]
     pub(crate) fn go(&mut self, route: ui::nav::Route) {
         self.shell.apply(Nav::Go(route));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn nav(&mut self, nav: Nav) {
+        self.shell.apply(nav);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn show_agent_notice(&mut self) {
+        self.agent_notice = true;
     }
 
     pub fn status_json(&self) -> Value {
@@ -634,6 +651,10 @@ impl App {
     }
 
     pub fn tick(&mut self, ctx: &egui::Context) {
+        self.tick_at(ctx, Instant::now());
+    }
+
+    pub(crate) fn tick_at(&mut self, ctx: &egui::Context, now: Instant) {
         let changed = self.pump(ctx);
         self.theme.tick(ctx, Instant::now());
         #[cfg(feature = "gate-sabotage")]
@@ -650,7 +671,7 @@ impl App {
         if !covers_allowed(&self.playback) {
             self.shell.scroll = None;
         }
-        let (now, waker) = (Instant::now(), ctx.clone());
+        let waker = ctx.clone();
         let home = self.shell.route == ui::nav::Route::Home;
         self.covers.retry(ctx, now, home);
         let wake = move || waker.request_repaint();
@@ -712,13 +733,26 @@ impl App {
         ctx.request_repaint_after(REPAINT_EVERY);
     }
 
+    fn overlay_nav(&self, docked: bool, compact: bool) -> Option<Nav> {
+        (self.shell.queue_open && !docked)
+            .then_some(Nav::ToggleQueue)
+            .or((compact && self.shell.drawer_open).then_some(Nav::ToggleDrawer))
+    }
+
     pub fn draw(&mut self, ui: &mut egui::Ui) {
         self.frames += 1;
         let (shown, started) = (self.playback.shown(), self.playback.started());
         let volume = self.volume_percent();
         let toggle = started.then(|| play_or_pause(shown.state));
         ui::shortcuts(ui.ctx(), toggle, &mut self.actions, &mut self.navs);
+        self.actions
+            .extend(ui::keys::actions(ui.ctx(), &shown, volume));
         let compact = ui.available_width() < ui::COMPACT_PT;
+        for step in ui::cursor::drain(ui.ctx(), &[Step::Next, Step::Prev]) {
+            let regions = (!compact, self.shell.queue_open);
+            ui::cursor::cycle(ui.ctx(), step == Step::Prev, regions);
+        }
+        ui::cursor::walk(ui.ctx());
         let palette = Palette::of(ui.ctx());
         egui::Panel::bottom("now-playing").show(ui, |ui| {
             ui.add_space(8.0);
@@ -795,7 +829,26 @@ impl App {
                 self.navs.push(Nav::ToggleDrawer);
             }
         }
+        if self.shell.help_open {
+            ui::overlay(ui, "help", (free, palette.panel), ui::keys::help);
+        }
         self.library.art.flush(ui.ctx());
+        for _ in ui::cursor::drain(ui.ctx(), &[Step::Help]) {
+            self.navs.push(Nav::ToggleHelp);
+        }
+        for step in ui::cursor::drain(ui.ctx(), &[Step::Search, Step::Bottom]) {
+            let end = Nav::Scroll(ui::nav::Edge::End);
+            let nav = (step == Step::Search).then_some(Nav::FocusSearch);
+            self.navs
+                .extend(nav.or(self.shell.route.lists().then_some(end)));
+        }
+        for step in ui::cursor::drain(ui.ctx(), &[Step::Escape, Step::Back]) {
+            let overlay = (step == Step::Escape)
+                .then(|| self.overlay_nav(docked, compact))
+                .flatten();
+            self.navs.push(overlay.unwrap_or(Nav::Back));
+        }
+        ui::cursor::settle(ui.ctx());
         if sign_out {
             self.sign_out();
         }
@@ -812,6 +865,7 @@ impl App {
         for nav in self.navs.drain(..) {
             self.shell.apply(nav);
         }
+        ui::keys::modal(ui.ctx(), self.shell.help_open);
         if started && self.notice == Some(QUEUE_FIRST) {
             self.notice = None;
         }
@@ -883,6 +937,10 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.draw(ui);
+    }
+
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        ui::keys::take(ctx, raw_input);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

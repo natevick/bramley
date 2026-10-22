@@ -104,6 +104,7 @@ fn checks(p: &Palette) -> Vec<(&'static str, Color32, Color32, f32)> {
         all.push(("text", v.text_color(), surface, 4.5));
         all.push(("strong", v.strong_text_color(), surface, 4.5));
         all.push(("weak", v.weak_text_color(), surface, 3.0));
+        all.push(("focus", p.focus(), surface, 3.0));
     }
     all
 }

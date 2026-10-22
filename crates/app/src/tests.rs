@@ -1360,7 +1360,7 @@ fn fifty_covers_become_textures_and_nothing_decoded_stays_once_a_frame_ends() {
         (None, 50, 0)
     );
     let kept = if cfg!(feature = "gate-sabotage") {
-        50 * 96 * 96 * 4
+        50 * 200 * 200 * 4
     } else {
         0
     };
@@ -1382,7 +1382,7 @@ fn fifty_covers_become_textures_and_nothing_decoded_stays_once_a_frame_ends() {
     assert!(requests[1..6].contains(&library));
     assert_eq!(requests.len(), 56);
     for (path, auth, user) in &requests[6..] {
-        assert!(path.ends_with("/96x96bb.jpg"), "{path}");
+        assert!(path.ends_with("/200x200bb.jpg"), "{path}");
         assert_eq!((auth, user), (&None, &None), "a token went to the art host");
     }
     let mut frame = ctx.run_ui(Default::default(), |_| {});
@@ -1506,6 +1506,169 @@ fn an_empty_library_says_so_and_neither_retries_nor_shows_the_chart() {
             .iter()
             .any(|p| p.contains("charts") || p.starts_with("/art/"))
     );
+}
+
+#[test]
+fn fifty_albums_fill_every_row_at_every_width_with_covers_inside_the_bounds() {
+    for width in (300..=3840).step_by(5).map(|w| w as f32) {
+        let layout = covers::home_layout(width, 50);
+        let used =
+            layout.columns as f32 * layout.cell + covers::HOME_GAP_PT * (layout.columns - 1) as f32;
+        assert_eq!(layout.shown, 50, "{width}");
+        assert_eq!(layout.shown % layout.columns, 0, "{width}: {layout:?}");
+        let bounds = covers::HOME_CELL_MIN_PT..=covers::HOME_CELL_MAX_PT;
+        assert!(bounds.contains(&layout.cell), "{width}: {layout:?}");
+        assert!(used <= width, "{width}: {layout:?}");
+        assert!(
+            width - used <= layout.columns as f32 / 64.0,
+            "{width}: {layout:?}"
+        );
+    }
+}
+
+#[test]
+fn home_layout_handles_the_edge_counts_and_trims_only_when_no_divisor_fits() {
+    for (count, width, columns, shown) in [
+        (0, 800.0, 7, 0),
+        (1, 800.0, 7, 1),
+        (2, 330.0, 3, 2),
+        (2, 800.0, 7, 2),
+        (12, 800.0, 6, 12),
+        (37, 800.0, 7, 35),
+        (49, 800.0, 7, 49),
+        (49, 330.0, 3, 48),
+        (50, 330.0, 2, 50),
+        (50, 800.0, 10, 50),
+        (50, 3440.0, 25, 50),
+    ] {
+        let layout = covers::home_layout(width, count);
+        assert_eq!(
+            (layout.columns, layout.shown),
+            (columns, shown),
+            "{count} at {width}"
+        );
+    }
+}
+
+type Nodes = Vec<(String, egui::accesskit::Node)>;
+
+fn home_nodes(count: usize, total: bool, width: f32) -> Nodes {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let (tx, rx) = channel();
+    let mut grid = Grid::default();
+    grid.listen(rx);
+    let image = || egui::ColorImage::filled([2, 2], egui::Color32::WHITE);
+    for n in 0..count {
+        tx.send(covers::Loaded::Cover(0, n, format!("l.{n}"), image()))
+            .unwrap();
+    }
+    tx.send(match (count, total) {
+        (0, _) => covers::Loaded::Empty,
+        _ => covers::Loaded::Total(if total { count } else { count + 1 }),
+    })
+    .unwrap();
+    grid.receive(&ctx);
+    let input = || egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(width, 900.0),
+        )),
+        ..Default::default()
+    };
+    let mut first = ctx.run_ui(input(), |ui| grid.show(ui, &mut Vec::new()));
+    first.textures_delta.clear();
+    let mut out = ctx.run_ui(input(), |ui| grid.show(ui, &mut Vec::new()));
+    out.textures_delta.clear();
+    let tree = out
+        .platform_output
+        .accesskit_update
+        .expect("an accesskit tree");
+    let named = tree
+        .nodes
+        .into_iter()
+        .filter_map(|(_, n)| Some((n.label().or(n.value())?.to_owned(), n)));
+    named.collect()
+}
+
+#[test]
+fn the_home_heading_counts_what_is_shown_and_is_absent_without_albums() {
+    assert_eq!(covers::home_heading(50), "Top 50 albums");
+    assert_eq!(covers::home_heading(12), "Top 12 albums");
+    assert_eq!(covers::home_heading(1), "Top 1 album");
+    let caption = "From your library, led by your recent plays.";
+    for (count, heading) in [(50, "Top 50 albums"), (12, "Top 12 albums")] {
+        let nodes = home_nodes(count, true, 800.0);
+        let labels: Vec<_> = nodes.iter().map(|(l, _)| l.as_str()).collect();
+        assert!(labels.contains(&heading), "{labels:?}");
+        let spoken = nodes
+            .iter()
+            .any(|(l, n)| l == heading && n.role() == egui::accesskit::Role::Label);
+        assert!(spoken, "{heading} is not a labelled node");
+        assert!(labels.contains(&caption));
+    }
+    let heading = |nodes: &Nodes| nodes.iter().any(|(l, _)| l.starts_with("Top "));
+    assert!(!heading(&home_nodes(0, true, 800.0)), "empty library");
+    assert!(!heading(&home_nodes(20, false, 800.0)), "still loading");
+}
+
+#[test]
+fn skipped_covers_do_not_settle_the_home_grid_before_the_emitted_ones_arrive() {
+    let ctx = egui::Context::default();
+    let (tx, rx) = channel();
+    let mut grid = Grid::default();
+    grid.listen(rx);
+    tx.send(covers::Loaded::Total(48)).unwrap();
+    tx.send(covers::Loaded::Failed("2 had no artwork".into(), 2))
+        .unwrap();
+    let mut shown = |range: std::ops::Range<usize>| {
+        for n in range {
+            let image = egui::ColorImage::filled([2, 2], egui::Color32::WHITE);
+            let cover = covers::Loaded::Cover(0, n, format!("l.{n}"), image);
+            tx.send(cover).unwrap();
+        }
+        grid.receive(&ctx);
+        grid.layout(800.0).shown
+    };
+    assert_ne!(covers::home_layout(800.0, 46).shown, 46);
+    assert_eq!(shown(0..46), 46, "unsettled shows every cover so far");
+    assert_eq!(shown(46..48), covers::home_layout(800.0, 48).shown);
+}
+
+#[test]
+fn the_home_grid_draws_full_rows_inside_the_width_and_the_caption_stays_one_line() {
+    let caption = |nodes: &Nodes| {
+        let (_, node) = nodes
+            .iter()
+            .find(|(l, n)| {
+                l.starts_with("From your library") && n.role() == egui::accesskit::Role::Label
+            })
+            .expect("a caption");
+        let bounds = node.bounds().expect("caption bounds");
+        (bounds.y1 - bounds.y0, bounds.x1)
+    };
+    let (roomy, _) = caption(&home_nodes(50, true, 1100.0));
+    for width in [300.0, 800.0, 1100.0, 3440.0] {
+        let nodes = home_nodes(50, true, width);
+        let mut rows: Vec<(i32, f64)> = Vec::new();
+        for (_, node) in nodes.iter().filter(|(l, _)| l.starts_with("Open album")) {
+            let b = node.bounds().expect("cover bounds");
+            assert!(b.x1 <= f64::from(width) + 0.125, "{width}: {b:?}");
+            match rows.iter_mut().find(|(y, _)| *y == b.y0.round() as i32) {
+                Some(row) => row.1 += 1.0,
+                None => rows.push((b.y0.round() as i32, 1.0)),
+            }
+        }
+        let per_row = rows[0].1;
+        assert!(
+            [2.0, 5.0, 10.0, 25.0].contains(&per_row),
+            "{width}: {rows:?}"
+        );
+        assert!(rows.iter().all(|(_, n)| *n == per_row), "{width}: {rows:?}");
+        let (height, right) = caption(&nodes);
+        assert_eq!(height, roomy, "{width}: the caption wrapped");
+        assert!(right <= f64::from(width));
+    }
 }
 
 #[test]
@@ -1781,7 +1944,7 @@ fn a_zoom_change_refetches_covers_at_the_new_pixel_size() {
     assert_eq!(
         fx.paths()
             .iter()
-            .filter(|p| p.ends_with("/192x192bb.jpg"))
+            .filter(|p| p.ends_with("/256x256bb.jpg"))
             .count(),
         50
     );
@@ -2655,7 +2818,11 @@ fn a_token_post_in_flight_across_sign_out_is_refused_and_never_stored() {
         "POST {home}token HTTP/1.1\r\nHost: {addr}\r\n{MARKED}Content-Length: 10\r\n\r\n"
     )
     .unwrap();
-    std::thread::sleep(Duration::from_millis(100));
+    let until = Instant::now() + Duration::from_secs(10);
+    while !app.sign_in_accepted() && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(app.sign_in_accepted(), "the sign-in server never accepted");
     let out = ask_app(&inbox, &ctx, &mut app, crate::cli::Request::SignOut);
     stream.write_all(b"late-token").unwrap();
     let mut reply = String::new();
@@ -2969,29 +3136,28 @@ fn the_app_retries_a_failed_home_chart_only_while_home_is_the_route() {
     let (source, config) = fixture_source(&fx, true);
     let ctx = egui::Context::default();
     let spawn = spawning(|| Err(anyhow!("no player in this test")));
-    let user = (mock_user(&config), false);
+    let user = (source.user.clone(), false);
     let inbox = channel().1;
     let args = crate::Args::default();
     let mut app = crate::app::App::new(&ctx, args, spawn, user, (inbox, true), Some(source));
     app.go(Route::Search);
-    let ticked = |app: &mut crate::app::App, for_ms: u64| {
-        let until = Instant::now() + Duration::from_millis(for_ms);
-        while Instant::now() < until {
-            app.tick(&ctx);
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        charts(&fx)
-    };
-    let on_search = ticked(&mut app, 6500);
-    app.go(Route::Home);
-    let until = Instant::now() + Duration::from_millis(5000);
-    while Instant::now() < until && charts(&fx) < 2 {
+    let failed = |app: &crate::app::App| app.status_json()["coversFailed"].as_u64();
+    let until = Instant::now() + Duration::from_secs(20);
+    while failed(&app) != Some(50) && Instant::now() < until {
         app.tick(&ctx);
-        std::thread::sleep(Duration::from_millis(20));
+        std::thread::sleep(Duration::from_millis(10));
     }
-    let on_home = ticked(&mut app, 500);
+    let backoff_over = Instant::now() + Duration::from_secs(10);
+    app.tick_at(&ctx, backoff_over);
+    let on_search = (failed(&app), charts(&fx));
+    app.go(Route::Home);
+    let until = Instant::now() + Duration::from_secs(10);
+    while charts(&fx) < 2 && Instant::now() < until {
+        app.tick_at(&ctx, backoff_over);
+        std::thread::sleep(Duration::from_millis(10));
+    }
     std::fs::remove_dir_all(&config).unwrap();
-    assert_eq!((on_search, on_home), (1, 2));
+    assert_eq!((on_search, charts(&fx)), ((Some(50), 1), 2));
 }
 
 #[test]
@@ -3791,7 +3957,7 @@ mod disk_cache {
         let mut seen = Vec::new();
         let mut settled = None;
         while Instant::now() < until
-            && settled.is_none_or(|at: Instant| at.elapsed() < Duration::from_millis(600))
+            && settled.is_none_or(|at: Instant| at.elapsed() < Duration::from_millis(4000))
         {
             grid.receive(ctx);
             if grid.uploaded() == 50 {
@@ -3900,6 +4066,8 @@ mod disk_cache {
         tx.send(cover(0, 0, "stale-0")).unwrap();
         grid.receive(&ctx);
         assert_eq!(grid.album(0), Some("stale-0"));
+        tx.send(covers::Loaded::Missed(0, "old miss".into()))
+            .unwrap();
         tx.send(covers::Loaded::Live(2)).unwrap();
         tx.send(cover(1, 0, "fresh-0")).unwrap();
         grid.receive(&ctx);
@@ -3912,6 +4080,7 @@ mod disk_cache {
         tx.send(cover(0, 1, "stale-1")).unwrap();
         grid.receive(&ctx);
         assert_eq!((grid.album(0), grid.uploaded()), (Some("fresh-0"), 1));
+        assert_eq!(grid.failures(), 1, "only the fresh grid's miss remains");
         tx.send(cover(0, 0, "stale-0")).unwrap();
         grid.receive(&ctx);
         assert_eq!((grid.album(0), grid.uploaded()), (Some("fresh-0"), 1));
@@ -3923,17 +4092,17 @@ mod disk_cache {
         let base = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
         let (open, peak) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
-        let (library, overlapped) = (
-            Arc::new(AtomicBool::new(false)),
+        let (kinds, overlapped) = (
+            Arc::new([AtomicUsize::new(0), AtomicUsize::new(0)]),
             Arc::new(AtomicBool::new(false)),
         );
         let (seen, gauge) = (
             requests.clone(),
-            (open, peak.clone(), library, overlapped.clone()),
+            (open, peak.clone(), kinds, overlapped.clone()),
         );
         std::thread::spawn(move || {
             for stream in listener.incoming() {
-                let (seen, (open, peak, library, overlapped)) = (seen.clone(), gauge.clone());
+                let (seen, (open, peak, kinds, overlapped)) = (seen.clone(), gauge.clone());
                 std::thread::spawn(move || {
                     let mut stream = stream.unwrap();
                     let mut reader = BufReader::new(stream.try_clone().unwrap());
@@ -3944,20 +4113,23 @@ mod disk_cache {
                         line.clear();
                     }
                     seen.lock().unwrap().push((path.clone(), None, None));
-                    peak.fetch_max(open.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
                     let history = path.contains("music-summaries")
                         || path.contains("/history/")
                         || path.contains("/recent/")
                         || path.contains("recently-added");
-                    if path.starts_with("/v1/me/library/albums?") {
-                        library.store(true, Ordering::SeqCst);
+                    let library = path.starts_with("/v1/me/library/albums?");
+                    let kind = library.then_some(0).or(history.then_some(1));
+                    if let Some(kind) = kind {
+                        peak.fetch_max(open.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+                        kinds[kind].fetch_add(1, Ordering::SeqCst);
+                        let until = Instant::now() + Duration::from_secs(2);
+                        let met = || kinds[1 - kind].load(Ordering::SeqCst) > 0;
+                        while !met() && !overlapped.load(Ordering::SeqCst) && Instant::now() < until
+                        {
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        overlapped.fetch_or(met(), Ordering::SeqCst);
                     }
-                    let until = Instant::now() + Duration::from_secs(2);
-                    while history && !library.load(Ordering::SeqCst) && Instant::now() < until {
-                        std::thread::sleep(Duration::from_millis(5));
-                    }
-                    overlapped
-                        .fetch_or(history && library.load(Ordering::SeqCst), Ordering::SeqCst);
                     let body = match path.as_str() {
                         "/v1/me/storefront" => r#"{"data":[{"id":"zz"}]}"#,
                         _ => r#"{"data":[]}"#,
@@ -3967,7 +4139,10 @@ mod disk_cache {
                         body.len()
                     );
                     let _ = stream.write_all(head.as_bytes());
-                    open.fetch_sub(1, Ordering::SeqCst);
+                    if let Some(kind) = kind {
+                        kinds[kind].fetch_sub(1, Ordering::SeqCst);
+                        open.fetch_sub(1, Ordering::SeqCst);
+                    }
                 });
             }
         });
@@ -3980,7 +4155,7 @@ mod disk_cache {
         std::fs::remove_dir_all(&config).unwrap();
         assert!(
             overlapped.load(Ordering::SeqCst),
-            "the library page waited for the history"
+            "the history and library requests never overlapped"
         );
         assert!(peak.load(Ordering::SeqCst) > 1);
     }
@@ -4135,4 +4310,87 @@ fn the_startup_check_reads_the_access_status_without_asking_for_tokens() {
         (status["signInReason"].clone(), status["notice"].clone()),
         (Value::Null, Value::Null)
     );
+}
+
+pub fn pressed(ctx: &egui::Context, key: Option<(egui::Key, bool)>) -> egui::RawInput {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 900.0));
+    let mut input = egui::RawInput {
+        screen_rect: Some(screen),
+        ..Default::default()
+    };
+    input.events.extend(key.into_iter().flat_map(|(key, held)| {
+        let event = |pressed| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let release = (!held).then(|| event(false));
+        release.into_iter().chain([event(true)])
+    }));
+    crate::ui::keys::take(ctx, &mut input);
+    input
+}
+
+#[test]
+fn home_keys_walk_rows_reveal_restore_and_scroll_and_enter_opens_the_focused_cover_once() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let (tx, rx) = channel();
+    let mut grid = Grid::default();
+    grid.listen(rx);
+    for n in 0..50 {
+        let image = egui::ColorImage::filled([2, 2], egui::Color32::WHITE);
+        tx.send(covers::Loaded::Cover(0, n, format!("l.{n}"), image))
+            .unwrap();
+    }
+    tx.send(covers::Loaded::Total(50)).unwrap();
+    grid.receive(&ctx);
+    let columns = grid.layout(800.0).columns;
+    let heading = std::cell::Cell::new(None);
+    let press = |key, repeat| {
+        let (mut label, mut navs) = (None, Vec::new());
+        for key in [Some((key, repeat)), None] {
+            let mut input = pressed(&ctx, key);
+            input.screen_rect = Some(egui::Rect::from_x_y_ranges(0.0..=800.0, 0.0..=300.0));
+            let mut out = ctx.run_ui(input, |ui| grid.show(ui, &mut navs));
+            out.textures_delta.clear();
+            crate::ui::cursor::settle(&ctx);
+            let tree = out.platform_output.accesskit_update.expect("a tree");
+            label = crate::ui::tests::focus_label(&tree);
+            heading.set(
+                tree.nodes
+                    .iter()
+                    .find_map(|(_, n)| n.value()?.starts_with("Top ").then_some(n.bounds()?.y0)),
+            );
+        }
+        (label, navs)
+    };
+    let idle = || press(egui::Key::Escape, false).0;
+    idle();
+    crate::ui::cursor::cycle(&ctx, false, (false, false));
+    assert_eq!(idle(), Some("Open album 1".to_owned()));
+    let down = press(egui::Key::ArrowDown, false).0;
+    assert_eq!(down, Some(format!("Open album {}", columns + 1)));
+    let right = press(egui::Key::ArrowRight, false).0;
+    assert_eq!(right, Some(format!("Open album {}", columns + 2)));
+    let opened = Nav::Go(Route::Album(format!("l.{}", columns + 1)));
+    assert_eq!(press(egui::Key::Enter, false).1, [opened]);
+    for _ in 0..4 {
+        assert_eq!(press(egui::Key::Enter, true).1, []);
+    }
+    for _ in 0..3 {
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+        crate::ui::cursor::settle(&ctx);
+    }
+    idle();
+    assert_eq!(idle(), right);
+    for key in [egui::Key::End, egui::Key::Home] {
+        press(key, false);
+        (0..45).for_each(|_| drop(idle()));
+    }
+    assert!(heading.get().is_some_and(|y| y >= 0.0));
 }

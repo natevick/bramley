@@ -6,6 +6,7 @@ use bramley_engine::Queue;
 use egui::{RichText, WidgetType};
 use serde_json::{Value, json};
 
+use super::cursor::{self, Region};
 use super::labeled;
 use super::nav::Route;
 use super::player_bar::clock;
@@ -315,7 +316,17 @@ pub fn show(ui: &mut egui::Ui, detail: &mut Detail, actions: &mut Vec<Action>) {
     }
     ui.add_space(8.0);
     let rows = model.tracks.len();
-    egui::ScrollArea::vertical().show_rows(ui, ROW_PT, rows, |ui, range| {
+    let cursor = cursor::drive(
+        ui.ctx(),
+        egui::Id::new(("detail-rows", model.item.id.as_str())),
+        Region::Content,
+        (rows, 1),
+        |i| model.at[i].is_some(),
+    );
+    let row_pt = ROW_PT + ui.spacing().item_spacing.y;
+    let area = cursor.scroll(egui::ScrollArea::vertical(), row_pt);
+    area.show_rows(ui, ROW_PT, rows, |ui, range| {
+        cursor.seen(&range);
         for index in range {
             let track = &model.tracks[index];
             let name = track.name.as_deref().unwrap_or("Untitled");
@@ -333,6 +344,7 @@ pub fn show(ui: &mut egui::Ui, detail: &mut Detail, actions: &mut Vec<Action>) {
                 .add_enabled_ui(playable, |ui| ui.add_sized(size, row))
                 .inner;
             let row = labeled(row, WidgetType::Button, &format!("Play {name}"));
+            cursor.mark(ui, index, &row);
             if row.clicked() {
                 actions.extend(play_from(open, model, index));
             }

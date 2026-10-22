@@ -1,6 +1,7 @@
 use bramley_engine::Snapshot;
 use egui::{RichText, WidgetType};
 
+use super::cursor::{self, Region};
 use super::labeled;
 use super::nav::Nav;
 use super::player_bar::clock;
@@ -16,7 +17,12 @@ pub fn jump(shown: &Snapshot, row: usize) -> Option<Action> {
     Some(Action::JumpTo(at + row, item.id.clone()))
 }
 
-fn row(ui: &mut egui::Ui, shown: &Snapshot, row: usize, actions: &mut Vec<Action>) {
+fn row(
+    ui: &mut egui::Ui,
+    shown: &Snapshot,
+    row: usize,
+    actions: &mut Vec<Action>,
+) -> egui::Response {
     let item = &shown.queue[row];
     let title = item.title.as_deref().unwrap_or("Untitled");
     let length = item.duration.map(clock).unwrap_or_default();
@@ -25,9 +31,11 @@ fn row(ui: &mut egui::Ui, shown: &Snapshot, row: usize, actions: &mut Vec<Action
         .right_text(length)
         .truncate();
     let response = ui.add_sized([ui.available_width(), 26.0], button);
-    if labeled(response, WidgetType::Button, &format!("Play {title}")).clicked() {
+    let response = labeled(response, WidgetType::Button, &format!("Play {title}"));
+    if response.clicked() {
         actions.extend(jump(shown, row));
     }
+    response
 }
 
 pub fn show(
@@ -61,11 +69,24 @@ pub fn show(
         ui.label(RichText::new(format!("Up next · {ahead}")).weak());
     }
     let rows = shown.queue.len() - first;
-    egui::ScrollArea::vertical()
-        .auto_shrink(false)
+    let (id, head) = (
+        egui::Id::new("queue-rows"),
+        shown.queue_position.unwrap_or(0),
+    );
+    let was = ui.data_mut(|d| d.get_temp::<usize>(id));
+    ui.data_mut(|d| d.insert_temp(id, head));
+    if let Some(was) = was.filter(|was| *was != head) {
+        cursor::shift(ui.ctx(), id, head as isize - was as isize);
+    }
+    let cursor = cursor::drive(ui.ctx(), id, Region::Queue, (rows, 1), |_| true);
+    let area = egui::ScrollArea::vertical().auto_shrink(false);
+    cursor
+        .scroll(area, 26.0 + ui.spacing().item_spacing.y)
         .show_rows(ui, 26.0, rows, |ui, rows| {
+            cursor.seen(&rows);
             for index in rows {
-                row(ui, shown, index + first, actions);
+                let response = row(ui, shown, index + first, actions);
+                cursor.mark(ui, index, &response);
             }
         });
 }

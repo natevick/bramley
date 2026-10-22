@@ -9,6 +9,7 @@ use bramley_engine::{Queue, STOREFRONT_BACKOFF, Snapshot};
 use egui::{ColorImage, RichText, TextureHandle, WidgetType};
 use serde_json::{Value, json};
 
+use super::cursor::{self, Region};
 use super::labeled;
 use super::nav::{Edge, Nav, Route};
 use crate::covers::{self, Tally, allowed_art, art_url};
@@ -240,6 +241,7 @@ impl Library {
         }
         self.typed.0.push_str(&letters);
         (self.typed.1, self.jump) = (time, Some((list, self.typed.0.clone())));
+        super::keys::typing(ctx, time + TYPING_PAUSE);
     }
 
     pub fn reset(&mut self) {
@@ -490,7 +492,7 @@ fn initial(item: &Item) -> Option<char> {
     item.name.as_deref()?.chars().next()?.to_uppercase().next()
 }
 
-fn strip(ui: &mut egui::Ui, items: &[Item]) -> Option<char> {
+fn strip(ui: &mut egui::Ui, items: &[Item], id: egui::Id) -> Option<char> {
     let full = ui.available_rect_before_wrap();
     let area = egui::Rect::from_min_max(egui::pos2(full.right() - STRIP_PT, full.top()), full.max);
     ui.set_max_width(full.width() - STRIP_PT - ui.spacing().item_spacing.x);
@@ -502,18 +504,24 @@ fn strip(ui: &mut egui::Ui, items: &[Item]) -> Option<char> {
         let (head, tail) = last.split_at(last.len() - 1);
         spans.extend([head, tail].into_iter().filter(|span| !span.is_empty()));
     }
+    let chosen = cursor::spans(ui.ctx(), id, spans.len());
     let height = (area.height() / spans.len() as f32).min(20.0);
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(area));
     child.spacing_mut().item_spacing.y = 0.0;
     child.spacing_mut().interact_size.y = 0.0;
     let mut hit = None;
-    for span in spans {
+    for (index, span) in spans.into_iter().enumerate() {
         let first = span.iter().copied().find(|l| present.contains(l));
         let shown = span[0];
         let text = RichText::new(shown).small();
         let text = if first.is_some() { text } else { text.weak() };
         let button = child.add_sized([STRIP_PT, height], egui::Button::new(text).frame(false));
-        if labeled(button, WidgetType::Button, &format!("Jump to {shown}")).clicked() {
+        let button = labeled(button, WidgetType::Button, &format!("Jump to {shown}"));
+        if chosen == Some(index) {
+            button.request_focus();
+            cursor::ring(&child, button.rect);
+        }
+        if button.clicked() {
             hit = Some(first.unwrap_or(shown));
         }
     }
@@ -809,9 +817,11 @@ fn view(
     let jumpable = matches!(list, List::Artists | List::Albums);
     if jumpable {
         lib.typed(ui.ctx(), list);
-        if let Some(letter) = strip(ui, &lib.list(list).items) {
+        let id = egui::Id::new(("rows", list as usize));
+        if let Some(letter) = strip(ui, &lib.list(list).items, id) {
             (lib.jump, lib.typed.0) =
                 (Some((list, letter.to_lowercase().collect())), String::new());
+            super::keys::typing(ui.ctx(), f64::MIN);
         }
     }
     let albums = matches!(list, List::Albums | List::ArtistAlbums);
@@ -826,6 +836,11 @@ fn view(
         (ROW_PT + 4.0, ui.available_width())
     };
     let loaded = lib.list(list).items.len();
+    let id = egui::Id::new(("rows", list as usize));
+    if *scroll == Some(Edge::End) && !lib.more(list) && lib.built.2 == loaded {
+        cursor::push_all(ui.ctx(), Some(cursor::Step::Last));
+    }
+    let cursor = cursor::drive(ui.ctx(), id, Region::Content, (loaded, columns), |_| true);
     let mut area = egui::ScrollArea::vertical()
         .id_salt(list as usize)
         .max_height(max_height)
@@ -859,10 +874,12 @@ fn view(
             None => {}
         }
     }
+    area = cursor.scroll(area, row_pt + ui.spacing().item_spacing.y);
     #[cfg(feature = "dev")]
     let hooked = list != List::ArtistAlbums;
     let mut hit = None;
     area.show_rows(ui, row_pt, loaded.div_ceil(columns), |ui, rows| {
+        cursor.seen(&rows);
         let range = rows.start * columns..(rows.end * columns).min(loaded);
         lib.lists[list as usize].wanted |= range.end + MARGIN >= loaded;
         let mut built = 0;
@@ -875,6 +892,7 @@ fn view(
                         List::Artists => name_row(ui, item, width, verb),
                         _ => tile(ui, &mut lib.art, item, (albums, width), verb),
                     };
+                    cursor.mark(ui, index, &response);
                     if response.clicked() {
                         hit = Some(index);
                     }
