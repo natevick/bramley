@@ -1360,7 +1360,7 @@ fn fifty_covers_become_textures_and_nothing_decoded_stays_once_a_frame_ends() {
         (None, 50, 0)
     );
     let kept = if cfg!(feature = "gate-sabotage") {
-        50 * 96 * 96 * 4
+        50 * 200 * 200 * 4
     } else {
         0
     };
@@ -1382,7 +1382,7 @@ fn fifty_covers_become_textures_and_nothing_decoded_stays_once_a_frame_ends() {
     assert!(requests[1..6].contains(&library));
     assert_eq!(requests.len(), 56);
     for (path, auth, user) in &requests[6..] {
-        assert!(path.ends_with("/96x96bb.jpg"), "{path}");
+        assert!(path.ends_with("/200x200bb.jpg"), "{path}");
         assert_eq!((auth, user), (&None, &None), "a token went to the art host");
     }
     let mut frame = ctx.run_ui(Default::default(), |_| {});
@@ -1506,6 +1506,146 @@ fn an_empty_library_says_so_and_neither_retries_nor_shows_the_chart() {
             .iter()
             .any(|p| p.contains("charts") || p.starts_with("/art/"))
     );
+}
+
+#[test]
+fn fifty_albums_fill_every_row_at_every_width_with_covers_inside_the_bounds() {
+    for width in (300..=3840).step_by(5).map(|w| w as f32) {
+        let layout = covers::home_layout(width, 50);
+        let used =
+            layout.columns as f32 * layout.cell + covers::HOME_GAP_PT * (layout.columns - 1) as f32;
+        assert_eq!(layout.shown, 50, "{width}");
+        assert_eq!(layout.shown % layout.columns, 0, "{width}: {layout:?}");
+        let bounds = covers::HOME_CELL_MIN_PT..=covers::HOME_CELL_MAX_PT;
+        assert!(bounds.contains(&layout.cell), "{width}: {layout:?}");
+        assert!(used <= width, "{width}: {layout:?}");
+        assert!(
+            width - used <= layout.columns as f32 / 64.0,
+            "{width}: {layout:?}"
+        );
+    }
+}
+
+#[test]
+fn home_layout_handles_the_edge_counts_and_trims_only_when_no_divisor_fits() {
+    for (count, width, columns, shown) in [
+        (0, 800.0, 7, 0),
+        (1, 800.0, 7, 1),
+        (2, 330.0, 3, 2),
+        (2, 800.0, 7, 2),
+        (12, 800.0, 6, 12),
+        (37, 800.0, 7, 35),
+        (49, 800.0, 7, 49),
+        (49, 330.0, 3, 48),
+        (50, 330.0, 2, 50),
+        (50, 800.0, 10, 50),
+        (50, 3440.0, 25, 50),
+    ] {
+        let layout = covers::home_layout(width, count);
+        assert_eq!(
+            (layout.columns, layout.shown),
+            (columns, shown),
+            "{count} at {width}"
+        );
+    }
+}
+
+type Nodes = Vec<(String, egui::accesskit::Node)>;
+
+fn home_nodes(count: usize, total: bool, width: f32) -> Nodes {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let (tx, rx) = channel();
+    let mut grid = Grid::default();
+    grid.listen(rx);
+    let image = || egui::ColorImage::filled([2, 2], egui::Color32::WHITE);
+    for n in 0..count {
+        tx.send(covers::Loaded::Cover(0, n, format!("l.{n}"), image()))
+            .unwrap();
+    }
+    tx.send(match (count, total) {
+        (0, _) => covers::Loaded::Empty,
+        _ => covers::Loaded::Total(if total { count } else { count + 1 }),
+    })
+    .unwrap();
+    grid.receive(&ctx);
+    let input = || egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(width, 900.0),
+        )),
+        ..Default::default()
+    };
+    let mut first = ctx.run_ui(input(), |ui| grid.show(ui, &mut Vec::new()));
+    first.textures_delta.clear();
+    let mut out = ctx.run_ui(input(), |ui| grid.show(ui, &mut Vec::new()));
+    out.textures_delta.clear();
+    let tree = out
+        .platform_output
+        .accesskit_update
+        .expect("an accesskit tree");
+    let named = tree
+        .nodes
+        .into_iter()
+        .filter_map(|(_, n)| Some((n.label().or(n.value())?.to_owned(), n)));
+    named.collect()
+}
+
+#[test]
+fn the_home_heading_counts_what_is_shown_and_is_absent_without_albums() {
+    assert_eq!(covers::home_heading(50), "Top 50 albums");
+    assert_eq!(covers::home_heading(12), "Top 12 albums");
+    assert_eq!(covers::home_heading(1), "Top 1 album");
+    let caption = "From your library, ranked by what you've been playing.";
+    for (count, heading) in [(50, "Top 50 albums"), (12, "Top 12 albums")] {
+        let nodes = home_nodes(count, true, 800.0);
+        let labels: Vec<_> = nodes.iter().map(|(l, _)| l.as_str()).collect();
+        assert!(labels.contains(&heading), "{labels:?}");
+        let spoken = nodes
+            .iter()
+            .any(|(l, n)| l == heading && n.role() == egui::accesskit::Role::Label);
+        assert!(spoken, "{heading} is not a labelled node");
+        assert!(labels.contains(&caption));
+    }
+    let heading = |nodes: &Nodes| nodes.iter().any(|(l, _)| l.starts_with("Top "));
+    assert!(!heading(&home_nodes(0, true, 800.0)), "empty library");
+    assert!(!heading(&home_nodes(20, false, 800.0)), "still loading");
+}
+
+#[test]
+fn the_home_grid_draws_full_rows_inside_the_width_and_the_caption_stays_one_line() {
+    let caption = |nodes: &Nodes| {
+        let (_, node) = nodes
+            .iter()
+            .find(|(l, n)| {
+                l.starts_with("From your library") && n.role() == egui::accesskit::Role::Label
+            })
+            .expect("a caption");
+        let bounds = node.bounds().expect("caption bounds");
+        (bounds.y1 - bounds.y0, bounds.x1)
+    };
+    let (roomy, _) = caption(&home_nodes(50, true, 1100.0));
+    for width in [300.0, 800.0, 1100.0, 3440.0] {
+        let nodes = home_nodes(50, true, width);
+        let mut rows: Vec<(i32, f64)> = Vec::new();
+        for (_, node) in nodes.iter().filter(|(l, _)| l.starts_with("Open album")) {
+            let b = node.bounds().expect("cover bounds");
+            assert!(b.x1 <= f64::from(width) + 0.125, "{width}: {b:?}");
+            match rows.iter_mut().find(|(y, _)| *y == b.y0.round() as i32) {
+                Some(row) => row.1 += 1.0,
+                None => rows.push((b.y0.round() as i32, 1.0)),
+            }
+        }
+        let per_row = rows[0].1;
+        assert!(
+            [2.0, 5.0, 10.0, 25.0].contains(&per_row),
+            "{width}: {rows:?}"
+        );
+        assert!(rows.iter().all(|(_, n)| *n == per_row), "{width}: {rows:?}");
+        let (height, right) = caption(&nodes);
+        assert_eq!(height, roomy, "{width}: the caption wrapped");
+        assert!(right <= f64::from(width));
+    }
 }
 
 #[test]
@@ -1781,7 +1921,7 @@ fn a_zoom_change_refetches_covers_at_the_new_pixel_size() {
     assert_eq!(
         fx.paths()
             .iter()
-            .filter(|p| p.ends_with("/192x192bb.jpg"))
+            .filter(|p| p.ends_with("/256x256bb.jpg"))
             .count(),
         50
     );
@@ -3791,7 +3931,7 @@ mod disk_cache {
         let mut seen = Vec::new();
         let mut settled = None;
         while Instant::now() < until
-            && settled.is_none_or(|at: Instant| at.elapsed() < Duration::from_millis(600))
+            && settled.is_none_or(|at: Instant| at.elapsed() < Duration::from_millis(4000))
         {
             grid.receive(ctx);
             if grid.uploaded() == 50 {

@@ -18,6 +18,11 @@ use serde_json::Value;
 use crate::ui::nav::{Nav, Route};
 
 pub const COVER_PT: f32 = 96.0;
+pub const HOME_GAP_PT: f32 = 8.0;
+pub const HOME_CELL_MIN_PT: f32 = 64.0;
+pub const HOME_CELL_MAX_PT: f32 = 200.0;
+const HOME_DECODE_CAP_PX: u32 = 256;
+const HOME_CAPTION: &str = "From your library, ranked by what you've been playing.";
 pub const API_BASE: &str = "https://api.music.apple.com";
 const STOREFRONT: &str = "/v1/me/storefront";
 const LIBRARY_ALBUMS: &str = "/v1/me/library/albums?limit=100";
@@ -78,6 +83,7 @@ pub enum Loaded {
     Missed(Round, String),
     Failed(String, usize),
     Live(usize),
+    Total(usize),
     Retry(Duration),
     SignInNeeded,
     DeveloperRejected(String),
@@ -134,6 +140,57 @@ pub fn open_caches() -> (Option<Arc<Store>>, Option<Arc<Store>>) {
 
 pub fn px(points: f32, pixels_per_point: f32) -> u32 {
     (points * pixels_per_point).round() as u32
+}
+
+pub fn home_px(pixels_per_point: f32) -> u32 {
+    px(HOME_CELL_MAX_PT, pixels_per_point).min(HOME_DECODE_CAP_PX)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HomeLayout {
+    pub columns: usize,
+    pub cell: f32,
+    pub shown: usize,
+}
+
+fn cell_across(width: f32, columns: usize) -> f32 {
+    let gaps = HOME_GAP_PT * (columns - 1) as f32;
+    ((width - gaps) / columns as f32 * 64.0).floor().max(0.0) / 64.0
+}
+
+fn width_columns(width: f32) -> usize {
+    (((width + HOME_GAP_PT) / (COVER_PT + HOME_GAP_PT)) as usize).max(1)
+}
+
+pub fn home_layout(width: f32, count: usize) -> HomeLayout {
+    let target = |cell: f32| (cell / COVER_PT).ln().abs();
+    let exact = (2..count)
+        .filter(|columns| count.is_multiple_of(*columns))
+        .map(|columns| (columns, cell_across(width, columns)))
+        .filter(|(_, cell)| (HOME_CELL_MIN_PT..=HOME_CELL_MAX_PT).contains(cell))
+        .min_by(|a, b| target(a.1).total_cmp(&target(b.1)));
+    if let Some((columns, cell)) = exact {
+        return HomeLayout {
+            columns,
+            cell,
+            shown: count,
+        };
+    }
+    let columns = width_columns(width);
+    HomeLayout {
+        columns,
+        cell: cell_across(width, columns).min(HOME_CELL_MAX_PT),
+        shown: if count >= columns {
+            count / columns * columns
+        } else {
+            count
+        },
+    }
+}
+
+pub fn home_heading(shown: usize) -> String {
+    let plural = if shown == 1 { "" } else { "s" };
+    format!("Top {shown} album{plural}")
 }
 
 pub fn allowed_art(url: &str, prefix: Option<&str>) -> bool {
@@ -593,11 +650,11 @@ fn home_cached(
         edition: String::new(),
     });
     let prefix = source.art_prefix.as_deref();
-    send(
-        remembered.collect(),
-        &mut Sent::default(),
-        (jobs, px, prefix),
-    );
+    let mut kept = Sent::default();
+    send(remembered.collect(), &mut kept, (jobs, px, prefix));
+    if cached.is_some() {
+        drop(tx.send(Loaded::Total(kept.emitted)));
+    }
     let live = home(agent, auth, (signed_in, px), (target, tally))?;
     if cached.as_ref() != Some(&live.grid) {
         store.remember_home(user, &live.grid, epoch);
@@ -728,8 +785,9 @@ pub fn fetch(
                     let _ = tx.send(Loaded::Failed(format!("{e:#}"), COUNT));
                 }
                 Ok(Some((0, 0))) => drop(tx.send(Loaded::Empty)),
-                Ok(Some((_, 0))) => {}
-                Ok(Some((_, skipped))) => {
+                Ok(Some((emitted, 0))) => drop(tx.send(Loaded::Total(emitted))),
+                Ok(Some((emitted, skipped))) => {
+                    let _ = tx.send(Loaded::Total(emitted));
                     let why = format!("{skipped} library albums had no usable artwork");
                     let _ = tx.send(Loaded::Failed(why, skipped));
                 }
@@ -791,6 +849,7 @@ pub struct Grid {
     generation: Round,
     fresh: BTreeMap<usize, (String, TextureHandle)>,
     expecting: Option<usize>,
+    total: Option<usize>,
     missed: usize,
     tally: Arc<Tally>,
     failed: Option<String>,
@@ -828,7 +887,7 @@ impl Grid {
             }
             return;
         }
-        let px = px(COVER_PT, ctx.pixels_per_point());
+        let px = home_px(ctx.pixels_per_point());
         let Some(source) = self.source.clone().filter(|_| self.px != px) else {
             return;
         };
@@ -882,6 +941,11 @@ impl Grid {
                 }
                 Loaded::Missed(..) => {}
                 Loaded::Live(count) => self.expecting = Some(count),
+                Loaded::Total(count) => {
+                    if self.expecting.is_none() {
+                        self.total = Some(count);
+                    }
+                }
                 Loaded::Failed(why, covers) => {
                     self.failed.get_or_insert(why);
                     self.failures += covers;
@@ -901,6 +965,7 @@ impl Grid {
             .is_some_and(|n| self.fresh.len() + self.missed >= n)
         {
             self.textures = std::mem::take(&mut self.fresh);
+            self.total = Some(self.textures.len());
             (self.generation, self.expecting, self.missed) = (FRESH, None, 0);
         }
         any
@@ -956,6 +1021,22 @@ impl Grid {
         self.failed.as_deref()
     }
 
+    fn settled(&self) -> bool {
+        let loaded = self.textures.len() + self.failures;
+        self.total.is_some_and(|total| loaded >= total)
+    }
+
+    pub fn layout(&self, width: f32) -> HomeLayout {
+        if self.settled() {
+            return home_layout(width, self.textures.len());
+        }
+        HomeLayout {
+            columns: width_columns(width),
+            cell: COVER_PT,
+            shown: self.textures.len(),
+        }
+    }
+
     pub fn show(&self, ui: &mut egui::Ui, navs: &mut Vec<Nav>) {
         if let Some(why) = &self.failed {
             ui.label(egui::RichText::new(format!("Some covers did not load: {why}")).weak());
@@ -964,18 +1045,33 @@ impl Grid {
             ui.label(egui::RichText::new("Your library has no albums yet.").weak());
         }
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for (n, (id, texture)) in self.textures.values().enumerate() {
-                    let size = egui::vec2(COVER_PT, COVER_PT);
-                    let image = egui::Image::new(texture).fit_to_exact_size(size);
-                    let cover = ui.add(egui::Button::image(image).frame(false));
-                    let label = format!("Open album {}", n + 1);
-                    let cover = crate::ui::labeled(cover, egui::WidgetType::Button, &label);
-                    if cover.clicked() {
-                        navs.push(Nav::Go(Route::Album(id.clone())));
+            let layout = self.layout(ui.available_width());
+            if self.settled() && layout.shown > 0 {
+                let title = home_heading(layout.shown);
+                ui.label(egui::RichText::new(&title).strong().size(16.0));
+                ui.label(egui::RichText::new(HOME_CAPTION).weak().size(12.0));
+            }
+            ui.spacing_mut().item_spacing = egui::vec2(HOME_GAP_PT, HOME_GAP_PT);
+            let size = egui::vec2(layout.cell, layout.cell);
+            let shown: Vec<_> = self
+                .textures
+                .values()
+                .take(layout.shown)
+                .enumerate()
+                .collect();
+            for row in shown.chunks(layout.columns) {
+                ui.horizontal(|ui| {
+                    for &(n, (id, texture)) in row {
+                        let image = egui::Image::new(texture).fit_to_exact_size(size);
+                        let cover = ui.add(egui::Button::image(image).frame(false));
+                        let label = format!("Open album {}", n + 1);
+                        let cover = crate::ui::labeled(cover, egui::WidgetType::Button, &label);
+                        if cover.clicked() {
+                            navs.push(Nav::Go(Route::Album(id.clone())));
+                        }
                     }
-                }
-            });
+                });
+            }
         });
     }
 }

@@ -174,7 +174,7 @@ fn the_recorded_scale_sizes_the_covers_the_way_the_ui_does() {
         assert_eq!(recorded_scale(&root), expected, "{text}");
     }
     let sizes = sizes(1.5);
-    assert_eq!((sizes.cell, sizes.row, sizes.home), (210, 60, 144));
+    assert_eq!((sizes.cell, sizes.row, sizes.home), (210, 60, 256));
 }
 
 #[test]
