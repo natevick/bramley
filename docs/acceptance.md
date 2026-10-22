@@ -56,6 +56,7 @@ Nate delegated the definition of "done" to Norm on 2026-10-10. Bramley v1 on Lin
 | R1 | Playing, with the library view showing ≥ 50 covers | Whole-process PSS median ≤ **200 MiB** over 60 s |
 | R2 | Browsing, never played | PSS ≤ **100 MiB** (the playback engine starts lazily on first play) |
 | R3 | 30-minute soak (continuous playback across ≥ 8 tracks, a cover-heavy view open) | PSS growth ≤ **10 MiB** between minute 5 and minute 30; no crash; no underruns logged |
+|  | R3 reclaim guard (S48, Amendment 19; runs started at or after commit 6837ab8) | If R3's RSS falls **30 MiB** or more from an earlier sample during the soak and R3 has no FAIL, R3 is VOID, not PASS. A FAIL stays FAIL. |
 | R4 | CPU while playing | ≤ **5 %** of one core, median |
 | R5 | CPU while paused | ≤ **1 %** of one core, median |
 | R6 | Binary size | Recorded, no bar |
@@ -66,6 +67,7 @@ Nate delegated the definition of "done" to Norm on 2026-10-10. Bramley v1 on Lin
 - **Corrupted developer token:** F3 and F4 must fail.
 - **Ballast build** (`sabotage` feature only, so it can never ship): it allocates and touches enough memory to land 15 MiB over the R1 bar in USS, sized from the same run's real R1 USS median (amended 2026-10-10: procedure, no thresholds changed; it was the PSS median). R1 must fail in zone 1, and the ballast's measured USS rise must match its size within 3 MiB. The ballast binary also must fail `check-shipped-features.sh`.
   - **Amended 2026-10-21 (S34, `docs/s13-acceptance-PREREG.md` Amendment 17; runs started at or after commit 3491774):** the 215 ± 5 MiB landing band is unchanged, but missing it is no longer always FAIL. If it is the only ballast condition that fails, every check PASSes and the ballast launch's RSS minus its USS rise is within 10 MiB of R1's RSS and the pre-ballast USS, corrected for lost sharing, is at or under 200 MiB, the run is VOID. Any other ballast failure, or a larger footprint gap or corrected USS over the bar, is FAIL. Two consecutive counted runs of the same release that both end in a band-miss VOID stop the re-runs, and the decision goes to Nate; any other outcome in between resets the count.
+  - **Amended 2026-10-22 (S48, `docs/s13-acceptance-PREREG.md` Amendment 19; runs started at or after commit 6837ab8):** the landing target is now the ballast launch's own pre-ballast USS plus the ballast size, ± 5 MiB, not 215. The ballast is still sized from shipped R1, and every other clause is unchanged.
 - **Leak build** (`sabotage` feature): it leaks 3 MiB on every track change, which is ≥ 24 MiB over 8 tracks. R3 must fail.
 - **llvmpipe forced:** the run is VOID.
 - **No null sink or no PipeWire stream:** F4 is VOID, not PASS, but only once playback has started (position advancing). If playback never started, F4 is FAIL. Clarified 2026-10-10: S2a found the two rules collided, so a signed-out run came out VOID.

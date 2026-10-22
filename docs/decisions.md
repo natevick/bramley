@@ -90,3 +90,8 @@
   - **Rule:** the harness retries 401 and 403 three times. If the call still fails, a check whose only problem is evidence lost to that phase is VOID. Any other missing evidence stays FAIL, and a real FAIL elsewhere still FAILs the gate. Details in `docs/s13-acceptance-PREREG.md` Amendment 18.
   - **Stop rule:** two consecutive counted runs of the same release that both end in a harness-api VOID stop the re-runs and the decision goes to Nate. Any other outcome in between resets the count.
   - Applies to runs started at or after commit 02ba1e0.
+- **2026-10-22: R3 reclaim guard and a relative ballast landing (S48, Nate approved).**
+  - **Why:** the S45 investigation traced the v0.6.0 and v0.7.0 collapses to a host memory reclaim during R3, and found that v0.7.0's ballast launch holds about 8 MB of kept covers that R1 does not.
+  - **Rule:** an R3 PASS is VOID if R3's RSS falls 30 MiB or more during the soak. A FAIL stays FAIL. The ballast lands against its own pre-ballast USS plus its size, ± 5 MiB, not 215. Samples also record `/proc/vmstat` reclaim counters and each process's shared and private split. Details in `docs/s13-acceptance-PREREG.md` Amendment 19.
+  - **Replayed:** `v070-counted-1` R3 becomes VOID (RSS fell 72.1 MiB) and its ballast holds. `v070-counted-2`'s ballast holds.
+  - Applies to runs started at or after commit 6837ab8.

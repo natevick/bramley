@@ -582,3 +582,26 @@ R3 stays one of the 16 checks.
 **Stop rule.** It applies only to harness-api VOIDs. Two consecutive counted runs of the same release that both end in a harness-api VOID stop the re-runs, and the decision goes to Nate. A PASS, a FAIL or a VOID from any other cause in between resets the count.
 
 **Scope.** It applies to runs started at or after commit 02ba1e0. `v070-counted-2` stays FAIL on record, and Nate's decision on it stands. Its archived `errors.json` is the old string, which the gate does not read as harness-originated. No threshold of any check changes.
+
+## Amendment 19 (2026-10-22, S48: an R3 PASS over a host memory reclaim is VOID, and the ballast lands against its own baseline; written before any run that uses it)
+**Why.** Norm's S45 investigation of the ballast sharing collapse (a memo outside the repo) traced both Amendment 17 band misses to the same cause. A host page reclaim during R3 unmapped shared library pages, and later launches mapped them as private. USS rose by about 45 MiB while RSS stayed flat. It also found a second miss. v0.7.0's ballast launch keeps about 8 MB of decoded covers that R1 does not, so it missed the band by +7 and +9 MiB with sharing intact. Nate approved both fixes on 2026-10-22.
+
+**(a) R3 reclaim guard.**
+- The drop is the largest fall of R3's own RSS from an earlier sample to a later one, taken over the soak samples. Recovery after the fall does not undo it.
+- If the drop is 30 MiB or more (`RECLAIM_MIB`) and R3 has no FAIL, R3 is VOID. The reason names the drop.
+- A FAIL stays FAIL, so a leak is never hidden by a reclaim.
+- `v070-counted-1` replayed through this rule: R3 RSS fell 72.1 MiB, so its R3 PASS is VOID. Its growth was -24.8 MiB, which shows why a PASS over a reclaim proves little.
+
+**(b) The ballast lands against its own baseline.**
+- The target is the ballast launch's pre-window USS plus the ballast size, within the same 5 MiB band. It was 215 ± 5, which assumed the ballast launch starts where shipped R1 does.
+- The ballast is still sized from shipped R1. `ussRoseByBallast` and every other clause are unchanged, and R1 must still FAIL on its USS bar alone.
+- `v070-counted-2`: pre-ballast USS 161.3, ballast 63 MiB, rise 63.0, landed 224.3. The target is 224.3, so the ballast holds. Under 215 ± 5 it missed by 9.3. `v070-counted-1`: ballast 58 MiB, landed 265.4, holds the same way.
+- **Amendment 17 after this change.** The rise must match the ballast size plus any growth in kept covers within 3 MiB. The landing must match the ballast size within 5 MiB. So a miss now needs kept covers to grow by more than 2 MiB between the two windows. A sharing collapse no longer causes a miss, and R3's guard voids the run that had it. The band-miss VOID, its footprint guard and its adjusted-USS guard stay as they were. They are rarely reached now, and they still stop a grown baseline from being voided. They are not redundant, so none is removed.
+
+**(c) Diagnostics, no judging change.** Every memory sample in `drive.py` now carries `vmstat` (the `pgscan*` and `pgsteal*` counters from `/proc/vmstat`) and `split` (shared and private MiB for each sampled process). The gate does not read them. They are there so the next collapse can be attributed.
+
+**Not changed.** The S45 memo's open question stays open: which process is the sharing partner, and what drove the reclaim. The 8 MB of kept covers is now absorbed by the target, not explained.
+
+**Stop rule.** Unchanged. It still applies to Amendment 17's band-miss VOIDs and Amendment 18's harness-api VOIDs. An R3 reclaim VOID is a VOID from another cause, so it resets both counts.
+
+**Scope.** It applies to runs started at or after commit 6837ab8. `v070-counted-1` and `v070-counted-2` stay as recorded. No threshold of any other check changes.
