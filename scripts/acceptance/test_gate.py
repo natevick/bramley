@@ -418,6 +418,7 @@ BALLAST = [
     ('ballast fails only for another reason', both(every('ballast', 'uss', 150.0), every('ballast', 'rss', 199.0), edit('ballast.r1.json', lambda d: d['samples'][2].__setitem__('procs', 2))), 'thresholdOnly', 'FAIL'),
     ('ballast off band and its rise short', every('ballast', 'uss', 225.0), 'ussRoseByBallast', 'FAIL'),
     ('ballast off band by kept covers alone', high_host, 'landedWithinBand', 'VOID'),
+    ('ballast size unrecorded', put('ballast.r1.json', ballastMiB=None), 'landedWithinBand', 'FAIL'),
     ('ballast did not raise USS', put('ballast.r1.json', ballastMiB=40, ballastTouched=40), 'ussRoseByBallast', 'FAIL'),
     ('ballast rise beyond its size', put('ballast.r1.json', ballastMiB=63, ballastTouched=63), 'ussRoseByBallast', 'FAIL'),
     ('ballast windows from two launches', edit('ballast.r1.json', lambda d: d['baseSamples'][0].__setitem__('pid', 8)), 'oneLaunch', 'FAIL'),
