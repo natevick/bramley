@@ -9,6 +9,7 @@ use bramley_engine::{Queue, STOREFRONT_BACKOFF, Snapshot};
 use egui::{ColorImage, RichText, TextureHandle, WidgetType};
 use serde_json::{Value, json};
 
+use super::cursor;
 use super::labeled;
 use super::nav::{Edge, Nav, Route};
 use crate::covers::{self, Tally, allowed_art, art_url};
@@ -826,6 +827,12 @@ fn view(
         (ROW_PT + 4.0, ui.available_width())
     };
     let loaded = lib.list(list).items.len();
+    let cursor_rows = if albums { 0 } else { loaded };
+    let cursor = cursor::drive(
+        ui.ctx(),
+        egui::Id::new(("rows", list as usize)),
+        cursor_rows,
+    );
     let mut area = egui::ScrollArea::vertical()
         .id_salt(list as usize)
         .max_height(max_height)
@@ -859,10 +866,12 @@ fn view(
             None => {}
         }
     }
+    area = cursor.scroll(area, row_pt + ui.spacing().item_spacing.y);
     #[cfg(feature = "dev")]
     let hooked = list != List::ArtistAlbums;
     let mut hit = None;
     area.show_rows(ui, row_pt, loaded.div_ceil(columns), |ui, rows| {
+        cursor.seen(&rows);
         let range = rows.start * columns..(rows.end * columns).min(loaded);
         lib.lists[list as usize].wanted |= range.end + MARGIN >= loaded;
         let mut built = 0;
@@ -875,6 +884,7 @@ fn view(
                         List::Artists => name_row(ui, item, width, verb),
                         _ => tile(ui, &mut lib.art, item, (albums, width), verb),
                     };
+                    cursor.mark(ui, index, &response);
                     if response.clicked() {
                         hit = Some(index);
                     }

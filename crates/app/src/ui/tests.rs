@@ -25,6 +25,17 @@ fn press(k: Key, modifiers: Modifiers) -> RawInput {
     }
 }
 
+pub fn hooked(ctx: &egui::Context, k: Key) -> RawInput {
+    let mut input = press(k, Modifiers::NONE);
+    super::keys::take(ctx, &mut input);
+    input
+}
+
+pub fn focus_label(tree: &egui::accesskit::TreeUpdate) -> Option<String> {
+    let (_, node) = tree.nodes.iter().find(|(id, _)| *id == tree.focus)?;
+    Some(node.label()?.to_owned())
+}
+
 fn tap(k: Key) -> RawInput {
     let events = vec![
         key(k, false, Modifiers::NONE),
@@ -1511,7 +1522,7 @@ fn every_bound_key_typed_into_search_fires_nothing() {
         assert_eq!(status["route"], "Search", "{k:?}");
         assert_eq!(status["engineStarted"], false, "{k:?}");
         let expected = match k {
-            Key::ArrowUp => 0,
+            Key::ArrowUp | Key::Home => 0,
             Key::ArrowLeft => 1,
             _ => 2,
         };
@@ -1543,4 +1554,36 @@ fn a_focused_slider_or_an_open_popup_keeps_arrows_and_escape_and_taking_is_idemp
     ctx.memory_mut(|m| m.surrender_focus(slider));
     egui::Popup::open_id(&ctx, egui::Id::new("menu"));
     assert_eq!(taken(&ctx), 1);
+}
+
+#[test]
+fn down_arrows_focus_queue_rows_and_play_nothing() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut shown = bramley_engine::Snapshot::default();
+    shown.queue = (0..40)
+        .map(|n| bramley_engine::QueueItem {
+            id: format!("i.{n}"),
+            title: Some(format!("Row {n}")),
+            duration: None,
+        })
+        .collect();
+    shown.queue_length = 40;
+    let (mut actions, mut navs) = (Vec::new(), Vec::new());
+    let mut label = None;
+    for n in 0..16 {
+        let input = if n % 2 == 0 {
+            hooked(&ctx, Key::ArrowDown)
+        } else {
+            RawInput::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| {
+            super::queue_panel::show(ui, &shown, (&mut actions, &mut navs));
+        });
+        out.textures_delta.clear();
+        super::cursor::settle(&ctx);
+        label = focus_label(&out.platform_output.accesskit_update.expect("a tree"));
+    }
+    assert_eq!(label.as_deref(), Some("Play Row 7"));
+    assert!(actions.is_empty() && navs.is_empty());
 }

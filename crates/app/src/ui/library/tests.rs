@@ -1549,3 +1549,78 @@ fn a_letter_the_thin_strip_hides_still_jumps_through_its_neighbour_and_by_typing
     strip_at(&ctx, &mut lib, 200.0, vec![text("a")]);
     assert_eq!(lib.typed.0, "a", "every letter still types");
 }
+
+fn cursor_key(ctx: &egui::Context, lib: &mut Library, key: egui::Key) -> Landed {
+    let mut landed = Landed::default();
+    for pressed in [true, false] {
+        let mut input = RawInput::default();
+        if pressed {
+            input = crate::ui::tests::hooked(ctx, key);
+        }
+        input.screen_rect = Some(Rect::from_min_size(Pos2::ZERO, vec2(800.0, 300.0)));
+        let (mut actions, mut navs) = (Vec::new(), Vec::new());
+        let mut out = ctx.run_ui(input, |ui| {
+            let route = (&Route::Songs, &mut None);
+            show(ui, lib, route, (&mut actions, &mut navs))
+        });
+        out.textures_delta.clear();
+        lib.art.flush(ctx);
+        crate::ui::cursor::settle(ctx);
+        let tree = out.platform_output.accesskit_update.expect("a tree");
+        let built = tree.nodes.iter().filter_map(|(_, n)| n.label());
+        landed.built = built.filter(|l| l.contains("Secret Song")).count();
+        landed.focus = crate::ui::tests::focus_label(&tree);
+        landed.emitted |= !actions.is_empty() || !navs.is_empty();
+    }
+    landed
+}
+
+fn played(n: usize) -> Option<String> {
+    Some(format!("Play Secret Song {n} · Secret Artist"))
+}
+
+#[derive(Default)]
+struct Landed {
+    focus: Option<String>,
+    built: usize,
+    emitted: bool,
+}
+
+#[test]
+fn thirty_downs_build_focus_and_announce_row_thirty() {
+    let (ctx, mut lib) = songs(0..100);
+    ctx.enable_accesskit();
+    let mut landed = Landed::default();
+    for _ in 0..30 {
+        landed = cursor_key(&ctx, &mut lib, egui::Key::ArrowDown);
+    }
+    assert_eq!(landed.focus, played(29));
+}
+
+#[test]
+fn home_end_and_page_keys_move_by_list_and_viewport() {
+    let (ctx, mut lib) = songs(0..100);
+    ctx.enable_accesskit();
+    let mut at = |key| cursor_key(&ctx, &mut lib, key);
+    assert_eq!(at(egui::Key::End).focus, played(99));
+    let top = at(egui::Key::Home);
+    assert_eq!(top.focus, played(0));
+    let page = top.built;
+    assert!((5..40).contains(&page), "a viewport builds {page} rows");
+    let down = at(egui::Key::PageDown).focus;
+    assert_eq!(down, played(page));
+    assert_eq!(at(egui::Key::PageUp).focus, played(0));
+}
+
+#[test]
+fn moving_focus_never_emits_an_action() {
+    let (ctx, mut lib) = songs(0..100);
+    ctx.enable_accesskit();
+    let keys = [
+        egui::Key::ArrowDown,
+        egui::Key::End,
+        egui::Key::PageUp,
+        egui::Key::Home,
+    ];
+    assert!(keys.iter().all(|k| !cursor_key(&ctx, &mut lib, *k).emitted));
+}

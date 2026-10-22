@@ -12,6 +12,7 @@ const POLL: Duration = Duration::from_secs(1);
 const GRACE: Duration = Duration::from_secs(3);
 const TEXT_MIN: f32 = 4.5;
 const WEAK_MIN: f32 = 3.0;
+const FOCUS_MIN: f32 = 3.0;
 
 #[cfg_attr(not(feature = "dev"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -183,6 +184,10 @@ impl Palette {
 
     pub fn notice(&self) -> Color32 {
         fit(self.alert, &[self.panel], TEXT_MIN)
+    }
+
+    pub fn focus(&self) -> Color32 {
+        fit(self.accent, &self.surfaces(), FOCUS_MIN)
     }
 
     pub fn placeholder(&self) -> Color32 {

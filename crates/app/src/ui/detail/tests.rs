@@ -300,3 +300,28 @@ fn a_narrow_header_stacks_the_cover_above_the_title_and_wraps_the_buttons_inside
         );
     }
 }
+
+#[test]
+fn down_arrows_focus_track_rows_and_play_nothing() {
+    let (ctx, mut d, t0) = (egui::Context::default(), Detail::new(None), Instant::now());
+    ctx.enable_accesskit();
+    tick(&mut d, t0, true, &Route::Album("1".into()));
+    let ids: Vec<String> = (0..40).map(|n| format!("s{n}")).collect();
+    let songs: Vec<(&str, &str)> = ids.iter().map(|id| (id.as_str(), "songs")).collect();
+    answer(&mut d, &ctx, Ok(Reply::Detail(found(page(&songs, None)))));
+    let mut actions = Vec::new();
+    let mut label = None;
+    for n in 0..16 {
+        let input = match n % 2 {
+            0 => crate::ui::tests::hooked(&ctx, egui::Key::ArrowDown),
+            _ => egui::RawInput::default(),
+        };
+        let mut out = ctx.run_ui(input, |ui| super::show(ui, &mut d, &mut actions));
+        out.textures_delta.clear();
+        crate::ui::cursor::settle(&ctx);
+        label =
+            crate::ui::tests::focus_label(&out.platform_output.accesskit_update.expect("a tree"));
+    }
+    assert_eq!(label.as_deref(), Some("Play songs s7"));
+    assert!(actions.is_empty());
+}

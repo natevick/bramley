@@ -796,6 +796,7 @@ impl App {
             }
         }
         self.library.art.flush(ui.ctx());
+        ui::cursor::settle(ui.ctx());
         if sign_out {
             self.sign_out();
         }

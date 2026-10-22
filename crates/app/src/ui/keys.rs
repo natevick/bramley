@@ -2,6 +2,8 @@ use std::collections::HashSet;
 
 use egui::{Context, Event, Id, Key, Modifiers, RawInput};
 
+use super::cursor::{self, Step};
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum Gate {
     Always,
@@ -23,11 +25,15 @@ pub struct Binding {
     pub on_macos: bool,
 }
 
-const ARROWS: [(Key, Modifiers); 4] = [
+const CURSOR_KEYS: [(Key, Modifiers); 8] = [
     (Key::ArrowUp, Modifiers::NONE),
     (Key::ArrowDown, Modifiers::NONE),
     (Key::ArrowLeft, Modifiers::NONE),
     (Key::ArrowRight, Modifiers::NONE),
+    (Key::Home, Modifiers::NONE),
+    (Key::End, Modifiers::NONE),
+    (Key::PageUp, Modifiers::NONE),
+    (Key::PageDown, Modifiers::NONE),
 ];
 
 pub const BINDINGS: &[Binding] = &[
@@ -39,7 +45,7 @@ pub const BINDINGS: &[Binding] = &[
         on_macos: true,
     },
     Binding {
-        keys: &ARROWS,
+        keys: &CURSOR_KEYS,
         gate: Gate::WhenIdle,
         intent: Intent::Cursor,
         help: "Move the cursor",
@@ -97,6 +103,9 @@ pub fn take(ctx: &Context, input: &mut RawInput) {
         let taken = BINDINGS.iter().any(|b| takes(b, event, idle));
         if let (true, Event::Key { key, .. }) = (taken, event) {
             log::debug!("took {key:?}");
+            if let Some(step) = Step::of(*key) {
+                cursor::push(ctx, step);
+            }
         }
         !taken
     });
