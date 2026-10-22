@@ -69,13 +69,16 @@ pub fn show(
         ui.label(RichText::new(format!("Up next · {ahead}")).weak());
     }
     let rows = shown.queue.len() - first;
-    let cursor = cursor::drive(
-        ui.ctx(),
+    let (id, head) = (
         egui::Id::new("queue-rows"),
-        Region::Queue,
-        (rows, 1),
-        |_| true,
+        shown.queue_position.unwrap_or(0),
     );
+    let was = ui.data_mut(|d| d.get_temp::<usize>(id));
+    ui.data_mut(|d| d.insert_temp(id, head));
+    if let Some(was) = was.filter(|was| *was != head) {
+        cursor::shift(ui.ctx(), id, head as isize - was as isize);
+    }
+    let cursor = cursor::drive(ui.ctx(), id, Region::Queue, (rows, 1), |_| true);
     let area = egui::ScrollArea::vertical().auto_shrink(false);
     cursor
         .scroll(area, 26.0 + ui.spacing().item_spacing.y)

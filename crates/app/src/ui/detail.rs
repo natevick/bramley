@@ -318,7 +318,7 @@ pub fn show(ui: &mut egui::Ui, detail: &mut Detail, actions: &mut Vec<Action>) {
     let rows = model.tracks.len();
     let cursor = cursor::drive(
         ui.ctx(),
-        egui::Id::new("detail-rows"),
+        egui::Id::new(("detail-rows", model.item.id.as_str())),
         Region::Content,
         (rows, 1),
         |i| model.at[i].is_some(),

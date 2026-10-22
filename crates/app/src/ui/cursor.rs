@@ -111,6 +111,7 @@ struct Slot {
     strip: Option<usize>,
     spans: usize,
     seen: Range<usize>,
+    follow: bool,
 }
 
 #[derive(Clone, Default)]
@@ -214,6 +215,15 @@ pub fn spans(ctx: &Context, id: Id, count: usize) -> Option<usize> {
     })
 }
 
+pub fn shift(ctx: &Context, id: Id, by: isize) {
+    with(ctx, |focus| {
+        let queued = focus.region == Region::Queue;
+        let slot = focus.slots.entry(id).or_default();
+        slot.at = slot.at.map(|at| at.saturating_add_signed(-by));
+        slot.follow = queued && slot.at.is_some();
+    });
+}
+
 pub fn drive(
     ctx: &Context,
     id: Id,
@@ -253,7 +263,12 @@ pub fn drive(
             .at
             .map(|at| at.min(len.saturating_sub(1)))
             .filter(|_| len > 0);
-        let moved = left || (!steps.is_empty() && slot.strip.is_none());
+        slot.strip = slot
+            .strip
+            .map(|i| i.min(slot.spans.saturating_sub(1)))
+            .filter(|_| slot.spans > 0);
+        let moved =
+            left || std::mem::take(&mut slot.follow) || (!steps.is_empty() && slot.strip.is_none());
         (slot.at, slot.seen.clone(), moved, !steps.is_empty())
     });
     if woke {

@@ -1600,6 +1600,38 @@ fn down_arrows_focus_queue_rows_and_play_nothing() {
     assert!(actions.is_empty() && navs.is_empty());
 }
 
+#[test]
+fn the_queue_ring_stays_on_its_entry_as_the_queue_advances() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut shown = bramley_engine::Snapshot::default();
+    let entry = |n: usize| bramley_engine::QueueItem {
+        id: format!("i.{n}"),
+        title: Some(format!("Row {n}")),
+        duration: None,
+    };
+    shown.queue = (0..40).map(entry).collect();
+    (shown.queue_length, shown.queue_position) = (40, Some(0));
+    super::cursor::cycle(&ctx, false, (false, true));
+    let mut at = |shown: &bramley_engine::Snapshot, key: Option<Key>| {
+        let input = key.map_or_else(RawInput::default, |k| hooked(&ctx, k));
+        let mut out = ctx.run_ui(input, |ui| {
+            super::queue_panel::show(ui, shown, (&mut Vec::new(), &mut Vec::new()));
+        });
+        out.textures_delta.clear();
+        super::cursor::settle(&ctx);
+        focus_label(&out.platform_output.accesskit_update.expect("a tree"))
+    };
+    for _ in 0..3 {
+        at(&shown, Some(Key::ArrowDown));
+        at(&shown, None);
+    }
+    assert_eq!(at(&shown, None).as_deref(), Some("Play Row 3"));
+    (shown.queue, shown.queue_position) = ((1..40).map(entry).collect(), Some(1));
+    at(&shown, None);
+    assert_eq!(at(&shown, None).as_deref(), Some("Play Row 3"));
+}
+
 fn narrow(events: Vec<Event>) -> RawInput {
     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(500.0, 700.0));
     RawInput {
