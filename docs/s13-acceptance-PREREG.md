@@ -543,3 +543,19 @@ R3 stays one of the 16 checks.
 **F9.** The expected `tools/list` is now the 14 tools of `gate.TOOLS`, which adds `shuffle` and `repeat`. A server that lists any other set FAILs F9.
 
 **Scope.** It applies to runs made at or after this commit. No threshold of any other check changes.
+
+## Amendment 17 (2026-10-21, S34: a ballast that only misses its landing band is VOID, not FAIL; written before any run that uses it)
+**Why.** The ballast is a positive control: it proves the gate can see a build that is over the R1 bar. It must land R1's USS median at 215 ± 5 MiB (`R1_BAR + BALLAST_OVER`, `LANDING_BAND`). When the host measures high, it adds its MiB correctly and still lands outside the band. Under the old rule `holds` was false and the gate was FAIL, though every check of the app had PASSed. A control that misses its band says nothing about the app.
+- `v042-counted-1`: all 16 checks PASS. The ballast landed at 220.1 MiB, 0.1 MiB outside 215 ± 5, and every other clause held. See `docs/v0.4.2-RESULTS.md`.
+- `v060-counted-2`: all 16 checks PASS. The ballast's USS rose by 58.0 MiB, against 58.8 in `v060-counted-1`, but its session started from about 205 MiB instead of about 157 and landed at 262.7 MiB. The reference binary drifted 27.2 MiB in the same run. See `docs/v0.6.0-RESULTS.md`.
+- Both gates read FAIL, and Nate had to decide each (`docs/decisions.md`, 2026-10-20 and 2026-10-21).
+
+**The rule, as `gate.py` implements it.** The ballast clauses are `thresholdOnly`, `failsShippedCheck`, `ussRoseByBallast`, `oneLaunch`, `preWindowValid`, `touched` and `landedWithinBand`.
+- If `landedWithinBand` is the only clause that is false, the ballast cannot judge the run. The gate is VOID, and the ballast's `bandMiss` names the miss, for example `ballast control landed at 262.7 MiB, outside 215 ± 5`.
+- If any other clause is false (the USS did not rise, the ballast was not touched, more than one launch, an invalid pre-window, R1 failed for more than the USS bar or did not fail, or the ballast passed `check-shipped-features.sh`), the control itself is broken and the gate stays FAIL, band hit or not.
+- A band miss never hides a real result. The order is unchanged: FAIL if the real state changed or the run is unsafe, then VOID if any check is VOID, then FAIL if any check FAILs, then PASS if the ballast holds. The band-miss VOID is reached only when every check PASSed.
+- Sabotage and llvmpipe modes are unchanged.
+
+**Stop rule.** A VOID is re-run under the next run name. Two consecutive VOIDs from the same cause stop the re-runs, and the decision goes to Nate. A host that measures high would otherwise loop runs and spend Apple traffic on each. A run that is VOID for another cause does not count toward the two.
+
+**Scope.** It applies to runs started after this commit. `v042-counted-1` and `v060-counted-2` stay FAIL on record, and Nate's decisions on them stand. No threshold of any check or of the ballast changes.
