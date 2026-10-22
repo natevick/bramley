@@ -19,7 +19,7 @@ use crate::ui::nav::{Nav, Route};
 
 pub const COVER_PT: f32 = 96.0;
 pub const HOME_GAP_PT: f32 = 8.0;
-pub const HOME_CELL_MIN_PT: f32 = 56.0;
+pub const HOME_CELL_MIN_PT: f32 = 64.0;
 pub const HOME_CELL_MAX_PT: f32 = 200.0;
 const HOME_DECODE_CAP_PX: u32 = 256;
 const HOME_CAPTION: &str = "From your library, ranked by what you've been playing.";
@@ -1021,6 +1021,22 @@ impl Grid {
         self.failed.as_deref()
     }
 
+    fn settled(&self) -> bool {
+        let loaded = self.textures.len() + self.failures;
+        self.total.is_some_and(|total| loaded >= total)
+    }
+
+    pub fn layout(&self, width: f32) -> HomeLayout {
+        if self.settled() {
+            return home_layout(width, self.textures.len());
+        }
+        HomeLayout {
+            columns: width_columns(width),
+            cell: COVER_PT,
+            shown: self.textures.len(),
+        }
+    }
+
     pub fn show(&self, ui: &mut egui::Ui, navs: &mut Vec<Nav>) {
         if let Some(why) = &self.failed {
             ui.label(egui::RichText::new(format!("Some covers did not load: {why}")).weak());
@@ -1028,21 +1044,9 @@ impl Grid {
         if self.empty {
             ui.label(egui::RichText::new("Your library has no albums yet.").weak());
         }
-        let settled = self
-            .total
-            .is_some_and(|total| self.textures.len() + self.failures >= total);
         egui::ScrollArea::vertical().show(ui, |ui| {
-            let width = ui.available_width();
-            let layout = if settled {
-                home_layout(width, self.textures.len())
-            } else {
-                HomeLayout {
-                    columns: width_columns(width),
-                    cell: COVER_PT,
-                    shown: self.textures.len(),
-                }
-            };
-            if settled && layout.shown > 0 {
+            let layout = self.layout(ui.available_width());
+            if self.settled() && layout.shown > 0 {
                 let title = home_heading(layout.shown);
                 ui.label(egui::RichText::new(&title).strong().size(16.0));
                 ui.label(egui::RichText::new(HOME_CAPTION).weak().size(12.0));
