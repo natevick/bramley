@@ -278,27 +278,26 @@ fn idle(ctx: &Context) -> bool {
     !(ctx.text_edit_focused() || on_slider || egui::Popup::is_any_open(ctx))
 }
 
-fn takes(binding: &Binding, event: &Event, (idle, typing): (bool, bool)) -> bool {
+fn takes(binding: &Binding, event: &Event, (idle, typing): (bool, bool), repeating: bool) -> bool {
     let text = |t: &str| t.len() == 1 && texts(binding.intent).contains(t);
-    let (hit, repeat) = match event {
+    let hit = match event {
         Event::Key {
             key,
             pressed: true,
-            repeat,
             modifiers,
             ..
         } => {
             let chord = |&(k, m): &(Key, Modifiers)| k == *key && modifiers.matches_exact(m);
-            (binding.keys.iter().any(chord), *repeat)
+            binding.keys.iter().any(chord)
         }
-        Event::Text(t) => (text(t), false),
+        Event::Text(t) => text(t),
         _ => return false,
     };
     let open = match binding.gate {
         Gate::Always => true,
         Gate::WhenIdle | Once => idle,
         Gate::Letters => idle && !typing,
-        Gate::Repeat => repeat,
+        Gate::Repeat => repeating,
     };
     open && hit && binding.platforms.here() && !matches!(binding.intent, Intent::Shortcut)
 }
@@ -354,15 +353,28 @@ pub fn take(ctx: &Context, input: &mut RawInput) {
     let until: Option<f64> = ctx.data(|d| d.get_temp(Id::new("keys-typing")));
     let idle = (idle(ctx), until.is_some_and(|until| now <= until));
     let modal = ctx.data(|d| d.get_temp(Id::new("keys-help")).unwrap_or(false));
+    let held_id = Id::new("keys-held");
+    let mut held: HashSet<Key> = ctx.data_mut(|d| d.remove_temp(held_id)).unwrap_or_default();
     let mut repeating = false;
     input.events.retain(|event| {
-        if let Event::Key { repeat, .. } = event {
-            repeating = *repeat;
+        match event {
+            Event::Key {
+                key,
+                pressed: true,
+                repeat,
+                ..
+            } => repeating = !held.insert(*key) || *repeat,
+            Event::Key { key, .. } => {
+                held.remove(key);
+                repeating = false;
+            }
+            Event::WindowFocused(false) => held.clear(),
+            _ => {}
         }
         if modal && matches!(event, Event::Key { key: Enter, .. }) {
             return false;
         }
-        let Some(binding) = BINDINGS.iter().find(|b| takes(b, event, idle)) else {
+        let Some(binding) = BINDINGS.iter().find(|b| takes(b, event, idle, repeating)) else {
             return true;
         };
         if modal {
@@ -399,4 +411,5 @@ pub fn take(ctx: &Context, input: &mut RawInput) {
         }
         false
     });
+    ctx.data_mut(|d| d.insert_temp(held_id, held));
 }

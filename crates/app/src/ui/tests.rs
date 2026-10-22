@@ -1771,7 +1771,10 @@ fn song_row(ctx: &egui::Context, input: RawInput) -> Vec<Action> {
 fn shift_enter_queues_once_and_plays_nothing() {
     let ctx = egui::Context::default();
     let row = |input| song_row(&ctx, input);
-    let take = |mut input| {
+    let take = |mut input: RawInput| {
+        input
+            .events
+            .insert(0, key(Key::Enter, false, Modifiers::NONE));
         super::keys::take(&ctx, &mut input);
         input
     };
@@ -1820,6 +1823,11 @@ fn every_bound_chord_is_taken_and_a_do_chord_queues_its_own_action() {
             };
             let got = super::keys::actions(&ctx, &shown, 50);
             assert_eq!(got, want.into_iter().collect::<Vec<_>>(), "{k:?} {m:?}");
+            let mut release = RawInput {
+                events: vec![key(k, false, m)],
+                ..RawInput::default()
+            };
+            super::keys::take(&ctx, &mut release);
         }
     }
 }
@@ -1842,6 +1850,30 @@ fn angle_brackets_arrive_as_key_plus_text_and_a_repeat_does_nothing() {
     assert_eq!(typed(Key::Comma, "<", false), [Action::Previous]);
     assert_eq!(typed(Key::Period, ">", true), []);
     assert_eq!(typed(Key::Comma, "<", true), []);
+}
+
+#[test]
+fn holding_greater_than_or_command_right_skips_once_as_egui_winit_reports_it() {
+    let shown = bramley_engine::Snapshot::default();
+    let held = |k: Key, m: Modifiers, text: Option<&str>| {
+        let ctx = egui::Context::default();
+        (0..4)
+            .flat_map(|_| {
+                let mut input = press(k, m);
+                input.events.extend(text.map(|t| Event::Text(t.into())));
+                super::keys::take(&ctx, &mut input);
+                super::keys::actions(&ctx, &shown, 50)
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        held(Key::Period, Modifiers::SHIFT, Some(">")),
+        [Action::Next]
+    );
+    assert_eq!(
+        held(Key::ArrowRight, Modifiers::COMMAND, None),
+        [Action::Next]
+    );
 }
 
 #[test]

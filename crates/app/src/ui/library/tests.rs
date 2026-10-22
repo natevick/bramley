@@ -1752,9 +1752,9 @@ fn enter_on_albums_plays_the_focused_album_and_a_repeated_enter_plays_nothing() 
         emitted
     };
     assert_eq!(press(egui::Key::ArrowDown, false), (vec![], vec![]));
-    assert_eq!(press(egui::Key::Enter, true), (vec![], vec![]));
     let played = Action::PlayIn(Queue::Album("i.0".into()), 0);
     assert_eq!(press(egui::Key::Enter, false), (vec![played], vec![]));
+    assert_eq!(press(egui::Key::Enter, true), (vec![], vec![]));
 }
 
 #[test]

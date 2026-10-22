@@ -4292,15 +4292,17 @@ pub fn pressed(ctx: &egui::Context, key: Option<(egui::Key, bool)>) -> egui::Raw
         screen_rect: Some(screen),
         ..Default::default()
     };
-    input
-        .events
-        .extend(key.map(|(key, repeat)| egui::Event::Key {
+    input.events.extend(key.into_iter().flat_map(|(key, held)| {
+        let event = |pressed| egui::Event::Key {
             key,
             physical_key: None,
-            pressed: true,
-            repeat,
+            pressed,
+            repeat: false,
             modifiers: egui::Modifiers::NONE,
-        }));
+        };
+        let release = (!held).then(|| event(false));
+        release.into_iter().chain([event(true)])
+    }));
     crate::ui::keys::take(ctx, &mut input);
     input
 }
@@ -4336,7 +4338,9 @@ fn down_moves_one_home_row_of_columns_and_enter_opens_the_focused_cover_once() {
     assert_eq!(down, Some(format!("Open album {}", columns + 1)));
     let right = press(egui::Key::ArrowRight, false).0;
     assert_eq!(right, Some(format!("Open album {}", columns + 2)));
-    assert_eq!(press(egui::Key::Enter, true).1, []);
     let opened = Nav::Go(Route::Album(format!("l.{}", columns + 1)));
     assert_eq!(press(egui::Key::Enter, false).1, [opened]);
+    for _ in 0..4 {
+        assert_eq!(press(egui::Key::Enter, true).1, []);
+    }
 }
