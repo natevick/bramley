@@ -49,3 +49,5 @@ Window surfaces scale with window pixels, not with the default size. At a 5K dis
 
 The jitter fix exists to keep live resizing smooth. Dropping it is the cost of the 2-buffer surface, and resize smoothness is checked by `docs/s47b-PREREG.md` M3.
 
+Measured (S47b, `docs/s47b-RESULTS.md`, Developer ID build, default 848 x 1062 pt window, Home with 50 covers, idle): the counted sample read **102.3 MiB** with 2 window-sized buffers, 2.3 MiB over the bar. Three report-only replicates read 96.3, 94.2 and 95.3 (median 95.3). Two minutes of muted playback read 98.7 to 98.8, flat. The bar is not met on the pre-registered sample; Nate decides whether the replicates are the number.
+

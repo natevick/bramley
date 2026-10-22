@@ -101,4 +101,4 @@
   - **Why:** the window surface is the largest macOS memory cost. S47 measured 5 window-sized IOSurface buffers (130 MB) with glow, 3 (91 MB) with wgpu, and 2 (78 MB) with wgpu minus the fork's `macos-window-resize-jitter-fix`. Nate: "The value prop of this app is a light weight simple music app".
   - **Rule:** the macOS budget is at most 100 MB `phys_footprint` at the default window, idle on Home, with at most 2 window-sized IOSurface buffers. See the macOS section of `docs/budget.md`.
   - **Scope:** macOS only. Linux keeps glow, with the same eframe features as before. The macOS build uses wgpu with the Metal backend only, present mode Fifo, maximum frame latency 1, and not the jitter fix. `glRenderer` in `bramley now` shows the wgpu backend and adapter name on macOS.
-  - **Cost:** live-resize smoothness is not guaranteed without the jitter fix. M3 in `docs/s47b-PREREG.md` checks it as far as it can be checked without a hand on the window.
+  - **Cost:** live-resize smoothness is not guaranteed without the jitter fix. `docs/s47b-PREREG.md` M3 defines what jitter looks like; it cannot be driven over ssh, so a human checks it by hand.
