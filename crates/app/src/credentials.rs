@@ -20,6 +20,7 @@ const SIGNED_BY_MACOS: &str = "macOS holds the Apple Music sign-in";
 #[derive(Clone)]
 enum Backend {
     Keyring(Arc<CredentialStore>),
+    #[cfg(any(test, not(target_os = "macos")))]
     File,
 }
 
@@ -27,6 +28,7 @@ impl Backend {
     fn name(&self) -> &'static str {
         match self {
             Backend::Keyring(_) => "keyring",
+            #[cfg(any(test, not(target_os = "macos")))]
             Backend::File => "file",
         }
     }
@@ -163,6 +165,7 @@ impl Credentials {
         }
         let file = || crate::read_token(&self.dir, USER_TOKEN).ok();
         self.locked(|backend| match backend {
+            #[cfg(any(test, not(target_os = "macos")))]
             Backend::File => Ok(file()),
             Backend::Keyring(store) => match self.entry(store, Entry::get_password)? {
                 Ok(token) => Ok(Some(token.trim().to_owned()).filter(|t| !t.is_empty())),
@@ -181,6 +184,7 @@ impl Credentials {
         }
         self.locked(|backend| match backend {
             _ if !current() => Err(STALE),
+            #[cfg(any(test, not(target_os = "macos")))]
             Backend::File => bramley_api::store::write_private(
                 &self.dir.join(USER_TOKEN),
                 format!("{token}\n").as_bytes(),
