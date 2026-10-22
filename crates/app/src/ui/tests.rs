@@ -1785,3 +1785,46 @@ fn typing_transport_characters_into_search_changes_only_the_text() {
     assert_eq!(caret(&ctx), Some(5));
     assert_eq!(app.status_json()["volume"], volume);
 }
+
+#[test]
+fn every_bound_chord_is_taken_and_a_do_chord_queues_its_own_action() {
+    let ctx = egui::Context::default();
+    let mut shown = bramley_engine::Snapshot::default();
+    (shown.position, shown.duration) = (Some(100.0), Some(200.0));
+    for b in BINDINGS.iter().filter(|b| b.platforms.here()) {
+        for &(k, m) in b.keys {
+            let mut input = press(k, m);
+            if let Event::Key { repeat, .. } = &mut input.events[0] {
+                *repeat = b.gate == super::keys::Gate::Repeat;
+            }
+            super::keys::take(&ctx, &mut input);
+            assert!(input.events.is_empty(), "{k:?} {m:?}");
+            let want = match b.intent {
+                Intent::Do(d) => d.action(&shown, 50, None),
+                _ => None,
+            };
+            let got = super::keys::actions(&ctx, &shown, 50);
+            assert_eq!(got, want.into_iter().collect::<Vec<_>>(), "{k:?} {m:?}");
+        }
+    }
+}
+
+#[test]
+fn angle_brackets_arrive_as_key_plus_text_and_a_repeat_does_nothing() {
+    let ctx = egui::Context::default();
+    let shown = bramley_engine::Snapshot::default();
+    let typed = |k: Key, text: &str, repeat: bool| {
+        let mut input = press(k, Modifiers::SHIFT);
+        if let Event::Key { repeat: r, .. } = &mut input.events[0] {
+            *r = repeat;
+        }
+        input.events.push(Event::Text(text.into()));
+        super::keys::take(&ctx, &mut input);
+        assert!(!input.events.iter().any(|e| matches!(e, Event::Text(_))));
+        super::keys::actions(&ctx, &shown, 50)
+    };
+    assert_eq!(typed(Key::Period, ">", false), [Action::Next]);
+    assert_eq!(typed(Key::Comma, "<", false), [Action::Previous]);
+    assert_eq!(typed(Key::Period, ">", true), []);
+    assert_eq!(typed(Key::Comma, "<", true), []);
+}
