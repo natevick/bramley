@@ -2026,6 +2026,21 @@ fn an_open_help_swallows_enter_and_keeps_escape_off_the_strip() {
 }
 
 #[test]
+fn an_open_help_swallows_space_and_command_l_so_nothing_behind_it_fires() {
+    let ctx = egui::Context::default();
+    song_row(&ctx, RawInput::default());
+    let mut space = press(Key::Space, Modifiers::NONE);
+    space.events.push(Event::Text(" ".into()));
+    let play = [Action::PlaySong("s".into())];
+    assert_eq!(song_row(&ctx, space.clone()), play);
+    super::keys::modal(&ctx, true);
+    for mut input in [space, press(Key::L, Modifiers::COMMAND)] {
+        super::keys::take(&ctx, &mut input);
+        assert!(!input.events.iter().any(|e| matches!(e, Event::Key { .. })));
+    }
+}
+
+#[test]
 fn page_down_scrolls_an_open_help_in_a_short_window() {
     let ctx = egui::Context::default();
     ctx.enable_accesskit();

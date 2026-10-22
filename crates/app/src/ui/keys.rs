@@ -371,7 +371,12 @@ pub fn take(ctx: &Context, input: &mut RawInput) {
             Event::WindowFocused(false) => held.clear(),
             _ => {}
         }
-        if modal && matches!(event, Event::Key { key: Enter, .. }) {
+        let behind = |key: &Key, modifiers: &Modifiers| match key {
+            Enter | Key::Space => true,
+            Key::L => modifiers.command,
+            _ => false,
+        };
+        if modal && matches!(event, Event::Key { key, modifiers, .. } if behind(key, modifiers)) {
             return false;
         }
         let Some(binding) = BINDINGS.iter().find(|b| takes(b, event, idle, repeating)) else {
