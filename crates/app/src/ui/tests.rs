@@ -1741,6 +1741,16 @@ fn transport_help_matches_the_player_bar_labels() {
     assert_eq!(super::keys::actions(&ctx, &shown, 50), [Action::Next]);
 }
 
+#[test]
+fn space_help_names_the_player_bars_play_and_pause_buttons() {
+    let mut shown = bramley_engine::Snapshot::default();
+    let play = click_bar(&shown, true, "Play");
+    shown.state = bramley_engine::PlayState::Playing;
+    let pause = click_bar(&shown, true, "Pause");
+    assert_eq!((play, pause), (vec![Action::Play], vec![Action::Pause]));
+    assert!(BINDINGS.iter().any(|b| b.help == "Play or pause"));
+}
+
 fn song_row(ctx: &egui::Context, input: RawInput) -> Vec<Action> {
     let mut actions = Vec::new();
     ctx.run_ui(input, |ui| {
