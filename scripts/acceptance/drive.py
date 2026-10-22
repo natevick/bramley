@@ -109,10 +109,18 @@ def guard_fired(out):
     return sorted(f for f in os.listdir(out) if f.endswith('.guard.json') and f != 'guardtest.guard.json' and (gate.load(out, f) or {}).get('killed'))
 
 
+def vmstat():
+    with open('/proc/vmstat') as f:
+        return {k: int(v) for k, v in (line.split() for line in f) if k.startswith(('pgscan', 'pgsteal'))}
+
+
 def mem(pid):
-    rolls = [cs.rollup(p) for p in [pid] + cs.children(pid)]
+    procs = [pid] + cs.children(pid)
+    rolls = [cs.rollup(p) for p in procs]
     total = lambda *keys: round(sum(r.get(k, 0) for r in rolls for k in keys) / 1024, 2)
-    return {'pss': total('Pss'), 'uss': total('Private_Clean', 'Private_Dirty'), 'rss': total('Rss'), 'procs': len(rolls)}
+    split = [{'pid': p, 'shared': round((r.get('Shared_Clean', 0) + r.get('Shared_Dirty', 0)) / 1024, 2), 'private': round((r.get('Private_Clean', 0) + r.get('Private_Dirty', 0)) / 1024, 2)}
+             for p, r in zip(procs, rolls)]
+    return {'pss': total('Pss'), 'uss': total('Private_Clean', 'Private_Dirty'), 'rss': total('Rss'), 'procs': len(rolls), 'split': split, 'vmstat': vmstat()}
 
 
 def ticks(pid):

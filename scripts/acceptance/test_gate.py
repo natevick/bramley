@@ -118,15 +118,22 @@ def both(*fns):
     return lambda out: [fn(out) for fn in fns]
 
 
+KEPT_GROWTH_MIB = 8
+
+
+def kept_growth(out):
+    edit('ballast.r1.json', lambda d: d['samples'][-1].__setitem__('decodedBytesKept', KEPT_GROWTH_MIB * 2**20))(out)
+
+
 def high_host(out):
-    both(every('ballast', 'uss', 262.7), every('ballast', 'rss', 271.9), every('shipped', 'rss', 212.2), every('shipped', 'uss', 157.7), put('ballast.r1.json', ballastMiB=58, ballastTouched=58),
-         edit('ballast.r1.json', lambda d: [r.__setitem__('uss', 204.7) for r in d['baseSamples']]))(out)
+    both(every('ballast', 'uss', 262.7), every('ballast', 'rss', 271.9), every('shipped', 'rss', 212.2), every('shipped', 'uss', 157.7), put('ballast.r1.json', ballastMiB=50, ballastTouched=50),
+         edit('ballast.r1.json', lambda d: [r.__setitem__('uss', 204.7) for r in d['baseSamples']]), kept_growth)(out)
 
 
 def host_with(out, shipped, pre, post):
     both(every('shipped', 'uss', shipped[0]), every('shipped', 'rss', shipped[1]), every('ballast', 'uss', post[0]), every('ballast', 'rss', post[1]),
          edit('ballast.r1.json', lambda d: [r.__setitem__('uss', pre) for r in d['baseSamples']]),
-         put('ballast.r1.json', ballastMiB=post[0] - pre, ballastTouched=post[0] - pre))(out)
+         put('ballast.r1.json', ballastMiB=post[0] - pre - KEPT_GROWTH_MIB, ballastTouched=post[0] - pre - KEPT_GROWTH_MIB), kept_growth)(out)
 
 
 def regressed(out):
@@ -363,6 +370,11 @@ FUNCTIONAL = [
     ('R3 a drop short of the end of the item is a stall', both(edit('r3.json', lambda d: d['samples'][14].__setitem__('position', 0.2)), edit('r3.json', lambda d: d['samples'][13].__setitem__('duration', 161.1))), 'R3', 'FAIL', 'behind the wall clock'),
     ('R3 lagging at the end of an item is still a stall', edit('r3.json', lambda d: d['samples'][14].__setitem__('position', 158.9)), 'R3', 'FAIL', 'behind the wall clock'),
     ('R3 a drop in mid-item is a stall', edit('r3.json', lambda d: d['samples'][5].__setitem__('position', 0.2)), 'R3', 'FAIL', 'behind the wall clock'),
+    ('R3 RSS falling 30 MiB is a host reclaim', soak_edit(lambda r: r.__setitem__('rss', 175.0 if r['m'] >= 15 else 205.0)), 'R3', 'VOID', 'RSS fell 30.0 MiB during the soak'),
+    ('R3 RSS falling just under 30 MiB passes', soak_edit(lambda r: r.__setitem__('rss', 175.1 if r['m'] >= 15 else 205.0)), 'R3', 'PASS', None),
+    ('R3 reclaim is measured from the peak, not the first sample', soak_edit(lambda r: r.__setitem__('rss', 180.0 if r['m'] >= 15 else 215.0 if r['m'] >= 5 else 205.0)), 'R3', 'VOID', 'RSS fell 35.0 MiB'),
+    ('R3 reclaim that recovers is still a reclaim', soak_edit(lambda r: r.__setitem__('rss', 175.0 if 15 <= r['m'] < 20 else 205.0)), 'R3', 'VOID', 'RSS fell 30.0 MiB'),
+    ('R3 a FAIL beside a reclaim stays FAIL', both(soak_edit(lambda r: r.__setitem__('rss', 150.0 if r['m'] >= 15 else 205.0)), grow('uss', 10.1)), 'R3', 'FAIL', 'USS growth 10.1'),
     ('R3 stall', soak_edit(lambda r: r.__setitem__('position', r['position'] - (1.1 if r['m'] >= 11 else 0))), 'R3', 'FAIL', 'behind the wall clock'),
     ('R3 lag at the tolerance', soak_edit(lambda r: r.__setitem__('position', r['position'] - (1.0 if r['m'] >= 11 else 0))), 'R3', 'PASS', None),
     ('R3 a seek is not a stall', both(soak_edit(lambda r: r.__setitem__('position', r['position'] - (3.0 if r['m'] >= 12.25 else 0))), put('r3.json', seekTimes=[1735.0])), 'R3', 'PASS', None),
@@ -405,7 +417,7 @@ BALLAST = [
     ('ballast fails for another reason', edit('ballast.r1.json', lambda d: d['samples'][2].__setitem__('texturesUploaded', 0)), 'thresholdOnly', 'FAIL'),
     ('ballast fails only for another reason', both(every('ballast', 'uss', 150.0), every('ballast', 'rss', 199.0), edit('ballast.r1.json', lambda d: d['samples'][2].__setitem__('procs', 2))), 'thresholdOnly', 'FAIL'),
     ('ballast off band and its rise short', every('ballast', 'uss', 225.0), 'ussRoseByBallast', 'FAIL'),
-    ('ballast off band by sharing alone', high_host, 'landedWithinBand', 'VOID'),
+    ('ballast off band by kept covers alone', high_host, 'landedWithinBand', 'VOID'),
     ('ballast did not raise USS', put('ballast.r1.json', ballastMiB=40, ballastTouched=40), 'ussRoseByBallast', 'FAIL'),
     ('ballast rise beyond its size', put('ballast.r1.json', ballastMiB=63, ballastTouched=63), 'ussRoseByBallast', 'FAIL'),
     ('ballast windows from two launches', edit('ballast.r1.json', lambda d: d['baseSamples'][0].__setitem__('pid', 8)), 'oneLaunch', 'FAIL'),
@@ -471,7 +483,23 @@ class Verdict(unittest.TestCase):
         self.assertEqual({n: c['verdict'] for n, c in v['checks'].items() if c['verdict'] != 'PASS'}, {})
         self.assertEqual((v['ballast']['thresholdOnly'], v['ballast']['ussRoseByBallast'], v['ballast']['landedWithinBand'], v['ballast']['holds']), (True, True, False, False))
         self.assertEqual((v['gate'], v['ballast']['bandMiss'], v['ballast']['footprintMiss']),
-                         ('VOID', 'ballast control landed at 262.7 MiB, outside 215 \u00b1 5 (pre-ballast USS 204.7, adjusted 159.4, RSS-USS 9.2)', None))
+                         ('VOID', 'ballast control landed at 262.7 MiB, outside 254.7 \u00b1 5 (pre-ballast USS 204.7, adjusted 159.4, RSS-USS 9.2)', None))
+
+    def test_the_ballast_landing_is_judged_against_its_own_pre_window_plus_its_size(self):
+        write_valid(SCRATCH)
+        for key, base, post in (('uss', 161.3, 224.3), ('rss', 219.98, 282.9)):
+            both(edit('ballast.r1.json', lambda d: [r.__setitem__(key, base) for r in d['baseSamples']]), every('ballast', key, post))(SCRATCH)
+        both(put('ballast.r1.json', ballastMiB=63, ballastTouched=63), edit('ballast.r1.json', lambda d: [r.__setitem__('decodedBytesKept', 8000000) for r in d['baseSamples'] + d['samples']]))(SCRATCH)
+        v = gate.verdict(SCRATCH)['ballast']
+        self.assertEqual((v['ussRise'], v['landedWithinBand'], v['holds'], v['bandMiss']), (63.0, True, True, None))
+        self.assertGreater(abs(v['uss'] - (gate.R1_BAR + gate.BALLAST_OVER)), gate.LANDING_BAND)
+
+    def test_the_landing_band_is_inclusive_at_five_mib_over_the_pre_window_plus_the_ballast(self):
+        for kept, want in ((5.0, 'PASS'), (5.5, 'VOID')):
+            with self.subTest(kept=kept):
+                write_valid(SCRATCH)
+                both(every('ballast', 'uss', 215.0 + kept), every('ballast', 'rss', 265.0), put('ballast.r1.json', ballastMiB=67, ballastTouched=67), edit('ballast.r1.json', lambda d: d['samples'][-1].__setitem__('decodedBytesKept', kept * 2**20)))(SCRATCH)
+                self.assertEqual(gate.verdict(SCRATCH)['gate'], want)
 
     def test_a_band_miss_with_a_grown_footprint_is_a_fail_naming_both_footprints(self):
         write_valid(SCRATCH)

@@ -3,7 +3,7 @@ import glob, hashlib, json, math, os, re, statistics, time
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 REFERENCE = {'binary': os.path.join(ROOT, 'target', 'reference', 'bramley-main-4961e27'), 'sha256': '1a72eb4b2880ac5a', 'pss': 88.6}
 R1_BAR, R2_BAR, R3_BAR, R4_BAR, R5_BAR, DRIFT_BAR, BALLAST_OVER, LANDING_BAND = 200.0, 100.0, 10.0, 5.0, 1.0, 5.0, 15.0, 5.0
-FOOTPRINT_BAND = 10.0
+FOOTPRINT_BAND, RECLAIM_MIB = 10.0, 30.0
 COVERS, ADVANCE_S, MIN_WINDOW_POLLS, RISE_TOLERANCE, REPS = 50, 50.0, 30, 3.0, 5
 F1_MS, F3_MS, F4_MS, F5_MS, F4_PLAYED_S, FULL_SONG_S, R3_TRACKS = 500, 2000, 3000, 500, 35.0, 300.0, 8
 REFERENCE_RUNS = ('reference', 'reference-after')
@@ -366,6 +366,15 @@ def seek_landing(rows, seek):
     return None
 
 
+def reclaim_drop(rows):
+    peak, drop = None, 0.0
+    for rss in (r.get('rss') for r in rows):
+        if rss is not None:
+            peak = rss if peak is None else max(peak, rss)
+            drop = max(drop, peak - rss)
+    return round(drop, 1)
+
+
 def r3_rules(ev, fails, sink):
     rows = ev.get('samples') or []
     g = growth(rows, 5, 30)
@@ -405,7 +414,9 @@ def r3_rules(ev, fails, sink):
             fails.append(f'PSS growth {g["pss"]} > {R3_BAR}')
     elif rows:
         fails.append('no samples at minute 5 or minute 30')
-    return dict(g, zone=None if g.get('uss') is None else 1 if g['uss'] > R3_BAR else 3, tracks=played, maxPositionOverrunS=overrun, seekLandingsS=landings,
+    drop = reclaim_drop(rows)
+    voids = [f'R3 RSS fell {drop} MiB during the soak, a host memory reclaim (bar {RECLAIM_MIB:g})'] if drop >= RECLAIM_MIB and not fails else []
+    return dict(g, voids=voids, reclaimMiB=drop, zone=None if g.get('uss') is None else 1 if g['uss'] > R3_BAR else 3, tracks=played, maxPositionOverrunS=overrun, seekLandingsS=landings,
                 outputUnderflows=underflows, readinessDips=dips,
                 changesAfter5=sum(1 for a, b in zip(rows, rows[1:]) if b['m'] >= 5 and a.get('itemId') != b.get('itemId')))
 
@@ -736,7 +747,8 @@ def ballast(out, build):
                                                and r.get('procs') == 1 for r in pre)
     touched = ev.get('ballastMiB') is not None and ev.get('ballastTouched') == ev.get('ballastMiB')
     threshold_only = b['verdict'] == 'FAIL' and [r[:10] for r in b['reasons']] == ['USS median']
-    landed = b.get('uss') is not None and abs(b['uss'] - (R1_BAR + BALLAST_OVER)) <= LANDING_BAND
+    target = pre_uss + ev['ballastMiB'] if pre_uss is not None and ev.get('ballastMiB') is not None else None
+    landed = target is not None and b.get('uss') is not None and abs(b['uss'] - target) <= LANDING_BAND
     flagged = build.get('ballastFeaturesExit') == 1 and 'app/gate-sabotage' in (build.get('ballastFeaturesOutput') or '')
     rose = rise is not None and expected is not None and abs(rise - expected) <= RISE_TOLERANCE
     intact = threshold_only and flagged and rose and one_launch and pre_valid and touched
@@ -747,7 +759,7 @@ def ballast(out, build):
     adjusted = round(pre_uss - max(0, shipped['rss'] - shipped['uss'] - (b['rss'] - b['uss'])), 1) if known else None
     footprint_ok = known and abs(footprint - shipped['rss']) <= FOOTPRINT_BAND
     shared = footprint_ok and adjusted <= R1_BAR
-    miss = (f'ballast control landed at {b["uss"]:.1f} MiB, outside {R1_BAR + BALLAST_OVER:g} \u00b1 {LANDING_BAND:g} '
+    miss = (f'ballast control landed at {b["uss"]:.1f} MiB, outside {target:.1f} \u00b1 {LANDING_BAND:g} '
             f'(pre-ballast USS {pre_uss:.1f}, adjusted {adjusted}, RSS-USS {b["rss"] - b["uss"]:.1f})') if off_band and shared else None
     footprint_miss = (None if not off_band or shared else 'ballast launch footprint unchecked: no shipped R1 RSS' if not known
                       else f'ballast launch footprint {footprint} MiB RSS vs shipped {shipped["rss"]} (>{FOOTPRINT_BAND:g})' if not footprint_ok

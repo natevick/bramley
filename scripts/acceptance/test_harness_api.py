@@ -78,6 +78,19 @@ class HarnessApi(unittest.TestCase):
         self.assertEqual(drive.phase_error(RuntimeError('HTTP 400 on a library call')), 'RuntimeError: HTTP 400 on a library call')
         self.assertEqual(drive.phase_error(ValueError('boom')), 'ValueError: boom')
 
+    def test_every_sample_records_the_reclaim_counters_and_the_shared_private_split_of_each_process(self):
+        class Fake:
+            pid = os.getpid()
+            cli = staticmethod(lambda *args: (0, {'state': 'Playing'}, 0))
+        rows = drive.sample(Fake, 2, every=0.0)
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertTrue(row['vmstat'] and all(k.startswith(('pgscan', 'pgsteal')) and isinstance(v, int) for k, v in row['vmstat'].items()))
+            self.assertEqual([p['pid'] for p in row['split']][0], Fake.pid)
+            self.assertEqual(len(row['split']), row['procs'])
+            self.assertTrue(all(p['shared'] >= 0 and p['private'] > 0 for p in row['split']))
+            self.assertTrue({'pss', 'uss', 'rss'} <= set(row))
+
 
 if __name__ == '__main__':
     unittest.main(argv=sys.argv[:1] + [a for a in sys.argv[1:] if a.startswith('-')])
