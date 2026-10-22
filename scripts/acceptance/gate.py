@@ -22,6 +22,7 @@ OFF_MODES = {'shuffleMode': 'off', 'repeatMode': 'off'}
 CHECKS = ('F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6')
 EVIDENCE = {'F1': ('f1',), 'F2': ('f2',), 'F3': ('f3',), 'F4': ('f4',), 'F5': ('f5',), 'F6': ('f6',), 'F7': ('f7',), 'F8': ('f8',), 'F9': ('f9',),
             'F10': ('f10-badid', 'f10-net'), 'R3': ('r3',), 'R4': ('r4',), 'R5': ('r5',)}
+EVIDENCE_PHASE = {'f3': 'browse', 'f7': 'browse', 'f9': 'browse', 'f10-badid': 'browse'}
 
 
 STANDING_GPU_CLIENTS, GPU_LIBS = ('gnome-shell', 'Xvfb', 'grok-bot'), ('libgallium', 'radeonsi', 'libvulkan_radeon')
@@ -161,6 +162,11 @@ def weston_renderer(out):
             return [line.split('GL renderer:', 1)[1].strip() for line in f if 'GL renderer:' in line]
     except OSError:
         return None
+
+
+def harness_api_errors(out):
+    errors = load(out, 'errors.json') or {}
+    return {p: e for p, e in errors.items() if isinstance(e, dict) and e.get('kind') == 'harness-api' and e.get('code') and e.get('path')}
 
 
 def session_problems(out):
@@ -686,6 +692,11 @@ def check(out, name, pre=''):
             more_voids, more_missing = guard_voids(out, ev, sink, name in PLAYS and ev.get('started'))
             voids, missing = voids + more_voids, missing + more_missing
         voids += renderer_voids(ev.get('renderers') or [], name)
+    absent = [f for f, d in files.items() if d is None]
+    causes = [None if pre else harness_api_errors(out).get(EVIDENCE_PHASE.get(f)) for f in absent]
+    if absent and all(causes) and len(missing) == len(absent) and not fails:
+        why = f"harness Apple call failed: HTTP {causes[0]['code']} on {causes[0]['path']}"
+        return {'verdict': 'VOID', 'reasons': [why] + voids, **({} if voids else {'harnessApi': True})}
     if missing:
         return {'verdict': 'FAIL', 'reasons': missing + fails + voids}
     ev = files[EVIDENCE[name][0]] if len(files) == 1 else files
@@ -798,7 +809,9 @@ def verdict(out):
     real, leaks = load(out, 'realstate.json') or {}, load(out, 'leakgrep.json') or {}
     v['realStateUnchanged'] = bool(real) and real.get('before', {}).get('keyringItems') is not None and real.get('before') == real.get('after')
     v['leakGrep'] = dict(leaks, clean=leaks.get('hits') == {'repo': 0, 'run': 0} and leaks.get('plantedRun') is True and leaks.get('plantedRepo') is True and (leaks.get('runFiles') or 0) > 0 and (leaks.get('libraryNames') or 0) > 0)
-    v['phaseErrors'] = {k: e for k, e in v['errors'].items() if not e.startswith('RuntimeError: skipped: the guard fired')}
+    harness = harness_api_errors(out) if build.get('mode') == 'counted' else {}
+    v['harnessApiErrors'] = harness
+    v['phaseErrors'] = {k: e for k, e in v['errors'].items() if k not in harness and not str(e).startswith('RuntimeError: skipped: the guard fired')}
     v['pacing'] = pacing(out)
     safe = v['realStateUnchanged'] and v['leakGrep']['clean'] and not v['phaseErrors'] and v['pacing']['ok']
     if build.get('mode') == 'soak':
@@ -819,9 +832,11 @@ def verdict(out):
         v['gate'] = 'PASS' if safe and v['llvmpipeControl']['holds'] else 'FAIL'
         return v
     v['ballast'] = ballast(out, build)
-    seen = [c['verdict'] for c in v['checks'].values()]
+    seen = [c['verdict'] for c in v['checks'].values() if not c.get('harnessApi')]
     v['gate'] = 'FAIL' if not safe else ('VOID' if 'VOID' in seen else 'FAIL' if 'FAIL' in seen else 'PASS' if v['ballast']['holds']
                  else 'VOID' if v['ballast']['verdict'] == 'VOID' or v['ballast']['bandMiss'] else 'FAIL')
+    if v['gate'] == 'PASS' and harness:
+        v['gate'] = 'VOID'
     return v
 
 

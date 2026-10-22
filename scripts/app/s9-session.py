@@ -20,17 +20,38 @@ KEYS = ('state', 'position', 'banner', 'engineStarted', 'framesPainted', 'glRend
 ROWS_BAR, ART_CAP, DELTA_BAR = 30, 96, 10.0
 
 
-def api(path, tokens):
+AUTH_ATTEMPTS, AUTH_BACKOFF_S = 3, (2, 5, 10)
+PATH_WORDS = {'library', 'catalog', 'playlists', 'songs', 'albums', 'artists', 'tracks'}
+
+
+class HarnessApiError(RuntimeError):
+    def __init__(self, code, path_kind):
+        super().__init__(f'HTTP {code} on {path_kind}')
+        self.code, self.path_kind = code, path_kind
+
+
+def path_kind(path):
+    return '/'.join(word for word in path.split('?')[0].split('/') if word in PATH_WORDS)
+
+
+def api(path, tokens, opener=urllib.request.urlopen, sleep=time.sleep):
+    denied = 0
     for _ in range(6):
         req = urllib.request.Request(API + path, headers={'Authorization': 'Bearer ' + tokens[0], 'Music-User-Token': tokens[1], 'User-Agent': UA})
         try:
-            return json.load(urllib.request.urlopen(req, timeout=20))
+            return json.load(opener(req, timeout=20))
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return {'data': [], 'meta': {'total': 0}}
+            if e.code in (401, 403):
+                denied += 1
+                if denied == AUTH_ATTEMPTS:
+                    raise HarnessApiError(e.code, path_kind(path)) from None
+                sleep(AUTH_BACKOFF_S[denied - 1])
+                continue
             if e.code != 429 and e.code < 500:
                 raise RuntimeError(f'HTTP {e.code} on a library call') from None
-            time.sleep(2)
+            sleep(2)
     raise RuntimeError('rate limited')
 
 

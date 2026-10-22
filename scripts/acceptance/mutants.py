@@ -255,6 +255,19 @@ MUTANTS = [
     ('only shuffle judged', "[] if modes == OFF_MODES else", "[] if modes.get('shuffleMode') == 'off' else"),
     ('only repeat judged', "[] if modes == OFF_MODES else", "[] if modes.get('repeatMode') == 'off' else"),
     ('unread modes pass', "if not isinstance(modes, dict) or any(", "if isinstance(modes, dict) and any("),
+    ('missing evidence is a harness VOID without a harness error', "    if absent and all(causes) and len(missing) == len(absent) and not fails:\n        why = f\"harness Apple call failed: HTTP {causes[0]['code']} on {causes[0]['path']}\"\n", "    if absent and len(missing) == len(absent) and not fails:\n        why = 'harness Apple call failed'\n"),
+    ('one explained file voids a check that lost two', "if absent and all(causes) and", "if absent and any(causes) and"),
+    ('harness VOID ignores other missing evidence', " and len(missing) == len(absent) and not fails:", " and not fails:"),
+    ('harness VOID ignores a real fail in the check', " and len(missing) == len(absent) and not fails:", " and len(missing) == len(absent):"),
+    ('harness VOID reaches prefixed control evidence', "causes = [None if pre else harness_api_errors", "causes = [harness_api_errors"),
+    ('harness error of any kind', "e.get('kind') == 'harness-api' and ", ""),
+    ('harness error without a code and path', " and e.get('code') and e.get('path')}", "}"),
+    ('browse phase map drops F10', "'f10-badid': 'browse'", "'f10-badid': None"),
+    ('browse phase map drops F7', "'f7': 'browse', ", ""),
+    ('harness errors excused outside counted runs', "if build.get('mode') == 'counted' else {}", "if True else {}"),
+    ('harness error still a phase error', "k not in harness and not str(e)", "not str(e)"),
+    ('harness VOID hides a real FAIL', "if not c.get('harnessApi')]", "]"),
+    ('harness error can pass the gate', "if v['gate'] == 'PASS' and harness:", "if False:"),
 ]
 
 

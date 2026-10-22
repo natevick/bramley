@@ -910,6 +910,12 @@ def prior_actions():
         return []
 
 
+def phase_error(e):
+    if isinstance(e, s9.HarnessApiError):
+        return {'kind': 'harness-api', 'code': e.code, 'path': e.path_kind}
+    return f'{type(e).__name__}: {e}'.replace(ROOT, '.').replace(os.path.expanduser('~'), '~')[:300]
+
+
 def run(out, mode, soak_minutes=None):
     global PACER, SOAK_S
     SOAK_S = int(soak_minutes * 60) if soak_minutes else SOAK_S
@@ -929,7 +935,7 @@ def run(out, mode, soak_minutes=None):
                     raise RuntimeError(f'skipped: the guard fired in {guard_fired(out)}')
                 go()
             except Exception as e:
-                errors[phase] = f'{type(e).__name__}: {e}'.replace(ROOT, '.').replace(os.path.expanduser('~'), '~')[:300]
+                errors[phase] = phase_error(e)
             gate.save(out, 'errors.json', errors)
     watch.stop = True
     gate.save(out, 'pacing.json', {'limit': gate.LICENSE_LIMIT, 'windowS': gate.LICENSE_WINDOW_S, 'prior': PACER.prior, 'actions': PACER.actions, 'waits': PACER.waits})

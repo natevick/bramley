@@ -593,6 +593,88 @@ class Verdict(unittest.TestCase):
                 self.assertEqual((v['llvmpipeControl']['holds'], v['gate']), (False, 'FAIL'))
 
 
+HARNESS_403 = {'kind': 'harness-api', 'code': 403, 'path': 'library/playlists'}
+HARNESS_WHY = 'harness Apple call failed: HTTP 403 on library/playlists'
+BROWSE_EVIDENCE = ('f3.json', 'f7.json', 'f9.json', 'f10-badid.json')
+BROWSE_CHECKS = ('F3', 'F7', 'F9', 'F10')
+
+
+def browse_died(error, files=BROWSE_EVIDENCE):
+    return both(*[remove(f) for f in files], lambda out: gate.save(out, 'errors.json', {'browse': error}))
+
+
+class HarnessApiVoid(unittest.TestCase):
+    def setUp(self):
+        shutil.rmtree(SCRATCH, ignore_errors=True)
+        os.makedirs(SCRATCH)
+        self.addCleanup(shutil.rmtree, SCRATCH, True)
+
+    def judged(self, *mutations):
+        write_valid(SCRATCH)
+        both(*mutations)(SCRATCH)
+        return gate.verdict(SCRATCH)
+
+    def test_the_v070_counted_2_shape_is_void_for_the_four_browse_checks_and_the_gate(self):
+        for error, why in ((HARNESS_403, HARNESS_WHY), ({'kind': 'harness-api', 'code': 401, 'path': 'library/albums'}, 'harness Apple call failed: HTTP 401 on library/albums')):
+            with self.subTest(why):
+                v = self.judged(browse_died(error))
+                self.assertEqual({c: (v['checks'][c]['verdict'], v['checks'][c]['reasons']) for c in BROWSE_CHECKS}, {c: ('VOID', [why]) for c in BROWSE_CHECKS})
+                self.assertEqual({n: c['verdict'] for n, c in v['checks'].items() if n not in BROWSE_CHECKS and c['verdict'] != 'PASS'}, {})
+                self.assertEqual((v['phaseErrors'], v['gate']), ({}, 'VOID'))
+
+    def test_a_real_fail_beside_a_harness_void_still_fails_the_gate(self):
+        for name, mutation in (('a check fails', put('f8.json', seen=[])), ('the ballast fails', put('ballast.r1.json', ballastMiB=40)),
+                               ('the real token is touched', edit('realstate.json', lambda d: d['after'].__setitem__('tokenMtimeNs', 2)))):
+            with self.subTest(name):
+                v = self.judged(browse_died(HARNESS_403), mutation)
+                self.assertEqual((v['checks']['F3']['verdict'], v['gate']), ('VOID', 'FAIL'))
+
+    def test_a_harness_error_with_every_check_passing_is_void_never_pass(self):
+        v = self.judged(lambda out: gate.save(out, 'errors.json', {'dev': HARNESS_403}))
+        self.assertEqual(({n for n, c in v['checks'].items() if c['verdict'] != 'PASS'}, v['gate']), (set(), 'VOID'))
+
+    def test_a_harness_void_yields_to_another_void_that_outranks_a_fail_as_before(self):
+        v = self.judged(browse_died(HARNESS_403), put('f1.json', renderers=[LLVMPIPE]), put('f8.json', seen=[]))
+        self.assertEqual(v['gate'], 'VOID')
+
+    def test_missing_evidence_with_no_phase_error_is_fail(self):
+        v = self.judged(remove('f3.json'))
+        self.assertEqual((v['checks']['F3']['verdict'], v['gate']), ('FAIL', 'FAIL'))
+        self.assertTrue(v['checks']['F3']['reasons'][0].startswith('missing evidence'))
+
+    def test_missing_evidence_after_an_app_originated_phase_error_is_fail(self):
+        for name, error in (('a runtime error', 'RuntimeError: boom'), ('a legacy harness string', 'RuntimeError: HTTP 403 on a library call'),
+                            ('another kind', dict(HARNESS_403, kind='app')), ('no path', {'kind': 'harness-api', 'code': 403})):
+            with self.subTest(name):
+                v = self.judged(browse_died(error))
+                self.assertEqual(({v['checks'][c]['verdict'] for c in BROWSE_CHECKS}, v['gate']), ({'FAIL'}, 'FAIL'))
+
+    def test_missing_evidence_the_harness_error_does_not_explain_is_fail(self):
+        died = lambda phase: lambda out: gate.save(out, 'errors.json', {phase: HARNESS_403})
+        for name, mutations, check in (('another check missing its file', (browse_died(HARNESS_403), remove('f2.json')), 'F2'),
+                                       ('a file of another phase', (died('browse'), remove('f1.json')), 'F1'),
+                                       ('the phase that died is another', (died('dev'), remove('f3.json')), 'F3'),
+                                       ('a present file whose session record is missing', (died('browse'), remove('f10-badid.json'), remove('offline.guard.json')), 'F10'),
+                                       ('one of two files unexplained', (died('browse'), remove('f10-badid.json'), remove('f10-net.json')), 'F10'),
+                                       ('a real fail in the same check', (browse_died(HARNESS_403), put('build.json', dirty=True)), 'F3')):
+            with self.subTest(name):
+                v = self.judged(*mutations)
+                self.assertEqual((v['checks'][check]['verdict'], v['gate']), ('FAIL', 'FAIL'))
+
+    def test_a_controls_check_with_prefixed_evidence_is_not_voided_by_the_browse_phase(self):
+        write_controls(SCRATCH)
+        gate.save(SCRATCH, 'errors.json', {'browse': HARNESS_403})
+        remove('badtoken.f3.json')(SCRATCH)
+        self.assertEqual(gate.check(SCRATCH, 'F3', 'badtoken.')['verdict'], 'FAIL')
+
+    def test_a_harness_error_outside_a_counted_run_still_fails(self):
+        write_valid(SCRATCH, renderer=LLVMPIPE, mode='llvmpipe')
+        put('f1.json', renderers=[LLVMPIPE] * 5)(SCRATCH)
+        gate.save(SCRATCH, 'errors.json', {'browse': HARNESS_403})
+        v = gate.verdict(SCRATCH)
+        self.assertEqual((bool(v['phaseErrors']), v['gate']), (True, 'FAIL'))
+
+
 def write_controls(out):
     write_valid(out, mode='controls')
     shutil.copy(os.path.join(out, 'f6.json'), os.path.join(out, 'cut.f6.json'))
