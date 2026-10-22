@@ -78,6 +78,6 @@
   - This is the second miss of this kind, after v0.4.2, so S34 (a control that misses its band reads as VOID, not FAIL) comes before the next counted run. Amended 2026-10-21, below.
 - **2026-10-21: a ballast that only misses its landing band is VOID when the footprint holds (S34).**
   - **Amends** the gate rule that a ballast control that does not hold is FAIL. Both v0.4.2 (220.1 MiB) and v0.6.0 (262.7 MiB) PASSed every check and failed only on where the control landed.
-  - **Rule:** if the landing band is the only ballast condition that fails, every check PASSes and the ballast launch's footprint (RSS minus its USS rise) is within 10 MiB of R1's RSS, the gate is VOID. Otherwise it stays FAIL. Details in `docs/s13-acceptance-PREREG.md` Amendment 17.
+  - **Rule:** if the landing band is the only ballast condition that fails, every check PASSes and the ballast launch's footprint (RSS minus its USS rise) is within 10 MiB of R1's RSS and the pre-ballast USS, corrected for lost sharing, is at or under 200 MiB, the gate is VOID. Otherwise it stays FAIL. Details in `docs/s13-acceptance-PREREG.md` Amendment 17.
   - **Stop rule:** two consecutive counted runs of the same release that both end in a band-miss VOID stop the re-runs and the decision goes to Nate. Any other outcome in between resets the count.
-  - Applies to runs started at or after commit cfbf41e.
+  - Applies to runs started at or after commit 3491774.
