@@ -1981,3 +1981,24 @@ fn an_open_help_swallows_enter_and_keeps_escape_off_the_strip() {
     let steps = super::cursor::drain(&ctx, &[Step::Escape, Step::Help]);
     assert_eq!(steps, [Step::Help]);
 }
+
+#[test]
+fn page_down_scrolls_an_open_help_in_a_short_window() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    super::keys::modal(&ctx, true);
+    let top = |events| {
+        let mut input = narrow(events);
+        input.screen_rect = Some(egui::Rect::from_x_y_ranges(0.0..=300.0, 0.0..=150.0));
+        super::keys::take(&ctx, &mut input);
+        let mut out = ctx.run_ui(input, super::keys::help);
+        out.textures_delta.clear();
+        let is_row = |n: &egui::accesskit::Node| n.value() == Some("Tab, Shift+Tab");
+        let tree = out.platform_output.accesskit_update.unwrap();
+        let row = tree.nodes.into_iter().map(|(_, n)| n).find(is_row).unwrap();
+        row.bounds().unwrap().y0
+    };
+    let page = vec![key(Key::PageDown, true, Modifiers::NONE)];
+    let tops = [vec![], page, vec![], vec![]].map(top);
+    assert!(tops[3] < tops[0]);
+}

@@ -6,7 +6,7 @@ use super::cursor::{self, Step};
 use crate::playback::Action;
 use Do::*;
 use Gate::{Once, WhenIdle};
-use Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Enter, Equals, Minus};
+use Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Enter, Equals, Minus, PageDown, PageUp};
 use bramley_engine::Snapshot;
 
 const UP: [(Key, Modifiers); 2] = [(Equals, Modifiers::NONE), (ArrowUp, COMMAND)];
@@ -243,6 +243,9 @@ pub fn help(ui: &mut egui::Ui) {
     ui.ctx().accesskit_node_builder(ui.unique_id(), role);
     ui.heading(TITLE);
     egui::ScrollArea::vertical().show(ui, |ui| {
+        let by = ui.data_mut(|d| d.remove_temp::<f32>(Id::new("keys-scroll")));
+        let jump = egui::style::ScrollAnimation::none();
+        ui.scroll_with_delta_animation(egui::vec2(0.0, by.unwrap_or_default()), jump);
         for b in BINDINGS.iter().filter(|b| b.platforms.here()) {
             let keys = b
                 .keys
@@ -365,6 +368,16 @@ pub fn take(ctx: &Context, input: &mut RawInput) {
         if modal {
             let close = matches!(binding.intent, Intent::Dismiss | Intent::Help);
             cursor::push_all(ctx, close.then_some(Step::Help));
+            let by = match event {
+                Event::Key { key: ArrowUp, .. } => 40.0,
+                Event::Key { key: ArrowDown, .. } => -40.0,
+                Event::Key { key: PageUp, .. } => 200.0,
+                Event::Key { key: PageDown, .. } => -200.0,
+                Event::Text(t) if t == "k" => 40.0,
+                Event::Text(t) if t == "j" => -40.0,
+                _ => 0.0,
+            };
+            ctx.data_mut(|d| *d.get_temp_mut_or_default::<f32>(Id::new("keys-scroll")) += by);
             return false;
         }
         log::debug!("took {event:?}");
