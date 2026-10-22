@@ -273,11 +273,13 @@ pub fn mark_slider(ctx: &Context, id: Id) {
 }
 
 fn idle(ctx: &Context) -> bool {
+    !(ctx.text_edit_focused() || egui::Popup::is_any_open(ctx))
+}
+
+fn on_slider(ctx: &Context) -> bool {
     let marked: HashSet<Id> = ctx.data(|d| d.get_temp(sliders())).unwrap_or_default();
-    let on_slider = ctx
-        .memory(|m| m.focused())
-        .is_some_and(|id| marked.contains(&id));
-    !(ctx.text_edit_focused() || on_slider || egui::Popup::is_any_open(ctx))
+    ctx.memory(|m| m.focused())
+        .is_some_and(|id| marked.contains(&id))
 }
 
 fn takes(binding: &Binding, event: &Event, (idle, typing): (bool, bool), repeating: bool) -> bool {
@@ -355,6 +357,7 @@ pub fn take(ctx: &Context, input: &mut RawInput) {
     let until: Option<f64> = ctx.data(|d| d.get_temp(Id::new("keys-typing")));
     let idle = (idle(ctx), until.is_some_and(|until| now <= until));
     let modal = ctx.data(|d| d.get_temp(Id::new("keys-help")).unwrap_or(false));
+    let slider = on_slider(ctx);
     let held_id = Id::new("keys-held");
     let mut held: HashSet<Key> = ctx.data_mut(|d| d.remove_temp(held_id)).unwrap_or_default();
     let mut repeating = false;
@@ -380,6 +383,10 @@ pub fn take(ctx: &Context, input: &mut RawInput) {
         };
         if modal && matches!(event, Event::Key { key, modifiers, .. } if behind(key, modifiers)) {
             return false;
+        }
+        let own = |key: &Key| *key == Key::Escape || Step::of(*key).is_some();
+        if slider && !modal && matches!(event, Event::Key { key, .. } if own(key)) {
+            return true;
         }
         let Some(binding) = BINDINGS.iter().find(|b| takes(b, event, idle, repeating)) else {
             return true;

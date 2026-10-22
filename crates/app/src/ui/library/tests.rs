@@ -1696,6 +1696,10 @@ fn cursor_key(ctx: &egui::Context, lib: &mut Library, (route, key): (&Route, egu
         landed.built = built.filter(|l| l.contains("Secret Song")).count();
         landed.focus = crate::ui::tests::focus_label(&tree);
         landed.emitted |= !actions.is_empty() || !navs.is_empty();
+        landed.ring = out.shapes.iter().find_map(|s| match &s.shape {
+            egui::Shape::Rect(r) if r.stroke.width == 2.5 => Some(r.rect),
+            _ => None,
+        });
     }
     landed
 }
@@ -1709,6 +1713,7 @@ struct Landed {
     focus: Option<String>,
     built: usize,
     emitted: bool,
+    ring: Option<Rect>,
 }
 
 #[test]
@@ -1720,6 +1725,18 @@ fn thirty_downs_build_focus_and_announce_row_thirty() {
         landed = cursor_key(&ctx, &mut lib, (&Route::Songs, egui::Key::ArrowDown));
     }
     assert_eq!(landed.focus, played(29));
+}
+
+#[test]
+fn the_ringed_row_and_its_ring_are_fully_inside_the_view_after_every_move() {
+    let (ctx, mut lib) = songs(0..100);
+    ctx.enable_accesskit();
+    let down = std::iter::repeat_n(egui::Key::ArrowDown, 14);
+    for key in [egui::Key::End, egui::Key::Home].into_iter().chain(down) {
+        let ring = cursor_key(&ctx, &mut lib, (&Route::Songs, key)).ring;
+        let ring = ring.unwrap();
+        assert!(ring.min.y >= 2.5 && ring.max.y <= 297.5, "{key:?} {ring:?}");
+    }
 }
 
 #[test]

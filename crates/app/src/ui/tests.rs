@@ -1671,6 +1671,28 @@ fn the_sidebar_and_player_bar_walk_with_j_k_h_l_and_the_bar_is_entered_on_its_fi
 }
 
 #[test]
+fn a_focused_slider_keeps_its_arrows_but_lets_letters_and_help_through() {
+    let ctx = egui::Context::default();
+    let slider = egui::Id::new("slider");
+    super::keys::mark_slider(&ctx, slider);
+    ctx.memory_mut(|m| m.request_focus(slider));
+    let taken = |event: Event| {
+        let mut input = RawInput {
+            events: vec![event],
+            ..RawInput::default()
+        };
+        super::keys::take(&ctx, &mut input);
+        input.events.is_empty()
+    };
+    assert!(!taken(key(Key::ArrowRight, true, Modifiers::NONE)));
+    assert!(taken(Event::Text("l".into())) && taken(Event::Text("?".into())));
+    assert_eq!(
+        super::cursor::drain(&ctx, &[Step::Right, Step::Help]),
+        [Step::Right, Step::Help]
+    );
+}
+
+#[test]
 fn the_focus_ring_floats_outside_the_cover_by_a_gap() {
     let ctx = egui::Context::default();
     let cover = egui::Rect::from_min_size(egui::pos2(50.0, 50.0), egui::vec2(96.0, 96.0));

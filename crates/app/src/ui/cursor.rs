@@ -191,6 +191,7 @@ pub fn cycle(ctx: &Context, back: bool, (sidebar, queue): (bool, bool)) {
 }
 
 pub const RING_GAP_PT: f32 = 2.0;
+const RING_MARGIN_PT: f32 = 6.0;
 
 pub fn ring(ui: &Ui, rect: egui::Rect) {
     let stroke = Stroke::new(2.5, Palette::of(ui.ctx()).focus());
@@ -320,14 +321,17 @@ pub fn drive(
 
 impl Cursor {
     pub fn scroll(&self, area: egui::ScrollArea, row_pt: f32) -> egui::ScrollArea {
+        let area = area.content_margin(egui::Margin::symmetric(0, RING_MARGIN_PT as i8));
         let Some(at) = self.at.filter(|_| self.moved) else {
             return area;
         };
-        let (at, whole) = (at / self.columns, self.seen.len().max(2) - 1);
+        let (at, whole) = (at / self.columns, self.seen.len().saturating_sub(2).max(1));
         let last = self.seen.start + whole - 1;
-        match (at < self.seen.start, at > last) {
+        match (at <= self.seen.start, at > last) {
             (true, _) => area.vertical_scroll_offset(at as f32 * row_pt),
-            (_, true) => area.vertical_scroll_offset((at + 1 - whole) as f32 * row_pt),
+            (_, true) => {
+                area.vertical_scroll_offset((at + 1 - whole) as f32 * row_pt + 2.0 * RING_MARGIN_PT)
+            }
             _ => area,
         }
     }
