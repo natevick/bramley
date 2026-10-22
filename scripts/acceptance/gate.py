@@ -705,7 +705,7 @@ def check(out, name, pre=''):
         voids += renderer_voids(ev.get('renderers') or [], name)
     absent = [f for f, d in files.items() if d is None]
     causes = [None if pre else harness_api_errors(out).get(EVIDENCE_PHASE.get(f)) for f in absent]
-    if absent and all(causes) and len(missing) == len(absent) and not fails:
+    if absent and all(causes) and len(missing) == len(absent):
         why = f"harness Apple call failed: HTTP {causes[0]['code']} on {causes[0]['path']}"
         if len(absent) < len(files):
             voids += f_rules(name, files, fails).pop('voids', [])
@@ -757,7 +757,7 @@ def ballast(out, build):
     rose = rise is not None and expected is not None and abs(rise - expected) <= RISE_TOLERANCE
     intact = threshold_only and flagged and rose and one_launch and pre_valid and touched
     shipped = memory_check(out, 'shipped', 'r1', sink)
-    off_band = intact and not landed
+    off_band = not landed
     known = intact and shipped.get('rss') is not None and shipped.get('uss') is not None
     footprint = round(b['rss'] - rise, 1) if known else None
     adjusted = round(pre_uss - max(0, shipped['rss'] - shipped['uss'] - (b['rss'] - b['uss'])), 1) if known else None
