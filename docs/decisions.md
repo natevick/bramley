@@ -72,3 +72,7 @@
   - Home's library request now goes out at the same time as the listening-history requests. It no longer waits to see whether history fills fewer than 50 slots. Follows the parallel ranking in the 2026-10-21 Home-grid entry above (S39, `docs/s39-home-fast-RESULTS.md`).
   - **Cost:** one extra Apple request on each Home load, for accounts whose history alone fills 50. During a 429, each retry round sends one extra request. Rounds back off 5 s, 30 s, then 60 s, and honour Retry-After.
   - **Not exercised by S39:** bar 4 (requests per Home load <= A, measured 9, 9, 9) was measured on an account whose history never fills 50, so it did not exercise this case. `docs/compliance.md` has no request-volume rule for the app.
+- **2026-10-21: v0.6.0 ships over a failed acceptance gate (Nate).**
+  - In `v060-counted-2` all 16 checks PASSed. The gate was FAIL only because the ballast positive control landed at 262.7 MiB, outside 215 ± 5. The ballast session started about 48 MiB high, and the reference binary drifted 27.2 MiB in the same run. See `docs/v0.6.0-RESULTS.md`.
+  - `v060-counted-1` PASSed outright at df85325. Since then the only `crates/` change is the engine version. Nate chose "Ship over it".
+  - This is the second miss of this kind, after v0.4.2, so S34 (a control that misses its band reads as VOID, not FAIL) comes before the next counted run.
