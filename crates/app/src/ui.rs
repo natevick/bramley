@@ -73,6 +73,9 @@ pub fn notice(ui: &mut egui::Ui, notice: &str) {
 }
 
 pub fn track_menu(response: &egui::Response, id: &str, actions: &mut Vec<Action>) {
+    if response.has_focus() {
+        keys::focused_song(&response.ctx, id);
+    }
     response.context_menu(|ui| {
         if ui.button("Play next").clicked() {
             actions.push(Action::PlayNext(id.to_owned()));

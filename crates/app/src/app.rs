@@ -735,6 +735,8 @@ impl App {
         let volume = self.volume_percent();
         let toggle = started.then(|| play_or_pause(shown.state));
         ui::shortcuts(ui.ctx(), toggle, &mut self.actions, &mut self.navs);
+        self.actions
+            .extend(ui::keys::actions(ui.ctx(), &shown, volume));
         let compact = ui.available_width() < ui::COMPACT_PT;
         for step in ui::cursor::drain(ui.ctx(), &[Step::Next, Step::Prev]) {
             let regions = (!compact, self.shell.queue_open);

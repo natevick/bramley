@@ -1534,7 +1534,7 @@ fn every_bound_key_typed_into_search_fires_nothing() {
         assert_eq!(caret(&ctx), Some(expected), "{k:?}");
         assert_eq!(
             ctx.text_edit_focused(),
-            !matches!(k, Key::Escape | Key::Enter | Key::Tab),
+            !(matches!(k, Key::Escape | Key::Tab) || (k == Key::Enter && !modifiers.command)),
             "{k:?}"
         );
     }
@@ -1712,4 +1712,76 @@ fn enter_in_content_never_dismisses_the_agent_notice() {
         (app.status_json()["agentNotice"].clone(), written),
         (true.into(), false)
     );
+}
+
+#[test]
+fn transport_help_matches_the_player_bar_labels() {
+    let mut shown = bramley_engine::Snapshot::default();
+    (shown.position, shown.duration) = (Some(100.0), Some(200.0));
+    let nodes = bar(&egui::Context::default(), &shown, true, vec![]).0;
+    let mut checked = 0;
+    for b in BINDINGS.iter().filter(|b| b.platforms.here()) {
+        let Intent::Do(d) = b.intent else { continue };
+        let Some(want) = d.action(&shown, 50, None) else {
+            continue;
+        };
+        assert!(nodes.iter().any(|(label, _)| label == b.help), "{}", b.help);
+        if matches!(want, Action::Next | Action::Previous) {
+            assert_eq!(click_bar(&shown, true, b.help), [want], "{}", b.help);
+        }
+        checked += 1;
+    }
+    assert_eq!(checked, if cfg!(target_os = "macos") { 4 } else { 6 });
+    let ctx = egui::Context::default();
+    let mut input = press(Key::Period, Modifiers::SHIFT);
+    input.events.push(Event::Text(">".into()));
+    super::keys::take(&ctx, &mut input);
+    assert_eq!(super::keys::actions(&ctx, &shown, 50), [Action::Next]);
+}
+
+fn song_row(ctx: &egui::Context, input: RawInput) -> Vec<Action> {
+    let mut actions = Vec::new();
+    ctx.run_ui(input, |ui| {
+        actions.extend(super::keys::actions(ui.ctx(), &Default::default(), 100));
+        let row = ui.button("Song");
+        row.request_focus();
+        if row.clicked() {
+            actions.push(Action::PlaySong("s".into()));
+        }
+        super::track_menu(&row, "s", &mut actions);
+    })
+    .textures_delta
+    .clear();
+    actions
+}
+
+#[test]
+fn shift_enter_queues_once_and_plays_nothing() {
+    let ctx = egui::Context::default();
+    let row = |input| song_row(&ctx, input);
+    let take = |mut input| {
+        super::keys::take(&ctx, &mut input);
+        input
+    };
+    row(RawInput::default());
+    let shift = press(Key::Enter, Modifiers::SHIFT);
+    assert_eq!(row(shift.clone()), [Action::PlaySong("s".into())]);
+    assert_eq!(row(take(shift)), [Action::PlayNext("s".into())]);
+    assert_eq!(row(take(RawInput::default())), []);
+    let command = press(Key::Enter, Modifiers::COMMAND);
+    assert_eq!(row(take(command)), [Action::QueueAdd("s".into())]);
+}
+
+#[test]
+fn typing_transport_characters_into_search_changes_only_the_text() {
+    let (ctx, mut app) = typed_in_search("ab");
+    let volume = app.status_json()["volume"].clone();
+    let mut input = press(Key::Equals, Modifiers::NONE);
+    input.events.push(Event::Text("=".into()));
+    input.events.push(key(Key::Minus, true, Modifiers::NONE));
+    input.events.push(Event::Text("-".into()));
+    input.events.push(Event::Text(">".into()));
+    frame(&ctx, &mut app, input);
+    assert_eq!(caret(&ctx), Some(5));
+    assert_eq!(app.status_json()["volume"], volume);
 }

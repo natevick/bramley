@@ -3,20 +3,61 @@ use std::collections::HashSet;
 use egui::{Context, Event, Id, Key, Modifiers, RawInput};
 
 use super::cursor::{self, Step};
+use crate::playback::Action;
+use Do::*;
+use Gate::{Once, WhenIdle};
+use Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Enter, Equals, Minus};
+use bramley_engine::Snapshot;
+
+const UP: [(Key, Modifiers); 2] = [(Equals, Modifiers::NONE), (ArrowUp, COMMAND)];
+const DOWN: [(Key, Modifiers); 2] = [(Minus, Modifiers::NONE), (ArrowDown, COMMAND)];
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Gate {
     Always,
     WhenIdle,
+    Once,
     Repeat,
 }
 
+#[derive(Clone, Copy)]
 pub enum Intent {
     Region,
     Cursor,
     Dismiss,
     Activate,
     Back,
+    Do(Do),
+}
+
+#[derive(Clone, Copy)]
+pub enum Do {
+    Next,
+    Previous,
+    Seek(f64),
+    Volume(i8),
+    PlayNext,
+    QueueAdd,
+}
+
+impl Do {
+    pub fn action(self, shown: &Snapshot, volume: u8, song: Option<String>) -> Option<Action> {
+        match self {
+            Self::Next => Some(Action::Next),
+            Self::Previous => Some(Action::Previous),
+            Self::Seek(by) => {
+                let end = shown.duration.filter(|d| *d > 0.0)?;
+                let to = shown.position.unwrap_or(0.0) + by;
+                Some(Action::Seek(to.clamp(0.0, end)))
+            }
+            Self::Volume(by) => {
+                let to = volume.saturating_add_signed(by).min(100);
+                Some(Action::Volume(f32::from(to) / 100.0))
+            }
+            Self::PlayNext => song.map(Action::PlayNext),
+            Self::QueueAdd => song.map(Action::QueueAdd),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -36,7 +77,7 @@ impl Platforms {
     }
 }
 
-#[expect(dead_code)]
+#[cfg_attr(not(test), expect(dead_code))]
 pub struct Binding {
     pub keys: &'static [(Key, Modifiers)],
     pub gate: Gate,
@@ -55,6 +96,28 @@ const CURSOR_KEYS: [(Key, Modifiers); 8] = [
     (Key::PageUp, Modifiers::NONE),
     (Key::PageDown, Modifiers::NONE),
 ];
+
+const fn bind(
+    keys: &'static [(Key, Modifiers)],
+    gate: Gate,
+    intent: Do,
+    help: &'static str,
+) -> Binding {
+    let platforms = match intent {
+        Do::Volume(_) => Platforms::NotMac,
+        _ => Platforms::All,
+    };
+    Binding {
+        keys,
+        gate,
+        intent: Intent::Do(intent),
+        help,
+        platforms,
+    }
+}
+
+const COMMAND: Modifiers = Modifiers::COMMAND;
+const SHIFT: Modifiers = Modifiers::SHIFT;
 
 pub const BINDINGS: &[Binding] = &[
     Binding {
@@ -106,6 +169,14 @@ pub const BINDINGS: &[Binding] = &[
         help: "Back",
         platforms: Platforms::Mac,
     },
+    bind(&[(ArrowRight, COMMAND)], Once, Next, "Next track"),
+    bind(&[(ArrowLeft, COMMAND)], Once, Previous, "Previous track"),
+    bind(&[(ArrowRight, SHIFT)], WhenIdle, Seek(10.0), "Position"),
+    bind(&[(ArrowLeft, SHIFT)], WhenIdle, Seek(-10.0), "Position"),
+    bind(&UP, WhenIdle, Volume(5), "Volume"),
+    bind(&DOWN, WhenIdle, Volume(-5), "Volume"),
+    bind(&[(Enter, SHIFT)], Once, PlayNext, "Play next"),
+    bind(&[(Enter, COMMAND)], Once, QueueAdd, "Add to queue"),
 ];
 
 fn sliders() -> Id {
@@ -128,26 +199,31 @@ fn idle(ctx: &Context) -> bool {
 }
 
 fn takes(binding: &Binding, event: &Event, idle: bool) -> bool {
-    let Event::Key {
-        key,
-        pressed: true,
-        repeat,
-        modifiers,
-        ..
-    } = event
-    else {
-        return false;
+    let text = |t: &str| match binding.intent {
+        Intent::Do(Next) => t == ">",
+        Intent::Do(Previous) => t == "<",
+        _ => false,
+    };
+    let (hit, repeat) = match event {
+        Event::Key {
+            key,
+            pressed: true,
+            repeat,
+            modifiers,
+            ..
+        } => {
+            let chord = |&(k, m): &(Key, Modifiers)| k == *key && modifiers.matches_exact(m);
+            (binding.keys.iter().any(chord), *repeat)
+        }
+        Event::Text(t) => (text(t), false),
+        _ => return false,
     };
     let open = match binding.gate {
         Gate::Always => true,
-        Gate::WhenIdle => idle,
-        Gate::Repeat => *repeat,
+        Gate::WhenIdle | Once => idle,
+        Gate::Repeat => repeat,
     };
-    open && binding.platforms.here()
-        && binding
-            .keys
-            .iter()
-            .any(|&(k, m)| k == *key && modifiers.matches_exact(m))
+    open && hit && binding.platforms.here()
 }
 
 fn step(binding: &Binding, key: Key, modifiers: Modifiers) -> Option<Step> {
@@ -157,21 +233,44 @@ fn step(binding: &Binding, key: Key, modifiers: Modifiers) -> Option<Step> {
         Intent::Cursor => Step::of(key),
         Intent::Dismiss => Some(Step::Escape),
         Intent::Back => Some(Step::Back),
-        Intent::Activate => None,
+        Intent::Activate | Intent::Do(_) => None,
     }
+}
+
+pub fn focused_song(ctx: &Context, id: &str) {
+    ctx.data_mut(|d| d.insert_temp(Id::NULL, id.to_owned()));
+}
+
+pub fn actions(ctx: &Context, shown: &Snapshot, volume: u8) -> Vec<Action> {
+    let song: Option<String> = ctx.data_mut(|d| d.remove_temp(Id::NULL));
+    let heard: Vec<Do> = ctx
+        .data_mut(|d| d.remove_temp(Id::NULL))
+        .unwrap_or_default();
+    let act = |d: Do| d.action(shown, volume, song.clone());
+    heard.into_iter().filter_map(act).collect()
 }
 
 pub fn take(ctx: &Context, input: &mut RawInput) {
     let idle = idle(ctx);
+    let mut repeating = false;
     input.events.retain(|event| {
-        let Event::Key { key, modifiers, .. } = event else {
-            return true;
-        };
+        if let Event::Key { repeat, .. } = event {
+            repeating = *repeat;
+        }
         let Some(binding) = BINDINGS.iter().find(|b| takes(b, event, idle)) else {
             return true;
         };
-        log::debug!("took {key:?}");
-        cursor::push_all(ctx, step(binding, *key, *modifiers));
+        log::debug!("took {event:?}");
+        match (binding.intent, event) {
+            (Intent::Do(_), _) if binding.gate == Once && repeating => {}
+            (Intent::Do(d), _) => {
+                ctx.data_mut(|data| data.get_temp_mut_or_default::<Vec<Do>>(Id::NULL).push(d))
+            }
+            (_, Event::Key { key, modifiers, .. }) => {
+                cursor::push_all(ctx, step(binding, *key, *modifiers))
+            }
+            _ => {}
+        }
         false
     });
 }
