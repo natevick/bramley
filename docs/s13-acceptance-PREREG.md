@@ -559,7 +559,7 @@ R3 stays one of the 16 checks.
 
 **Known limit.** Private growth that exactly matches the evicted shared pages keeps both the footprint and `adjusted` in range, and a band-miss VOID can then hide it. That needs a coincidence of two independent quantities, and a repeat on the re-run goes to Nate under the stop rule.
 
-**Stop rule.** It applies only to band-miss VOIDs. Two consecutive counted runs of the same release that both end in a band-miss VOID stop the re-runs, and the decision goes to Nate. A PASS, a FAIL or a VOID from any other cause in between resets the count. A host that measures high would otherwise loop runs and spend Apple traffic on each.
+**Stop rule.** Superseded by Amendment 19, which has one rule for every VOID. A host that measures high would otherwise loop runs and spend Apple traffic on each.
 
 **Scope.** It applies to runs started at or after commit 3491774. `v042-counted-1` and `v060-counted-2` stay FAIL on record, and Nate's decisions on them stand. No threshold of any check or of the ballast changes.
 
@@ -567,7 +567,7 @@ R3 stays one of the 16 checks.
 **Why.** `v070-counted-2` FAILed on four checks. The harness's own Apple call in `scripts/app/s9-session.py` (`api()`) got HTTP 403 and aborted the browse phase. F3, F7, F9 and F10 never got their evidence, so each was FAIL on "missing evidence". Every phase that ran passed, and `v070-counted-1` at the same commit PASSed all 16 checks. A failure in the harness says nothing about the app, so the run cannot be judged. This is the same reasoning as Amendment 17.
 
 **The rule, as `s9-session.py`, `drive.py` and `gate.py` implement it.**
-- `api()` treats 401 and 403 as possibly transient. It makes 3 calls, sleeping 2 s and then 5 s, inside its existing bound of 6 iterations. Other 4xx, 429 and 5xx behave as before.
+- `api()` treats 401 and 403 as possibly transient. It makes 3 calls, sleeping 2 s and then 5 s between them, inside its existing bound of 6 iterations. Other 4xx, 429 and 5xx behave as before.
 - If it still fails, it raises `HarnessApiError(code, path_kind)`. `path_kind` is the endpoint shape, such as `library/albums`, with no ids and no names.
 - `drive.py` records a phase that died on `HarnessApiError` in `errors.json` as `{"kind": "harness-api", "code": 403, "path": "library/albums"}`. Every other phase error stays a string.
 - A check is VOID, with the reason `harness Apple call failed: HTTP 403 on library/albums`, when all of these hold: its only problem is missing evidence files, and the phase that writes each missing file died on a harness-api error. `EVIDENCE_PHASE` is the map: `browse` writes `f3`, `f7`, `f9` and `f10-badid`, and it is the only phase that calls Apple directly.
@@ -576,12 +576,12 @@ R3 stays one of the 16 checks.
 - In a counted run, a harness-api error with every check PASS is VOID, never PASS. In soak, controls and llvmpipe modes a harness-api error is a phase error and FAILs, as before.
 
 **Known limits.**
-- F10 reads `f10-badid` from browse and `f10-net` from offline. If only `f10-badid` is missing, F10 is VOID without judging `f10-net`.
+- F10 reads `f10-badid` from browse and `f10-net` from offline. If only `f10-badid` is missing, `f10-net` is still judged. A real FAIL in it makes F10 FAIL, and a clean `f10-net` leaves F10 VOID.
 - `drive.py`'s leak grep calls Apple inside `suppress(Exception)`. A 403 there still ends as a leak-grep FAIL, not a VOID.
 
-**Stop rule.** It applies only to harness-api VOIDs. Two consecutive counted runs of the same release that both end in a harness-api VOID stop the re-runs, and the decision goes to Nate. A PASS, a FAIL or a VOID from any other cause in between resets the count.
+**Stop rule.** Superseded by Amendment 19, which has one rule for every VOID.
 
-**Scope.** It applies to runs started at or after commit 02ba1e0. `v070-counted-2` stays FAIL on record, and Nate's decision on it stands. Its archived `errors.json` is the old string, which the gate does not read as harness-originated. No threshold of any check changes.
+**Scope.** It applies to runs started at or after commit 512ba41. `v070-counted-2` stays FAIL on record, and Nate's decision on it stands. Its archived `errors.json` is the old string, which the gate does not read as harness-originated. No threshold of any check changes.
 
 ## Amendment 19 (2026-10-22, S48: an R3 PASS over a host memory reclaim is VOID, and the ballast lands against its own baseline; written before any run that uses it)
 **Why.** Norm's S45 investigation of the ballast sharing collapse (a memo outside the repo) traced both Amendment 17 band misses to the same cause. A host page reclaim during R3 unmapped shared library pages, and later launches mapped them as private. USS rose by about 45 MiB while RSS stayed flat. It also found a second miss. v0.7.0's ballast launch keeps about 8 MB of decoded covers that R1 does not, so it missed the band by +7 and +9 MiB with sharing intact. Nate approved both fixes on 2026-10-22.
@@ -596,12 +596,14 @@ R3 stays one of the 16 checks.
 - The target is the ballast launch's pre-window USS plus the ballast size, within the same 5 MiB band. It was 215 ± 5, which assumed the ballast launch starts where shipped R1 does.
 - The ballast is still sized from shipped R1. `ussRoseByBallast` and every other clause are unchanged, and R1 must still FAIL on its USS bar alone.
 - `v070-counted-2`: pre-ballast USS 161.3, ballast 63 MiB, rise 63.0, landed 224.3. The target is 224.3, so the ballast holds. Under 215 ± 5 it missed by 9.3. `v070-counted-1`: ballast 58 MiB, landed 265.4, holds the same way.
-- **Amendment 17 after this change.** The rise must match the ballast size plus any growth in kept covers within 3 MiB. The landing must match the ballast size within 5 MiB. So a miss now needs kept covers to grow by more than 2 MiB between the two windows. A sharing collapse no longer causes a miss, and R3's guard voids the run that had it. The band-miss VOID, its footprint guard and its adjusted-USS guard stay as they were. They are rarely reached now, and they still stop a grown baseline from being voided. They are not redundant, so none is removed.
+- **Amendment 17 after this change.** The rise must match the ballast size plus any growth in kept covers within 3 MiB. The landing must match the ballast size within 5 MiB. So a miss now needs kept covers to grow by more than 2 MiB between the two windows. A sharing collapse no longer causes a miss, and R3's guard voids the run that had it. The band-miss VOID stays as it was and is rarely reached now.
+  - The footprint and adjusted-USS guards now run for every intact ballast, not only on a band miss, and `holds` needs them. Judged against its own baseline, a ballast launch whose footprint has grown lands on its own target, so only these guards catch it. Three cases FAIL: the footprint 48 MiB over shipped R1's, a pre-ballast USS of 230 over the bar, and an adjusted USS over the bar.
+  - Both v070 ballasts still hold. Footprint gaps are 6.8 MiB (`v070-counted-1`) and 8.8 MiB (`v070-counted-2`), against the 10 MiB band. Adjusted USS is 164.0 and 161.2.
 
 **(c) Diagnostics, no judging change.** Every memory sample in `drive.py` now carries `vmstat` (the `pgscan*` and `pgsteal*` counters from `/proc/vmstat`) and `split` (shared and private MiB for each sampled process). The gate does not read them. They are there so the next collapse can be attributed.
 
 **Not changed.** The S45 memo's open question stays open: which process is the sharing partner, and what drove the reclaim. The 8 MB of kept covers is now absorbed by the target, not explained.
 
-**Stop rule.** Unchanged. It still applies to Amendment 17's band-miss VOIDs and Amendment 18's harness-api VOIDs. An R3 reclaim VOID is a VOID from another cause, so it resets both counts.
+**Stop rule (replaces the per-cause rules in Amendments 17 and 18).** Two consecutive counted runs of the same release that both end VOID, for any cause or mix of causes, stop the re-runs, and the decision goes to Nate. A PASS or a FAIL in between resets the count. This is stricter than the per-cause rules: a band-miss VOID followed by a harness-api VOID, or by an R3 reclaim VOID, now stops the re-runs too.
 
-**Scope.** It applies to runs started at or after commit 6837ab8. `v070-counted-1` and `v070-counted-2` stay as recorded. No threshold of any other check changes.
+**Scope.** It applies to runs started at or after commit 512ba41. `v070-counted-1` and `v070-counted-2` stay as recorded. No threshold of any other check changes.

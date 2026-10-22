@@ -79,7 +79,7 @@
 - **2026-10-21: a ballast that only misses its landing band is VOID when the footprint holds (S34).**
   - **Amends** the gate rule that a ballast control that does not hold is FAIL. Both v0.4.2 (220.1 MiB) and v0.6.0 (262.7 MiB) PASSed every check and failed only on where the control landed.
   - **Rule:** if the landing band is the only ballast condition that fails, every check PASSes and the ballast launch's footprint (RSS minus its USS rise) is within 10 MiB of R1's RSS and the pre-ballast USS, corrected for lost sharing, is at or under 200 MiB, the gate is VOID. Otherwise it stays FAIL. Details in `docs/s13-acceptance-PREREG.md` Amendment 17.
-  - **Stop rule:** two consecutive counted runs of the same release that both end in a band-miss VOID stop the re-runs and the decision goes to Nate. Any other outcome in between resets the count.
+  - **Stop rule:** replaced by the single rule in the 2026-10-22 S48 entry below.
   - Applies to runs started at or after commit 3491774.
 - **2026-10-22: v0.7.0 ships over a failed acceptance gate (Nate).**
   - `v070-counted-1` at 5e8d83a PASSed all 16 checks, with complete evidence. Its gate was VOID only because of an Amendment 17 band miss: a sharing collapse with the footprint held and adjusted USS 164.0.
@@ -88,10 +88,12 @@
 - **2026-10-22: a failed harness Apple call makes a check VOID, not FAIL (S46).**
   - **Amends** the rule that missing evidence is always FAIL. `v070-counted-2` FAILed four checks because the harness's own Apple call got HTTP 403 and aborted the browse phase. Nate: "we need to fix this before future runs".
   - **Rule:** the harness retries 401 and 403 three times. If the call still fails, a check whose only problem is evidence lost to that phase is VOID. Any other missing evidence stays FAIL, and a real FAIL elsewhere still FAILs the gate. Details in `docs/s13-acceptance-PREREG.md` Amendment 18.
-  - **Stop rule:** two consecutive counted runs of the same release that both end in a harness-api VOID stop the re-runs and the decision goes to Nate. Any other outcome in between resets the count.
-  - Applies to runs started at or after commit 02ba1e0.
+  - **Stop rule:** replaced by the single rule in the 2026-10-22 S48 entry below.
+  - Applies to runs started at or after commit 512ba41.
 - **2026-10-22: R3 reclaim guard and a relative ballast landing (S48, Nate approved).**
   - **Why:** the S45 investigation traced the v0.6.0 and v0.7.0 collapses to a host memory reclaim during R3, and found that v0.7.0's ballast launch holds about 8 MB of kept covers that R1 does not.
   - **Rule:** an R3 PASS is VOID if R3's RSS falls 30 MiB or more during the soak. A FAIL stays FAIL. The ballast lands against its own pre-ballast USS plus its size, ± 5 MiB, not 215. Samples also record `/proc/vmstat` reclaim counters and each process's shared and private split. Details in `docs/s13-acceptance-PREREG.md` Amendment 19.
+  - **Stop rule, one for every VOID:** two consecutive counted runs of the same release that both end VOID, for any cause or mix of causes, stop the re-runs and the decision goes to Nate. A PASS or a FAIL in between resets the count.
+  - **Guards:** S34's footprint and adjusted-USS guards now apply to every ballast, so a grown baseline cannot pass by landing on its own target.
   - **Replayed:** `v070-counted-1` R3 becomes VOID (RSS fell 72.1 MiB) and its ballast holds. `v070-counted-2`'s ballast holds.
-  - Applies to runs started at or after commit 6837ab8.
+  - Applies to runs started at or after commit 512ba41.
