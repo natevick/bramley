@@ -724,10 +724,8 @@ impl App {
     }
 
     fn overlay_nav(&self, docked: bool, compact: bool) -> Option<Nav> {
-        self.shell
-            .help_open
-            .then_some(Nav::ToggleHelp)
-            .or((self.shell.queue_open && !docked).then_some(Nav::ToggleQueue))
+        (self.shell.queue_open && !docked)
+            .then_some(Nav::ToggleQueue)
             .or((compact && self.shell.drawer_open).then_some(Nav::ToggleDrawer))
     }
 
@@ -856,6 +854,7 @@ impl App {
         for nav in self.navs.drain(..) {
             self.shell.apply(nav);
         }
+        ui::keys::modal(ui.ctx(), self.shell.help_open);
         if started && self.notice == Some(QUEUE_FIRST) {
             self.notice = None;
         }

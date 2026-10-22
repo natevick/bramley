@@ -30,6 +30,7 @@ pub enum Intent {
     Back,
     Letters,
     Help,
+    Shortcut,
     Do(Do),
 }
 
@@ -118,8 +119,20 @@ const fn bind(
     }
 }
 
+const fn row(keys: &'static [(Key, Modifiers)], intent: Intent, help: &'static str) -> Binding {
+    let (gate, platforms) = (Gate::Always, Platforms::All);
+    Binding {
+        keys,
+        gate,
+        intent,
+        help,
+        platforms,
+    }
+}
+
 const LETTERS: &str = "hjklgG/";
 
+const NONE: Modifiers = Modifiers::NONE;
 const COMMAND: Modifiers = Modifiers::COMMAND;
 const SHIFT: Modifiers = Modifiers::SHIFT;
 
@@ -188,6 +201,8 @@ pub const BINDINGS: &[Binding] = &[
     },
     bind(&[(Enter, SHIFT)], Once, PlayNext, "Play next"),
     bind(&[(Enter, COMMAND)], Once, QueueAdd, "Add to queue"),
+    row(&[(Key::L, COMMAND)], Intent::Shortcut, "Focus search"),
+    row(&[(Key::Space, NONE)], Intent::Shortcut, "Play or pause"),
     Binding {
         keys: &[],
         gate: Gate::WhenIdle,
@@ -213,6 +228,10 @@ pub fn shown(binding: &Binding) -> String {
         Intent::Do(Volume(by)) => format!("Volume {by:+}%"),
         _ => binding.help.to_owned(),
     }
+}
+
+pub fn modal(ctx: &Context, open: bool) {
+    ctx.data_mut(|d| d.insert_temp(Id::new("keys-help"), open));
 }
 
 pub fn help(ui: &mut egui::Ui) {
@@ -278,7 +297,7 @@ fn takes(binding: &Binding, event: &Event, (idle, typing): (bool, bool)) -> bool
         Gate::Letters => idle && !typing,
         Gate::Repeat => repeat,
     };
-    open && hit && binding.platforms.here()
+    open && hit && binding.platforms.here() && !matches!(binding.intent, Intent::Shortcut)
 }
 
 fn step(binding: &Binding, key: Key, modifiers: Modifiers) -> Option<Step> {
@@ -288,7 +307,7 @@ fn step(binding: &Binding, key: Key, modifiers: Modifiers) -> Option<Step> {
         Intent::Cursor => Step::of(key),
         Intent::Dismiss => Some(Step::Escape),
         Intent::Back => Some(Step::Back),
-        Intent::Activate | Intent::Letters | Intent::Help | Intent::Do(_) => None,
+        _ => None,
     }
 }
 
@@ -331,14 +350,23 @@ pub fn take(ctx: &Context, input: &mut RawInput) {
     let now = input.time.unwrap_or(0.0);
     let until: Option<f64> = ctx.data(|d| d.get_temp(Id::new("keys-typing")));
     let idle = (idle(ctx), until.is_some_and(|until| now <= until));
+    let modal = ctx.data(|d| d.get_temp(Id::new("keys-help")).unwrap_or(false));
     let mut repeating = false;
     input.events.retain(|event| {
         if let Event::Key { repeat, .. } = event {
             repeating = *repeat;
         }
+        if modal && matches!(event, Event::Key { key: Enter, .. }) {
+            return false;
+        }
         let Some(binding) = BINDINGS.iter().find(|b| takes(b, event, idle)) else {
             return true;
         };
+        if modal {
+            let close = matches!(binding.intent, Intent::Dismiss | Intent::Help);
+            cursor::push_all(ctx, close.then_some(Step::Help));
+            return false;
+        }
         log::debug!("took {event:?}");
         match (binding.intent, event) {
             (Intent::Do(_), _) if binding.gate == Once && repeating => {}

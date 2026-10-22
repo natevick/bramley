@@ -3,6 +3,7 @@ use std::sync::mpsc::channel;
 use egui::{Event, Key, Modifiers, RawInput};
 
 use super::content::search_id;
+use super::cursor::Step;
 use super::keys::{BINDINGS, Intent};
 use super::nav::{BACK_LIMIT, Edge, Nav, Route, Shell};
 use super::shortcuts;
@@ -1792,6 +1793,9 @@ fn every_bound_chord_is_taken_and_a_do_chord_queues_its_own_action() {
     let mut shown = bramley_engine::Snapshot::default();
     (shown.position, shown.duration) = (Some(100.0), Some(200.0));
     for b in BINDINGS.iter().filter(|b| b.platforms.here()) {
+        if matches!(b.intent, Intent::Shortcut) {
+            continue;
+        }
         for &(k, m) in b.keys {
             let mut input = press(k, m);
             if let Event::Key { repeat, .. } = &mut input.events[0] {
@@ -1916,6 +1920,9 @@ fn every_binding_has_one_help_row() {
         let seen = texts.iter().filter(|(_, t)| *t == text).count();
         assert!(!text.is_empty() && seen == rows, "{text:?}: {seen}/{rows}");
     }
+    for chord in [(Key::Space, Modifiers::NONE), (Key::L, Modifiers::COMMAND)] {
+        assert!(BINDINGS.iter().any(|b| b.keys == [chord]), "{chord:?}");
+    }
 }
 
 fn help_open(ctx: &egui::Context, app: &mut crate::app::App, events: Vec<Event>) -> bool {
@@ -1955,4 +1962,22 @@ fn a_question_mark_typed_into_search_is_text_and_opens_no_help() {
     ctx.enable_accesskit();
     assert!(!help_open(&ctx, &mut app, vec![Event::Text("?".into())]));
     assert_eq!(caret(&ctx), Some(3));
+}
+
+#[test]
+fn an_open_help_swallows_enter_and_keeps_escape_off_the_strip() {
+    let ctx = egui::Context::default();
+    let taken = |k| {
+        let mut input = press(k, Modifiers::NONE);
+        super::keys::take(&ctx, &mut input);
+        input
+    };
+    song_row(&ctx, RawInput::default());
+    let play = [Action::PlaySong("s".into())];
+    assert_eq!(song_row(&ctx, taken(Key::Enter)), play);
+    super::keys::modal(&ctx, true);
+    assert_eq!(song_row(&ctx, taken(Key::Enter)), []);
+    assert!(taken(Key::Escape).events.is_empty());
+    let steps = super::cursor::drain(&ctx, &[Step::Escape, Step::Help]);
+    assert_eq!(steps, [Step::Help]);
 }
