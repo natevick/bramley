@@ -836,7 +836,10 @@ fn quitting_right_after_a_volume_change_still_writes_it() {
     let args = crate::Args::default();
     let mut app = crate::app::App::new(&ctx, args, spawn, user, (channel().1, true), None);
     app.apply(Action::Volume(0.25));
+    #[cfg(not(target_os = "macos"))]
     eframe::App::on_exit(&mut app, None);
+    #[cfg(target_os = "macos")]
+    eframe::App::on_exit(&mut app);
     let saved = std::fs::read_to_string(dir.join("volume"));
     std::fs::remove_dir_all(&dir).unwrap();
     assert_eq!(saved.unwrap(), "25\n");

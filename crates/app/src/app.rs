@@ -387,6 +387,13 @@ impl App {
         percent(self.playback.volume())
     }
 
+    fn shut_down(&mut self) {
+        self.save_volume();
+        self.playback.shutdown();
+        self.status = None;
+        self.volume_file = None;
+    }
+
     fn save_volume(&mut self) {
         let percent = self.volume_percent();
         if percent == self.saved_volume {
@@ -926,10 +933,7 @@ impl App {
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         if self.renderer.is_none() {
-            use eframe::glow::HasContext;
-            self.renderer = frame
-                .gl()
-                .map(|gl| unsafe { gl.get_parameter_string(eframe::glow::RENDERER) });
+            self.renderer = renderer_name(frame);
         }
         crate::warm::remember_scale(ctx.pixels_per_point());
         self.tick(ctx);
@@ -943,12 +947,29 @@ impl eframe::App for App {
         ui::keys::take(ctx, raw_input);
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.save_volume();
-        self.playback.shutdown();
-        self.status = None;
-        self.volume_file = None;
+        self.shut_down();
     }
+
+    #[cfg(target_os = "macos")]
+    fn on_exit(&mut self) {
+        self.shut_down();
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn renderer_name(frame: &eframe::Frame) -> Option<String> {
+    use eframe::glow::HasContext;
+    frame
+        .gl()
+        .map(|gl| unsafe { gl.get_parameter_string(eframe::glow::RENDERER) })
+}
+
+#[cfg(target_os = "macos")]
+fn renderer_name(frame: &eframe::Frame) -> Option<String> {
+    let info = frame.wgpu_render_state()?.adapter.get_info();
+    Some(format!("{:?} {}", info.backend, info.name))
 }
 
 #[cfg(feature = "dev")]

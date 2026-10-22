@@ -97,3 +97,8 @@
   - **Guards:** S34's footprint and adjusted-USS guards now apply to every ballast, so a grown baseline cannot pass by landing on its own target.
   - **Replayed:** `v070-counted-1` R3 becomes VOID (RSS fell 72.1 MiB) and its ballast holds. `v070-counted-2`'s ballast holds.
   - Applies to runs started at or after commit 512ba41.
+- **2026-10-22: macOS draws with wgpu on Metal instead of glow, for v0.7.1 (S47b, Nate: "ship it. mac budget should be what you suggested").**
+  - **Why:** the window surface is the largest macOS memory cost. S47 measured 5 window-sized IOSurface buffers (130 MB) with glow, 3 (91 MB) with wgpu, and 2 (78 MB) with wgpu minus the fork's `macos-window-resize-jitter-fix`. Nate: "The value prop of this app is a light weight simple music app".
+  - **Rule:** the macOS budget is at most 100 MB `phys_footprint` at the default window, idle on Home, with at most 2 window-sized IOSurface buffers. See the macOS section of `docs/budget.md`.
+  - **Scope:** macOS only. Linux keeps glow, with the same eframe features as before. The macOS build uses wgpu with the Metal backend only, present mode Fifo, maximum frame latency 1, and not the jitter fix. `glRenderer` in `bramley now` shows the wgpu backend and adapter name on macOS.
+  - **Cost:** live-resize smoothness is not guaranteed without the jitter fix. M3 in `docs/s47b-PREREG.md` checks it as far as it can be checked without a hand on the window.
