@@ -21,6 +21,7 @@ pub enum Step {
     Back,
     Search,
     Bottom,
+    Help,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -36,7 +37,13 @@ impl Step {
     fn moves(self) -> bool {
         !matches!(
             self,
-            Self::Next | Self::Prev | Self::Escape | Self::Back | Self::Search | Self::Bottom
+            Self::Next
+                | Self::Prev
+                | Self::Escape
+                | Self::Back
+                | Self::Search
+                | Self::Bottom
+                | Self::Help
         )
     }
 

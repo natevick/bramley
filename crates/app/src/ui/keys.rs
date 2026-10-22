@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use egui::{Context, Event, Id, Key, Modifiers, RawInput};
+use egui::{Context, Event, Id, Key, KeyboardShortcut, Modifiers, RawInput};
 
 use super::cursor::{self, Step};
 use crate::playback::Action;
@@ -29,6 +29,7 @@ pub enum Intent {
     Activate,
     Back,
     Letters,
+    Help,
     Do(Do),
 }
 
@@ -79,7 +80,6 @@ impl Platforms {
     }
 }
 
-#[cfg_attr(not(test), expect(dead_code))]
 pub struct Binding {
     pub keys: &'static [(Key, Modifiers)],
     pub gate: Gate,
@@ -188,7 +188,54 @@ pub const BINDINGS: &[Binding] = &[
     },
     bind(&[(Enter, SHIFT)], Once, PlayNext, "Play next"),
     bind(&[(Enter, COMMAND)], Once, QueueAdd, "Add to queue"),
+    Binding {
+        keys: &[],
+        gate: Gate::WhenIdle,
+        intent: Intent::Help,
+        help: "Show or hide this help",
+        platforms: Platforms::All,
+    },
 ];
+
+fn texts(intent: Intent) -> &'static str {
+    match intent {
+        Intent::Do(Next) => ">",
+        Intent::Do(Previous) => "<",
+        Intent::Letters => LETTERS,
+        Intent::Help => "?",
+        _ => "",
+    }
+}
+
+pub fn shown(binding: &Binding) -> String {
+    match binding.intent {
+        Intent::Do(Seek(by)) => format!("Seek {by:+} s"),
+        Intent::Do(Volume(by)) => format!("Volume {by:+}%"),
+        _ => binding.help.to_owned(),
+    }
+}
+
+pub fn help(ui: &mut egui::Ui) {
+    const TITLE: &str = "Keyboard shortcuts";
+    let role = |node: &mut egui::accesskit::Node| {
+        node.set_role(egui::accesskit::Role::Dialog);
+        node.set_label(TITLE);
+    };
+    ui.ctx().accesskit_node_builder(ui.unique_id(), role);
+    ui.heading(TITLE);
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        for b in BINDINGS.iter().filter(|b| b.platforms.here()) {
+            let keys = b
+                .keys
+                .iter()
+                .map(|&(k, m)| ui.ctx().format_shortcut(&KeyboardShortcut::new(m, k)));
+            let letters = texts(b.intent).chars().map(String::from);
+            let chord = keys.chain(letters).collect::<Vec<_>>().join(", ");
+            ui.label(egui::RichText::new(chord).strong());
+            ui.label(shown(b));
+        }
+    });
+}
 
 fn sliders() -> Id {
     Id::new("keys-sliders")
@@ -210,12 +257,7 @@ fn idle(ctx: &Context) -> bool {
 }
 
 fn takes(binding: &Binding, event: &Event, (idle, typing): (bool, bool)) -> bool {
-    let text = |t: &str| match binding.intent {
-        Intent::Do(Next) => t == ">",
-        Intent::Do(Previous) => t == "<",
-        Intent::Letters => t.len() == 1 && LETTERS.contains(t),
-        _ => false,
-    };
+    let text = |t: &str| t.len() == 1 && texts(binding.intent).contains(t);
     let (hit, repeat) = match event {
         Event::Key {
             key,
@@ -246,7 +288,7 @@ fn step(binding: &Binding, key: Key, modifiers: Modifiers) -> Option<Step> {
         Intent::Cursor => Step::of(key),
         Intent::Dismiss => Some(Step::Escape),
         Intent::Back => Some(Step::Back),
-        Intent::Activate | Intent::Letters | Intent::Do(_) => None,
+        Intent::Activate | Intent::Letters | Intent::Help | Intent::Do(_) => None,
     }
 }
 
@@ -303,6 +345,7 @@ pub fn take(ctx: &Context, input: &mut RawInput) {
             (Intent::Do(d), _) => {
                 ctx.data_mut(|data| data.get_temp_mut_or_default::<Vec<Do>>(Id::NULL).push(d))
             }
+            (Intent::Help, _) => cursor::push_all(ctx, Some(Step::Help)),
             (Intent::Letters, Event::Text(t)) => {
                 letter(ctx, t, now)
                     .into_iter()

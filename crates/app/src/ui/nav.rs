@@ -67,6 +67,7 @@ pub enum Nav {
     Back,
     ToggleQueue,
     ToggleDrawer,
+    ToggleHelp,
     FocusSearch,
     Scroll(Edge),
 }
@@ -85,6 +86,7 @@ pub struct Shell {
     back: Vec<Route>,
     pub queue_open: bool,
     pub drawer_open: bool,
+    pub help_open: bool,
     pub focus_search: bool,
     pub query: String,
     pub scroll: Option<Edge>,
@@ -115,6 +117,7 @@ impl Shell {
             }
             Nav::ToggleQueue => self.queue_open = !self.queue_open,
             Nav::ToggleDrawer => self.drawer_open = !self.drawer_open,
+            Nav::ToggleHelp => self.help_open = !self.help_open,
             Nav::FocusSearch => {
                 self.apply(Nav::Go(Route::Search));
                 self.focus_search = true;

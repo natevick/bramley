@@ -724,8 +724,10 @@ impl App {
     }
 
     fn overlay_nav(&self, docked: bool, compact: bool) -> Option<Nav> {
-        (self.shell.queue_open && !docked)
-            .then_some(Nav::ToggleQueue)
+        self.shell
+            .help_open
+            .then_some(Nav::ToggleHelp)
+            .or((self.shell.queue_open && !docked).then_some(Nav::ToggleQueue))
             .or((compact && self.shell.drawer_open).then_some(Nav::ToggleDrawer))
     }
 
@@ -818,7 +820,13 @@ impl App {
                 self.navs.push(Nav::ToggleDrawer);
             }
         }
+        if self.shell.help_open {
+            ui::overlay(ui, "help", (free, palette.panel), ui::keys::help);
+        }
         self.library.art.flush(ui.ctx());
+        for _ in ui::cursor::drain(ui.ctx(), &[Step::Help]) {
+            self.navs.push(Nav::ToggleHelp);
+        }
         for step in ui::cursor::drain(ui.ctx(), &[Step::Search, Step::Bottom]) {
             let end = Nav::Scroll(ui::nav::Edge::End);
             let nav = (step == Step::Search).then_some(Nav::FocusSearch);

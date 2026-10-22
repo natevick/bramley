@@ -1890,3 +1890,69 @@ fn g_scrolls_to_the_end_on_list_routes_only() {
         assert_eq!(app.scroll(), edge);
     }
 }
+
+fn texts_of(out: &egui::FullOutput) -> Vec<(egui::accesskit::Role, String)> {
+    let tree = out.platform_output.accesskit_update.as_ref().unwrap();
+    let text = |n: &egui::accesskit::Node| n.label().or(n.value()).map(str::to_owned);
+    let all = tree.nodes.iter();
+    all.filter_map(|(_, n)| Some((n.role(), text(n)?)))
+        .collect()
+}
+
+#[test]
+fn every_binding_has_one_help_row() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut out = ctx.run_ui(RawInput::default(), super::keys::help);
+    out.textures_delta.clear();
+    let texts: Vec<_> = texts_of(&out)
+        .into_iter()
+        .filter(|(role, _)| *role == egui::accesskit::Role::Label)
+        .collect();
+    let all = || BINDINGS.iter().filter(|b| b.platforms.here());
+    for b in all() {
+        let text = super::keys::shown(b);
+        let rows = all().filter(|o| super::keys::shown(o) == text).count();
+        let seen = texts.iter().filter(|(_, t)| *t == text).count();
+        assert!(!text.is_empty() && seen == rows, "{text:?}: {seen}/{rows}");
+    }
+}
+
+fn help_open(ctx: &egui::Context, app: &mut crate::app::App, events: Vec<Event>) -> bool {
+    frame(
+        ctx,
+        app,
+        RawInput {
+            events,
+            ..RawInput::default()
+        },
+    );
+    frame(ctx, app, RawInput::default());
+    let out = texts_of(&frame(ctx, app, RawInput::default()));
+    out.contains(&(egui::accesskit::Role::Dialog, "Keyboard shortcuts".into()))
+}
+
+#[test]
+fn question_mark_toggles_help_and_escape_closes_it_first() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let mut app = app(&ctx, true);
+    app.go(Route::Songs);
+    let question = || vec![Event::Text("?".into())];
+    let escape = || vec![key(Key::Escape, true, Modifiers::NONE)];
+    assert!(help_open(&ctx, &mut app, question()));
+    assert!(!help_open(&ctx, &mut app, question()));
+    assert!(help_open(&ctx, &mut app, question()));
+    assert!(!help_open(&ctx, &mut app, escape()));
+    assert_eq!(app.status_json()["route"], "Songs");
+    help_open(&ctx, &mut app, escape());
+    assert_eq!(app.status_json()["route"], "Home");
+}
+
+#[test]
+fn a_question_mark_typed_into_search_is_text_and_opens_no_help() {
+    let (ctx, mut app) = typed_in_search("ab");
+    ctx.enable_accesskit();
+    assert!(!help_open(&ctx, &mut app, vec![Event::Text("?".into())]));
+    assert_eq!(caret(&ctx), Some(3));
+}
