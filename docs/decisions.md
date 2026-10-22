@@ -85,3 +85,8 @@
   - `v070-counted-1` at 5e8d83a PASSed all 16 checks, with complete evidence. Its gate was VOID only because of an Amendment 17 band miss: a sharing collapse with the footprint held and adjusted USS 164.0.
   - `v070-counted-2` at the same commit FAILed F3, F7, F9 and F10 on missing evidence. The harness's own Apple library call (`scripts/app/s9-session.py`) got HTTP 403 and aborted the browse phase. Every app-driven phase that ran passed. See `docs/v0.7.0-RESULTS.md`.
   - Nate chose "Ship over it". Follow-ups: S45 (why the ballast session's RSS−USS split collapses) and S46 (a harness API error should VOID, not FAIL).
+- **2026-10-22: a failed harness Apple call makes a check VOID, not FAIL (S46).**
+  - **Amends** the rule that missing evidence is always FAIL. `v070-counted-2` FAILed four checks because the harness's own Apple call got HTTP 403 and aborted the browse phase. Nate: "we need to fix this before future runs".
+  - **Rule:** the harness retries 401 and 403 three times. If the call still fails, a check whose only problem is evidence lost to that phase is VOID. Any other missing evidence stays FAIL, and a real FAIL elsewhere still FAILs the gate. Details in `docs/s13-acceptance-PREREG.md` Amendment 18.
+  - **Stop rule:** two consecutive counted runs of the same release that both end in a harness-api VOID stop the re-runs and the decision goes to Nate. Any other outcome in between resets the count.
+  - Applies to runs started at or after commit 02ba1e0.

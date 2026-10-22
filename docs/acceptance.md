@@ -71,6 +71,7 @@ Nate delegated the definition of "done" to Norm on 2026-10-10. Bramley v1 on Lin
 - **No null sink or no PipeWire stream:** F4 is VOID, not PASS, but only once playback has started (position advancing). If playback never started, F4 is FAIL. Clarified 2026-10-10: S2a found the two rules collided, so a signed-out run came out VOID.
 - **Shuffle or repeat on at session start:** the harness assumes items play in order and advance, so a session whose status reads `shuffleMode` or `repeatMode` other than `off` when the app is ready is VOID, for every check that session feeds. A session whose guard record carries no modes is a missing artifact. The pinned reference binary predates both fields and is not checked.
 - **A missing artifact counts as a FAIL:** any check with no evidence file counts as FAIL, so a harness that ran nothing cannot pass.
+  - **Amended 2026-10-22 (S46, `docs/s13-acceptance-PREREG.md` Amendment 18; runs started at or after commit 02ba1e0):** one exception. If the harness's own Apple call fails (HTTP 401 or 403 after 3 tries) and the phase that writes a check's evidence dies on it, that check is VOID with the reason `harness Apple call failed: HTTP 403 on <endpoint>`. Missing evidence for any other reason is still FAIL, and a real FAIL elsewhere still FAILs the gate. Two consecutive counted runs of the same release that both end in a harness-api VOID stop the re-runs, and the decision goes to Nate; any other outcome in between resets the count.
 
 ## Amendments to the functional checks
 

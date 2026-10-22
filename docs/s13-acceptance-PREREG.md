@@ -562,3 +562,23 @@ R3 stays one of the 16 checks.
 **Stop rule.** It applies only to band-miss VOIDs. Two consecutive counted runs of the same release that both end in a band-miss VOID stop the re-runs, and the decision goes to Nate. A PASS, a FAIL or a VOID from any other cause in between resets the count. A host that measures high would otherwise loop runs and spend Apple traffic on each.
 
 **Scope.** It applies to runs started at or after commit 3491774. `v042-counted-1` and `v060-counted-2` stay FAIL on record, and Nate's decisions on them stand. No threshold of any check or of the ballast changes.
+
+## Amendment 18 (2026-10-22, S46: a check that lost its evidence to a failed harness Apple call is VOID; written before any run that uses it)
+**Why.** `v070-counted-2` FAILed on four checks. The harness's own Apple call in `scripts/app/s9-session.py` (`api()`) got HTTP 403 and aborted the browse phase. F3, F7, F9 and F10 never got their evidence, so each was FAIL on "missing evidence". Every phase that ran passed, and `v070-counted-1` at the same commit PASSed all 16 checks. A failure in the harness says nothing about the app, so the run cannot be judged. This is the same reasoning as Amendment 17.
+
+**The rule, as `s9-session.py`, `drive.py` and `gate.py` implement it.**
+- `api()` treats 401 and 403 as possibly transient. It makes 3 calls, sleeping 2 s and then 5 s, inside its existing bound of 6 iterations. Other 4xx, 429 and 5xx behave as before.
+- If it still fails, it raises `HarnessApiError(code, path_kind)`. `path_kind` is the endpoint shape, such as `library/albums`, with no ids and no names.
+- `drive.py` records a phase that died on `HarnessApiError` in `errors.json` as `{"kind": "harness-api", "code": 403, "path": "library/albums"}`. Every other phase error stays a string.
+- A check is VOID, with the reason `harness Apple call failed: HTTP 403 on library/albums`, when all of these hold: its only problem is missing evidence files, and the phase that writes each missing file died on a harness-api error. `EVIDENCE_PHASE` is the map: `browse` writes `f3`, `f7`, `f9` and `f10-badid`, and it is the only phase that calls Apple directly.
+- Missing evidence for any other reason is FAIL: no phase error, an app-originated phase error, a phase that did not die this way, a missing session record, or another failing rule in the same check.
+- A real FAIL never hides behind this VOID. A FAIL in another check, a ballast FAIL or an unsafe run still FAILs the gate. Other VOIDs keep their precedence over FAIL, as in Amendment 17.
+- In a counted run, a harness-api error with every check PASS is VOID, never PASS. In soak, controls and llvmpipe modes a harness-api error is a phase error and FAILs, as before.
+
+**Known limits.**
+- F10 reads `f10-badid` from browse and `f10-net` from offline. If only `f10-badid` is missing, F10 is VOID without judging `f10-net`.
+- `drive.py`'s leak grep calls Apple inside `suppress(Exception)`. A 403 there still ends as a leak-grep FAIL, not a VOID.
+
+**Stop rule.** It applies only to harness-api VOIDs. Two consecutive counted runs of the same release that both end in a harness-api VOID stop the re-runs, and the decision goes to Nate. A PASS, a FAIL or a VOID from any other cause in between resets the count.
+
+**Scope.** It applies to runs started at or after commit 02ba1e0. `v070-counted-2` stays FAIL on record, and Nate's decision on it stands. Its archived `errors.json` is the old string, which the gate does not read as harness-originated. No threshold of any check changes.
