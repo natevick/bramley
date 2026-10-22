@@ -1527,7 +1527,11 @@ fn every_bound_key_typed_into_search_fires_nothing() {
             _ => 2,
         };
         assert_eq!(caret(&ctx), Some(expected), "{k:?}");
-        assert_eq!(ctx.text_edit_focused(), k != Key::Escape, "{k:?}");
+        assert_eq!(
+            ctx.text_edit_focused(),
+            !matches!(k, Key::Escape | Key::Enter),
+            "{k:?}"
+        );
     }
 }
 

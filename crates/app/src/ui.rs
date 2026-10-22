@@ -9,7 +9,7 @@ pub mod queue_panel;
 pub mod search;
 pub mod sidebar;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 use egui::{Color32, Key, Modifiers, RichText, WidgetInfo, WidgetType};
 

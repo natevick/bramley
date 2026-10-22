@@ -4276,3 +4276,58 @@ fn the_startup_check_reads_the_access_status_without_asking_for_tokens() {
         (Value::Null, Value::Null)
     );
 }
+
+pub fn pressed(ctx: &egui::Context, key: Option<(egui::Key, bool)>) -> egui::RawInput {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 900.0));
+    let mut input = egui::RawInput {
+        screen_rect: Some(screen),
+        ..Default::default()
+    };
+    input
+        .events
+        .extend(key.map(|(key, repeat)| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat,
+            modifiers: egui::Modifiers::NONE,
+        }));
+    crate::ui::keys::take(ctx, &mut input);
+    input
+}
+
+#[test]
+fn down_moves_one_home_row_of_columns_and_enter_opens_the_focused_cover_once() {
+    let ctx = egui::Context::default();
+    ctx.enable_accesskit();
+    let (tx, rx) = channel();
+    let mut grid = Grid::default();
+    grid.listen(rx);
+    for n in 0..50 {
+        let image = egui::ColorImage::filled([2, 2], egui::Color32::WHITE);
+        tx.send(covers::Loaded::Cover(0, n, format!("l.{n}"), image))
+            .unwrap();
+    }
+    tx.send(covers::Loaded::Total(50)).unwrap();
+    grid.receive(&ctx);
+    let columns = grid.layout(800.0).columns;
+    let press = |key, repeat| {
+        let (mut label, mut navs) = (None, Vec::new());
+        for key in [Some((key, repeat)), None] {
+            let mut out = ctx.run_ui(pressed(&ctx, key), |ui| grid.show(ui, &mut navs));
+            out.textures_delta.clear();
+            crate::ui::cursor::settle(&ctx);
+            let tree = out.platform_output.accesskit_update.expect("a tree");
+            label = crate::ui::tests::focus_label(&tree);
+        }
+        (label, navs)
+    };
+    press(egui::Key::ArrowDown, false);
+    let down = press(egui::Key::ArrowDown, false).0;
+    assert_eq!(down, Some(format!("Open album {}", columns + 1)));
+    let right = press(egui::Key::ArrowRight, false).0;
+    assert_eq!(right, Some(format!("Open album {}", columns + 2)));
+    assert_eq!(press(egui::Key::Enter, true).1, []);
+    let opened = Nav::Go(Route::Album(format!("l.{}", columns + 1)));
+    assert_eq!(press(egui::Key::Enter, false).1, [opened]);
+}

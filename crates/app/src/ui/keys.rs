@@ -8,12 +8,14 @@ use super::cursor::{self, Step};
 pub enum Gate {
     Always,
     WhenIdle,
+    Repeat,
 }
 
 pub enum Intent {
     Region,
     Cursor,
     Dismiss,
+    Activate,
 }
 
 #[expect(dead_code)]
@@ -58,6 +60,13 @@ pub const BINDINGS: &[Binding] = &[
         help: "Leave, close or go back",
         on_macos: true,
     },
+    Binding {
+        keys: &[(Key::Enter, Modifiers::NONE)],
+        gate: Gate::Repeat,
+        intent: Intent::Activate,
+        help: "Activate",
+        on_macos: true,
+    },
 ];
 
 fn sliders() -> Id {
@@ -83,14 +92,19 @@ fn takes(binding: &Binding, event: &Event, idle: bool) -> bool {
     let Event::Key {
         key,
         pressed: true,
+        repeat,
         modifiers,
         ..
     } = event
     else {
         return false;
     };
-    (idle || binding.gate == Gate::Always)
-        && (binding.on_macos || !cfg!(target_os = "macos"))
+    let open = match binding.gate {
+        Gate::Always => true,
+        Gate::WhenIdle => idle,
+        Gate::Repeat => *repeat,
+    };
+    open && (binding.on_macos || !cfg!(target_os = "macos"))
         && binding
             .keys
             .iter()

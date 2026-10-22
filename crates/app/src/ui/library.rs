@@ -827,12 +827,8 @@ fn view(
         (ROW_PT + 4.0, ui.available_width())
     };
     let loaded = lib.list(list).items.len();
-    let cursor_rows = if albums { 0 } else { loaded };
-    let cursor = cursor::drive(
-        ui.ctx(),
-        egui::Id::new(("rows", list as usize)),
-        cursor_rows,
-    );
+    let id = egui::Id::new(("rows", list as usize));
+    let cursor = cursor::drive(ui.ctx(), id, (loaded, columns), |_| true);
     let mut area = egui::ScrollArea::vertical()
         .id_salt(list as usize)
         .max_height(max_height)

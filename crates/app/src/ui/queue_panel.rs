@@ -69,7 +69,7 @@ pub fn show(
         ui.label(RichText::new(format!("Up next · {ahead}")).weak());
     }
     let rows = shown.queue.len() - first;
-    let cursor = cursor::drive(ui.ctx(), egui::Id::new("queue-rows"), rows);
+    let cursor = cursor::drive(ui.ctx(), egui::Id::new("queue-rows"), (rows, 1), |_| true);
     let area = egui::ScrollArea::vertical().auto_shrink(false);
     cursor
         .scroll(area, 26.0 + ui.spacing().item_spacing.y)

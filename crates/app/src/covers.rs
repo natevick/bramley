@@ -1053,6 +1053,10 @@ impl Grid {
             }
             ui.spacing_mut().item_spacing = egui::vec2(HOME_GAP_PT, HOME_GAP_PT);
             let size = egui::vec2(layout.cell, layout.cell);
+            let shape = (layout.shown, layout.columns);
+            let cursor =
+                crate::ui::cursor::drive(ui.ctx(), egui::Id::new("home-grid"), shape, |_| true);
+            cursor.seen(&(0..(ui.clip_rect().height() / (layout.cell + HOME_GAP_PT)) as usize));
             let shown: Vec<_> = self
                 .textures
                 .values()
@@ -1066,6 +1070,9 @@ impl Grid {
                         let cover = ui.add(egui::Button::image(image).frame(false));
                         let label = format!("Open album {}", n + 1);
                         let cover = crate::ui::labeled(cover, egui::WidgetType::Button, &label);
+                        if cursor.mark(ui, n, &cover) {
+                            cover.scroll_to_me(None);
+                        }
                         if cover.clicked() {
                             navs.push(Nav::Go(Route::Album(id.clone())));
                         }

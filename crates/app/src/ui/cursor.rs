@@ -9,6 +9,8 @@ use crate::theme::Palette;
 pub enum Step {
     Up,
     Down,
+    Left,
+    Right,
     First,
     Last,
     PageUp,
@@ -20,6 +22,8 @@ impl Step {
         Some(match key {
             Key::ArrowUp => Self::Up,
             Key::ArrowDown => Self::Down,
+            Key::ArrowLeft => Self::Left,
+            Key::ArrowRight => Self::Right,
             Key::Home => Self::First,
             Key::End => Self::Last,
             Key::PageUp => Self::PageUp,
@@ -28,17 +32,46 @@ impl Step {
         })
     }
 
-    fn from(self, at: Option<usize>, page: usize, last: usize) -> usize {
+    fn from(self, at: Option<usize>, page: usize, (last, columns): (usize, usize)) -> usize {
         let now = at.unwrap_or(0);
         match self {
-            Self::Up => now.saturating_sub(1),
+            Self::Up if now >= columns => now - columns,
             Self::Down if at.is_none() => 0,
-            Self::Down => (now + 1).min(last),
+            Self::Down if now / columns < last / columns => (now + columns).min(last),
+            Self::Up | Self::Down => now,
+            Self::Left => now.saturating_sub(1),
+            Self::Right => (now + 1).min(last),
             Self::First => 0,
             Self::Last => last,
             Self::PageUp => now.saturating_sub(page),
             Self::PageDown => (now + page).min(last),
         }
+    }
+
+    fn onward(self) -> Self {
+        match self {
+            Self::First | Self::PageDown => Self::Down,
+            Self::Last | Self::PageUp => Self::Up,
+            step => step,
+        }
+    }
+
+    fn land(
+        self,
+        at: Option<usize>,
+        page: usize,
+        shape: (usize, usize),
+        enabled: &impl Fn(usize) -> bool,
+    ) -> Option<usize> {
+        let mut to = self.from(at, page, shape);
+        while !enabled(to) {
+            let next = self.onward().from(Some(to), page, shape);
+            if next == to {
+                return at;
+            }
+            to = next;
+        }
+        Some(to)
     }
 }
 
@@ -71,10 +104,16 @@ pub struct Cursor {
     id: Id,
     at: Option<usize>,
     seen: Range<usize>,
+    columns: usize,
     moved: bool,
 }
 
-pub fn drive(ctx: &Context, id: Id, len: usize) -> Cursor {
+pub fn drive(
+    ctx: &Context,
+    id: Id,
+    (len, columns): (usize, usize),
+    enabled: impl Fn(usize) -> bool,
+) -> Cursor {
     let (at, seen, moved) = with(ctx, |focus| {
         let slot = focus.slots.entry(id).or_default();
         let steps = if len == 0 {
@@ -82,9 +121,11 @@ pub fn drive(ctx: &Context, id: Id, len: usize) -> Cursor {
         } else {
             std::mem::take(&mut focus.steps)
         };
-        let page = slot.seen.len().max(1);
+        let page = slot.seen.len().max(1) * columns;
         for step in &steps {
-            slot.at = Some(step.from(slot.at, page, len - 1));
+            if columns > 1 || !matches!(step, Step::Left | Step::Right) {
+                slot.at = step.land(slot.at, page, (len - 1, columns), &enabled);
+            }
         }
         slot.at = slot
             .at
@@ -97,6 +138,7 @@ pub fn drive(ctx: &Context, id: Id, len: usize) -> Cursor {
         id,
         at,
         seen,
+        columns,
         moved,
     }
 }
@@ -106,7 +148,7 @@ impl Cursor {
         let Some(at) = self.at.filter(|_| self.moved) else {
             return area;
         };
-        let whole = self.seen.len().max(2) - 1;
+        let (at, whole) = (at / self.columns, self.seen.len().max(2) - 1);
         let last = self.seen.start + whole - 1;
         match (at < self.seen.start, at > last) {
             (true, _) => area.vertical_scroll_offset(at as f32 * row_pt),
@@ -121,9 +163,9 @@ impl Cursor {
         });
     }
 
-    pub fn mark(&self, ui: &Ui, index: usize, response: &Response) {
+    pub fn mark(&self, ui: &Ui, index: usize, response: &Response) -> bool {
         if self.at != Some(index) {
-            return;
+            return false;
         }
         if self.moved {
             response.request_focus();
@@ -134,5 +176,6 @@ impl Cursor {
             ui.painter()
                 .rect_stroke(response.rect, 3.0, ring, StrokeKind::Outside);
         }
+        self.moved
     }
 }

@@ -1624,3 +1624,21 @@ fn moving_focus_never_emits_an_action() {
     ];
     assert!(keys.iter().all(|k| !cursor_key(&ctx, &mut lib, *k).emitted));
 }
+
+#[test]
+fn enter_on_albums_plays_the_focused_album_and_a_repeated_enter_plays_nothing() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    frame(&ctx, &mut lib, &Route::Albums, 600.0, vec![]);
+    answer(&mut lib, &ctx, Instant::now(), page(0..30, None));
+    let mut press = |key, repeat| {
+        let events = crate::tests::pressed(&ctx, Some((key, repeat))).events;
+        let route = (&Route::Albums, &mut None);
+        let emitted = scrolled(&ctx, &mut lib, route, 600.0, events);
+        crate::ui::cursor::settle(&ctx);
+        emitted
+    };
+    assert_eq!(press(egui::Key::ArrowDown, false), (vec![], vec![]));
+    assert_eq!(press(egui::Key::Enter, true), (vec![], vec![]));
+    let played = Action::PlayIn(Queue::Album("i.0".into()), 0);
+    assert_eq!(press(egui::Key::Enter, false), (vec![played], vec![]));
+}
