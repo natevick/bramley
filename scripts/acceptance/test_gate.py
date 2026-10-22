@@ -130,10 +130,10 @@ def high_host(out):
          edit('ballast.r1.json', lambda d: [r.__setitem__('uss', 204.7) for r in d['baseSamples']]), kept_growth)(out)
 
 
-def host_with(out, shipped, pre, post):
+def host_with(out, shipped, pre, post, kept=KEPT_GROWTH_MIB):
     both(every('shipped', 'uss', shipped[0]), every('shipped', 'rss', shipped[1]), every('ballast', 'uss', post[0]), every('ballast', 'rss', post[1]),
          edit('ballast.r1.json', lambda d: [r.__setitem__('uss', pre) for r in d['baseSamples']]),
-         put('ballast.r1.json', ballastMiB=post[0] - pre - KEPT_GROWTH_MIB, ballastTouched=post[0] - pre - KEPT_GROWTH_MIB), kept_growth)(out)
+         put('ballast.r1.json', ballastMiB=post[0] - pre - kept, ballastTouched=post[0] - pre - kept), *([kept_growth] if kept else []))(out)
 
 
 def regressed(out):
@@ -488,11 +488,11 @@ class Verdict(unittest.TestCase):
 
     def test_the_ballast_landing_is_judged_against_its_own_pre_window_plus_its_size(self):
         write_valid(SCRATCH)
-        for key, base, post in (('uss', 161.3, 224.3), ('rss', 219.98, 282.9)):
-            both(edit('ballast.r1.json', lambda d: [r.__setitem__(key, base) for r in d['baseSamples']]), every('ballast', key, post))(SCRATCH)
+        for key, base, post, shipped in (('uss', 161.3, 224.3, 152.4), ('rss', 219.98, 282.9, 211.1)):
+            both(edit('ballast.r1.json', lambda d: [r.__setitem__(key, base) for r in d['baseSamples']]), every('ballast', key, post), every('shipped', key, shipped))(SCRATCH)
         both(put('ballast.r1.json', ballastMiB=63, ballastTouched=63), edit('ballast.r1.json', lambda d: [r.__setitem__('decodedBytesKept', 8000000) for r in d['baseSamples'] + d['samples']]))(SCRATCH)
         v = gate.verdict(SCRATCH)['ballast']
-        self.assertEqual((v['ussRise'], v['landedWithinBand'], v['holds'], v['bandMiss']), (63.0, True, True, None))
+        self.assertEqual((v['ussRise'], v['landedWithinBand'], v['holds'], v['bandMiss'], v['footprintMiss']), (63.0, True, True, None, None))
         self.assertGreater(abs(v['uss'] - (gate.R1_BAR + gate.BALLAST_OVER)), gate.LANDING_BAND)
 
     def test_the_landing_band_is_inclusive_at_five_mib_over_the_pre_window_plus_the_ballast(self):
@@ -501,6 +501,17 @@ class Verdict(unittest.TestCase):
                 write_valid(SCRATCH)
                 both(every('ballast', 'uss', 215.0 + kept), every('ballast', 'rss', 265.0), put('ballast.r1.json', ballastMiB=67, ballastTouched=67), edit('ballast.r1.json', lambda d: d['samples'][-1].__setitem__('decodedBytesKept', kept * 2**20)))(SCRATCH)
                 self.assertEqual(gate.verdict(SCRATCH)['gate'], want)
+
+    def test_a_grown_baseline_that_lands_on_its_own_target_is_still_a_fail(self):
+        for name, shipped, pre, post, reason in (('footprint up 48 MiB', (157.0, 212.0), 205.0, (263.0, 318.0), 'footprint 260.0 MiB RSS vs shipped 212.0 (>10)'),
+                                                 ('pre-ballast USS over the bar', (157.0, 212.0), 230.0, (288.0, 343.0), 'footprint 285.0 MiB RSS vs shipped 212.0 (>10)'),
+                                                 ('adjusted USS over the bar', (195.0, 250.0), 203.0, (223.0, 278.0), 'adjusted 203.0 for sharing, over 200')):
+            with self.subTest(name):
+                write_valid(SCRATCH)
+                host_with(SCRATCH, shipped, pre, post, kept=0)
+                v = gate.verdict(SCRATCH)
+                self.assertEqual((v['ballast']['landedWithinBand'], v['ballast']['holds'], v['ballast']['bandMiss'], v['gate']), (True, False, None, 'FAIL'))
+                self.assertIn(reason, v['ballast']['footprintMiss'])
 
     def test_a_band_miss_with_a_grown_footprint_is_a_fail_naming_both_footprints(self):
         write_valid(SCRATCH)
@@ -689,6 +700,11 @@ class HarnessApiVoid(unittest.TestCase):
             with self.subTest(name):
                 v = self.judged(*mutations)
                 self.assertEqual((v['checks'][check]['verdict'], v['gate']), ('FAIL', 'FAIL'))
+
+    def test_a_harness_void_does_not_hide_a_real_f10_net_fail(self):
+        v = self.judged(browse_died(HARNESS_403), put('f10-net.json', downError=False))
+        self.assertEqual((v['checks']['F10']['verdict'], v['checks']['F3']['verdict'], v['gate']), ('FAIL', 'VOID', 'FAIL'))
+        self.assertTrue(v['checks']['F10']['reasons'][0].startswith('network down did not give an error'), v['checks']['F10']['reasons'])
 
     def test_a_controls_check_with_prefixed_evidence_is_not_voided_by_the_browse_phase(self):
         write_controls(SCRATCH)

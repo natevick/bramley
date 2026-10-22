@@ -650,8 +650,8 @@ def f_rules(check, ev, fails):
         return {}
     if check == 'F10':
         bad, net = ev['f10-badid'], ev['f10-net']
-        fresh = bad.get('banner') and bad.get('banner') != bad.get('bannerBefore')
-        if not (bad.get('alive') and (bad.get('refused') or fresh)):
+        fresh = bad and bad.get('banner') and bad.get('banner') != bad.get('bannerBefore')
+        if bad is not None and not (bad.get('alive') and (bad.get('refused') or fresh)):
             fails.append(f'a bad id did not show a new error with the app alive: {bad}')
         if not (net.get('downError') and net.get('downUi') == 'error' and net.get('alive')):
             fails.append(f'network down did not give an error with the app alive: {net}')
@@ -707,6 +707,10 @@ def check(out, name, pre=''):
     causes = [None if pre else harness_api_errors(out).get(EVIDENCE_PHASE.get(f)) for f in absent]
     if absent and all(causes) and len(missing) == len(absent) and not fails:
         why = f"harness Apple call failed: HTTP {causes[0]['code']} on {causes[0]['path']}"
+        if len(absent) < len(files):
+            voids += f_rules(name, files, fails).pop('voids', [])
+        if fails:
+            return {'verdict': 'FAIL', 'reasons': fails + [why]}
         return {'verdict': 'VOID', 'reasons': [why] + voids, **({} if voids else {'harnessApi': True})}
     if missing:
         return {'verdict': 'FAIL', 'reasons': missing + fails + voids}
@@ -754,17 +758,17 @@ def ballast(out, build):
     intact = threshold_only and flagged and rose and one_launch and pre_valid and touched
     shipped = memory_check(out, 'shipped', 'r1', sink)
     off_band = intact and not landed
-    known = off_band and shipped.get('rss') is not None and shipped.get('uss') is not None
+    known = intact and shipped.get('rss') is not None and shipped.get('uss') is not None
     footprint = round(b['rss'] - rise, 1) if known else None
     adjusted = round(pre_uss - max(0, shipped['rss'] - shipped['uss'] - (b['rss'] - b['uss'])), 1) if known else None
     footprint_ok = known and abs(footprint - shipped['rss']) <= FOOTPRINT_BAND
     shared = footprint_ok and adjusted <= R1_BAR
     miss = (f'ballast control landed at {b["uss"]:.1f} MiB, outside {target:.1f} \u00b1 {LANDING_BAND:g} '
             f'(pre-ballast USS {pre_uss:.1f}, adjusted {adjusted}, RSS-USS {b["rss"] - b["uss"]:.1f})') if off_band and shared else None
-    footprint_miss = (None if not off_band or shared else 'ballast launch footprint unchecked: no shipped R1 RSS' if not known
+    footprint_miss = (None if not intact or shared else 'ballast launch footprint unchecked: no shipped R1 RSS' if not known
                       else f'ballast launch footprint {footprint} MiB RSS vs shipped {shipped["rss"]} (>{FOOTPRINT_BAND:g})' if not footprint_ok
                       else f'ballast launch pre-ballast USS {pre_uss:.1f}, adjusted {adjusted} for sharing, over {R1_BAR:g}')
-    return dict(b, ballastMiB=ev.get('ballastMiB'), keptAddedMiB=round(added, 2), ussRise=rise, holds=intact and landed, bandMiss=miss, footprintMiss=footprint_miss,
+    return dict(b, ballastMiB=ev.get('ballastMiB'), keptAddedMiB=round(added, 2), ussRise=rise, holds=intact and landed and shared, bandMiss=miss, footprintMiss=footprint_miss,
                 oneLaunch=one_launch, preWindowValid=pre_valid, touched=touched,
                 thresholdOnly=threshold_only, landedWithinBand=landed, failsShippedCheck=flagged, ussRoseByBallast=rose)
 

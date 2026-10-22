@@ -253,6 +253,11 @@ MUTANTS = [
     ('R3 reclaim voids a FAIL', "if drop >= RECLAIM_MIB and not fails else []", "if drop >= RECLAIM_MIB else []"),
     ('R3 reclaim measured from the first sample', "peak = rss if peak is None else max(peak, rss)", "peak = rss if peak is None else peak"),
     ('R3 reclaim measured to the last sample only', "drop = max(drop, peak - rss)", "drop = peak - rss"),
+    ('ballast guards run only on a band miss', "known = intact and shipped.get", "known = off_band and shipped.get"),
+    ('ballast holds without the footprint guards', "holds=intact and landed and shared", "holds=intact and landed"),
+    ('ballast footprint miss only on a band miss', "None if not intact or shared", "None if not off_band or shared"),
+    ('harness VOID hides an F10 net FAIL', "        if fails:\n            return {'verdict': 'FAIL', 'reasons': fails + [why]}\n", ""),
+    ('harness VOID judges no present file', "        if len(absent) < len(files):\n", "        if False:\n"),
     ('R3 reclaim voids nothing', "voids = [f'R3 RSS fell", "voids = [] and [f'R3 RSS fell"),
 
     ('leak reason', "'holds': real_fail(leak, 'USS growth') and", "'holds': real_fail(leak) and"),

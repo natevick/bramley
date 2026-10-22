@@ -20,7 +20,7 @@ KEYS = ('state', 'position', 'banner', 'engineStarted', 'framesPainted', 'glRend
 ROWS_BAR, ART_CAP, DELTA_BAR = 30, 96, 10.0
 
 
-AUTH_ATTEMPTS, AUTH_BACKOFF_S = 3, (2, 5, 10)
+AUTH_BACKOFF_S = (2, 5)
 PATH_WORDS = {'library', 'catalog', 'playlists', 'songs', 'albums', 'artists', 'tracks'}
 
 
@@ -45,7 +45,7 @@ def api(path, tokens, opener=urllib.request.urlopen, sleep=time.sleep):
                 return {'data': [], 'meta': {'total': 0}}
             if e.code in (401, 403):
                 denied += 1
-                if denied == AUTH_ATTEMPTS:
+                if denied > len(AUTH_BACKOFF_S):
                     raise HarnessApiError(e.code, path_kind(path)) from None
                 sleep(AUTH_BACKOFF_S[denied - 1])
                 continue
