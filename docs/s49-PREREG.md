@@ -69,3 +69,20 @@ The first run (13:37 to 13:48) is VOID for fix 2 and fix 3 and kept as report-on
 - **"Playing" is redefined.** The app shows an optimistic `Playing` with an empty queue for the first 0 to 2 s after a click. A sample counts as Playing only with `queueLength > 0` and `queuePosition` set. Optimistic samples are counted and reported. This changes no bar; it removes a false positive, and the first run's analysis had it.
 - **Added report-only diagnostic: control-i0.** The control build, row 0 of the all-`i.` playlist. In the first run FIX-i reached index 0 and moved, but its now-playing title did not match the API row (duration did). This case shows whether the old Songs path matches that row. It does not affect any bar.
 - All other cases, bars and VOID rules stand. The whole case set is re-run on the new binaries; the re-run is the counted run.
+
+## Amendment 4 (2026-10-23 14:20, before the next run; after the counted run of Amendment 3)
+
+The container design is dropped: the counted run showed it starts on a different song than the clicked row on one `i.` playlist (a defect and a regression versus v0.7.1). Clicking row N must play row N, then N+1, in list order. This amendment tightens the bars and precedes any data from the new build.
+
+- **New fix (8db1932).** Rows are queued in list order as `Queue::Songs`. On macOS only, an `a.` row that carries `playParams.catalogId` is queued by that catalog id; a row without one keeps its `a.` id and is skipped by the Swift per-batch skip. The `QueueGate` (first failing step wins) and the Swift skip stay. Linux queues the ids it always did.
+- **Binaries (signed sha256).**
+  - fix (8db1932, dev): 95f6aadf055b9a22643da81b04410d08a48e2f2bc68b450805c68423192e0c7b, built in its own fresh target dir; the binary contains `catalogId` and `resolved 0 of`.
+  - control (207757e, dev): 080484be74170018823e17d2a13c3ebfd2b45b3f4c6f0c9284e7fa43688a5808, unchanged from Amendment 3; it contains neither string.
+- **Tightened bar for EVERY playlist case.** At the first real-Playing sample, the now-playing title AND duration must match the clicked API row. A no on either is a failure of that case, whatever else holds. This replaces the index bar; the queue starts at the clicked row, so `queuePosition` is 0.
+- **Cases (each from a fresh launch, muted, UI row path):**
+  - control-a0 and control-i0 on the control build. control-a0 must still reproduce the failure; control-i0 must play the clicked row (it is also a check that the harness's title match can say yes).
+  - fix-a0 (row 0) and fix-aN (row 49) on the 99-row all-`a.` playlist; fix-i0 (row 0) and fix-iN (row 40) on the 88-row all-`i.` playlist; fix-songs (Songs row 0).
+  - fix-mixed-a and fix-mixed-i: one `a.` row and one `i.` row from a playlist whose rows are both kinds. The run looks for one among the playlists over 100 rows by loading all their pages and reading the cached pages; if none has both kinds, the cases are reported NOT RUN, which is not a pass.
+  - fix-err and control-err as before (`bramley play 0`).
+- **Next-track check on fix-aN and fix-iN.** After position is at least 4 s, the harness seeks to 4 s before the end of the track. Within 25 s the queue position must advance by one and the new now-playing title AND duration must match API row N+1. A track shorter than 12 s or no advance is a failure, not a skip.
+- **Unchanged.** Position moving within 10 s of first Playing, no banner on fix cases, the FIX-err banner bar, the VOID rules, muting, and the pacing limit (about 10 license actions in the run, under 20 per 10 minutes).
