@@ -1417,3 +1417,26 @@ mod disk_cache {
         assert_eq!(mode(&store.path(&["x"])), 0o600);
     }
 }
+
+#[test]
+fn only_a_rows_keep_the_catalog_id_from_their_play_params() {
+    let row = |id: &str, params: &str| {
+        format!(r#"{{"id":"{id}","type":"library-songs","attributes":{{{params}}}}}"#)
+    };
+    let with = r#""playParams":{"id":"x","catalogId":"123"}"#;
+    let without = r#""playParams":{"id":"x"}"#;
+    let body = [
+        row("a.1", with),
+        row("a.2", without),
+        row("a.3", ""),
+        row("i.4", with),
+    ]
+    .join(",");
+    let page: crate::Page = serde_json::from_str(&format!(r#"{{"data":[{body}]}}"#)).unwrap();
+    let kept: Vec<_> = page.items.iter().map(|i| i.catalog_id.as_deref()).collect();
+    assert_eq!(kept, [Some("123"), None, None, None]);
+    assert_eq!(
+        page.items.iter().map(|i| i.playable).collect::<Vec<_>>(),
+        [true, true, false, true]
+    );
+}

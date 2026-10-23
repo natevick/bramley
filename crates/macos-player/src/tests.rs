@@ -205,23 +205,6 @@ fn a_top_up_counts_as_background_work_and_every_other_command_as_applied() {
 }
 
 #[test]
-fn a_library_playlist_container_goes_to_swift_as_a_library_playlist_at_its_start_row() {
-    let set = |id: &str| {
-        wire::command(&Command::SetQueue {
-            queue: Queue::Playlist(id.into()),
-            start: 7,
-        })
-    };
-    assert_eq!(
-        set("p.abc"),
-        Some(
-            json!({"cmd": "setQueue", "kind": "playlist", "id": "p.abc", "library": true, "start": 7})
-        )
-    );
-    assert_eq!(set("pl.u-abc").unwrap()["library"], false);
-}
-
-#[test]
 fn the_play_after_a_failed_set_queue_is_not_sent_so_the_first_failure_is_the_one_shown() {
     let set = Command::SetQueue {
         queue: Queue::Songs(vec!["i.1".into()]),

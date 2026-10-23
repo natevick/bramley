@@ -131,6 +131,7 @@ impl Default for Mailbox {
 
 struct Follow {
     list: List,
+    native: bool,
     owner: String,
     next: usize,
     batch: Vec<String>,
@@ -400,12 +401,15 @@ impl Library {
 
 impl Library {
     pub(crate) fn play_from(&mut self, list: List, index: usize) -> Option<Action> {
-        let owner = self.owner(list);
-        let native = cfg!(target_os = "macos");
-        let action = play(list, &self.list(list).items, index, owner, native);
+        self.play_as(list, index, cfg!(target_os = "macos"))
+    }
+
+    fn play_as(&mut self, list: List, index: usize, native: bool) -> Option<Action> {
+        let action = play(list, &self.list(list).items, index, native);
         self.follow = match &action {
             Some(Action::PlayIn(Queue::Songs(ids), _)) => Some(Follow {
                 list,
+                native,
                 owner: self.owner(list).to_owned(),
                 next: index + ids.len(),
                 batch: ids.clone(),
@@ -461,10 +465,13 @@ impl Library {
             return None;
         }
         let paged = &mut self.lists[follow.list as usize];
-        let cursor = paged.items.get(follow.next - 1).map(|item| &item.id);
+        let cursor = paged
+            .items
+            .get(follow.next - 1)
+            .map(|i| queue_id(i, follow.native));
         let room = QUEUE_CAP.saturating_sub(length);
         let end = paged.items.len().min(follow.next + TOP_UP_BATCH.min(room));
-        if moved || cursor != follow.batch.last() || room == 0 {
+        if moved || cursor.as_ref() != follow.batch.last() || room == 0 {
             self.follow = None;
             return None;
         }
@@ -474,7 +481,7 @@ impl Library {
         }
         let batch = paged.items[follow.next..end]
             .iter()
-            .map(|item| item.id.clone());
+            .map(|item| queue_id(item, follow.native));
         follow.previous = std::mem::replace(&mut follow.batch, batch.collect());
         (follow.next, follow.tries, follow.sent) = (end, 0, Some(now));
         Some(Action::TopUp(follow.batch.clone()))
@@ -538,17 +545,19 @@ fn permanent(e: &Error) -> bool {
     }
 }
 
-pub fn play(list: List, items: &[Item], index: usize, owner: &str, native: bool) -> Option<Action> {
+fn queue_id(item: &Item, native: bool) -> String {
+    let catalog = item.catalog_id.as_ref().filter(|_| native);
+    catalog.unwrap_or(&item.id).clone()
+}
+
+pub fn play(list: List, items: &[Item], index: usize, native: bool) -> Option<Action> {
     let item = items.get(index)?;
     Some(match list {
         List::Playlists | List::Artists | List::ArtistName => return None,
-        List::Tracks if native && owner.starts_with("p.") => {
-            Action::PlayIn(Queue::Playlist(owner.to_owned()), index)
-        }
         List::Albums | List::ArtistAlbums => Action::PlayIn(Queue::Album(item.id.clone()), 0),
         List::Songs | List::Tracks | List::ArtistSongs => {
             let ahead = &items[index..items.len().min(index + QUEUE_AHEAD)];
-            let ids = ahead.iter().map(|song| song.id.clone()).collect();
+            let ids = ahead.iter().map(|song| queue_id(song, native)).collect();
             Action::PlayIn(Queue::Songs(ids), 0)
         }
     })
