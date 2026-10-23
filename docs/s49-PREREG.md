@@ -36,3 +36,15 @@ VOID conditions: the output is not muted or the speakers are not the built-in de
 H1 verdict: CONFIRMED only if CONTROL reproduces AND FIX-a0 and FIX-aN pass. If CONTROL reproduces but FIX-a0 fails, the container request is not the whole story and the result is reported as a failed fix, not tuned.
 
 Not covered by this run (stated now): Linux playback of this change (the macOS gate leaves it unchanged by construction); playlists mixing `a.` and `i.`; playlists containing music videos.
+
+## Amendment 1 (2026-10-23, before any Mac run)
+
+Written after reading `playback.rs`, `cli.rs`, and the Swift snapshot code, still with no Mac data. It supersedes the table and VOID rules above where they disagree.
+
+- **Reply log dropped.** v0.7.1 does not log command replies, so "a SetQueue reply is missing" would void the CONTROL by construction. Cases are judged on `bramley now` fields only: `state`, `position`, `queuePosition`, `itemId`, `banner`. The CONTROL must show `banner` set and `state` not `Playing` within 10 s of the click.
+- **Index bar scoped to the container cases.** `queuePosition` is absolute in the MusicKit queue entries (Swift `entries.firstIndex`), so "equal to the clicked index" applies to FIX-a0, FIX-aN and FIX-i only. FIX-songs queues from index 0 by design; its bar is `Playing`, position moving, no banner.
+- **Index is not the song.** FIX-aN and FIX-a0 also need the now-playing track to be the clicked row: compare `title` and `duration` from `bramley now` against the cached API row at that index, in scratchpad only. Report match yes/no. A "no" fails the case even if the index matched, because it means MusicKit's track order and the API rows disagree and the index start is wrong.
+- **FIX-err mechanism.** `bramley play 0` (the CLI builds `Queue::Songs(["0"])`, a catalog id nothing resolves). Pass: `banner` carries the SetQueue message ("no playable items for the queue", with `resolved 0 of 1` or the underlying request error) and does not contain `MPMusicPlayerControllerErrorDomain` or `Code=1`. The same command on v0.7.1 is run once as a second control and is expected to show Code=1; if it does not, FIX-err is reported as inconclusive, not passed.
+- **Mac compile gate before bundling.** On the Air, `cargo clippy -p bramley --all-targets -- -D warnings` and `cargo test -p bramley --no-run` must pass, and the Swift module must build. The Swift and `player.rs` edits cannot compile on Linux, so a bundling failure here is a failed gate, not a Phase B result.
+- **Linux gate evidence.** The container path is macOS-only (`cfg!(target_os = "macos")`). Evidence for keeping Linux on `Queue::Songs`: S9 live-2 (`docs/s9-library-RESULTS.md`), where musickit.js `setQueue({playlist: p.…, startWith: 249})` started at track 1.
+- **Not changed, stated now.** `a.` ids in a `Queue::Songs` queue still route to the catalog batch: nothing shows what MusicKit returns for them in either request, and the container path no longer sends them. Fix 4 (carrying `catalogId`) is not part of this change.
