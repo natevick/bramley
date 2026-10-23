@@ -65,8 +65,8 @@ A host reclaim during R3 drops the app's cold file pages, so R3's RSS falls 50-7
 |---|---|---|
 | R1 | Playing, with the library view showing ≥ 50 covers | Whole-process PSS median ≤ **200 MiB** over 60 s |
 | R2 | Browsing, never played | PSS ≤ **100 MiB** (the playback engine starts lazily on first play) |
-| R3 | 30-minute soak (continuous playback across ≥ 8 tracks, a cover-heavy view open) | PSS growth ≤ **10 MiB** between minute 5 and minute 30; no crash; no underruns logged |
-|  | R3 reclaim guard (S48, Amendment 19; runs started at or after commit 512ba41) | If R3's RSS falls **30 MiB** or more from an earlier sample during the soak and R3 has no FAIL, R3 is VOID, not PASS. A FAIL stays FAIL. |
+| R3 | 30-minute soak (continuous playback across ≥ 8 tracks, a cover-heavy view open) | Anonymous (smaps `Anonymous`, whole tree) growth ≤ **10 MiB** between minute 5 and minute 30 (Amendment 20; runs whose `build.json` has `"amendment": 20`; earlier runs: PSS growth); no crash; no underruns logged |
+|  | R3 reclaim guard (S48, Amendment 19; runs started at or after commit 512ba41; a diagnostic only once Amendment 20 judges R3 on `anon`) | If R3's RSS falls **30 MiB** or more from an earlier sample during the soak and R3 has no FAIL, R3 is VOID, not PASS. A FAIL stays FAIL. |
 | R4 | CPU while playing | ≤ **5 %** of one core, median |
 | R5 | CPU while paused | ≤ **1 %** of one core, median |
 | R6 | Binary size | Recorded, no bar |

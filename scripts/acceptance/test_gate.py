@@ -436,6 +436,30 @@ BALLAST = [
 ]
 
 
+AMENDED = put('build.json', amendment=20)
+r3_edit = lambda fn: edit('r3.json', lambda d: [fn(r) for r in d['samples']])
+anon_rows = lambda value=lambda r: 100.0: both(AMENDED, r3_edit(lambda r: r.__setitem__('anon', value(r))))
+anon_grows = lambda by: anon_rows(lambda r: 100.0 + (by if r['m'] >= 29 else 0))
+reclaimed = r3_edit(lambda r: r.__setitem__('rss', 140.0 if r['m'] >= 15 else 205.0))
+refs_drift = both(*(edit(f'{ref}.json', lambda d: [r.__setitem__('pss', 78.0) for r in d['samples']]) for ref in gate.REFERENCE_RUNS))
+ANON = [
+    ('anon flat beside a reclaim and USS growth passes', both(anon_rows(), reclaimed, grow('uss', 20), grow('pss', 20)), 'R3', 'PASS', None),
+    ('anon growth over the bar', anon_grows(10.1), 'R3', 'FAIL', 'Anonymous growth 10.1 > 10.0'),
+    ('anon growth at the bar', anon_grows(10.0), 'R3', 'PASS', None),
+    ('anon before minute 5 ignored', anon_rows(lambda r: 60.0 if r['m'] < 5 else 100.0), 'R3', 'PASS', None),
+    ('anon growth beside a reclaim is FAIL, not VOID', both(anon_grows(10.1), reclaimed), 'R3', 'FAIL', 'Anonymous growth'),
+    ('no anon at all is VOID', AMENDED, 'R3', 'VOID', 'lack anon'),
+    ('anon missing from one sample is VOID', both(anon_rows(), edit('r3.json', lambda d: d['samples'][90].pop('anon'))), 'R3', 'VOID', 'lack anon'),
+    ('anon null in one sample is VOID', both(anon_rows(), edit('r3.json', lambda d: d['samples'][90].__setitem__('anon', None))), 'R3', 'VOID', 'lack anon'),
+    ('no anon with USS growth stays FAIL', both(AMENDED, grow('uss', 10.1)), 'R3', 'FAIL', 'USS growth 10.1'),
+    ('no anon with a reclaim keeps the 19a VOID', both(AMENDED, reclaimed), 'R3', 'VOID', 'RSS fell 65.0'),
+    ('an unamended run ignores anon', both(r3_edit(lambda r: r.__setitem__('anon', 100.0 + (50.0 if r['m'] >= 29 else 0))), reclaimed), 'R3', 'VOID', 'RSS fell 65.0'),
+    ('an unamended run is judged on USS, not anon', both(r3_edit(lambda r: r.__setitem__('anon', 100.0 + (50.0 if r['m'] >= 29 else 0))), grow('uss', 10.1)), 'R3', 'FAIL', 'USS growth 10.1'),
+    ('an unamended run still voids on reference drift', refs_drift, 'R3', 'VOID', 'reference drifted'),
+    ('an anon-judged run is not voided by reference drift', both(anon_rows(), refs_drift), 'R3', 'PASS', None),
+]
+
+
 class Verdict(unittest.TestCase):
     def setUp(self):
         shutil.rmtree(SCRATCH, ignore_errors=True)
@@ -464,6 +488,15 @@ class Verdict(unittest.TestCase):
 
     def test_each_memory_rule_moves_its_check_with_its_own_reason(self):
         self.matrix(MEMORY)
+
+    def test_amendment_20_judges_r3_growth_on_anon_and_fails_closed_without_it(self):
+        self.matrix(ANON)
+
+    def test_an_anon_judged_run_records_the_growth_and_the_reclaim_it_no_longer_voids_on(self):
+        write_valid(SCRATCH)
+        both(anon_grows(4.0), reclaimed)(SCRATCH)
+        r3 = gate.verdict(SCRATCH)['checks']['R3']
+        self.assertEqual((r3['verdict'], r3['anonGrowth'], r3['reclaimMiB']), ('PASS', 4.0, 65.0))
 
     def test_each_functional_and_resource_rule_moves_its_check_with_its_own_reason(self):
         self.matrix(FUNCTIONAL)
@@ -1287,6 +1320,15 @@ class Controls(unittest.TestCase):
         self.assertEqual(({k: c['holds'] for k, c in v['controls'].items() if k != 'holds'}, v['gate']),
                          ({'noUserToken': True, 'badDeveloperToken': True, 'noStream': True, 'cutTail': True, 'leak': True, 'stall': True, 'guardKill': True,
                            'missingArtifact': True}, 'PASS'))
+
+    def test_the_leak_control_of_an_amended_run_holds_on_anon_growth_only(self):
+        for name, mutate, holds in (('anon leaks', both(AMENDED, edit('leak.r3.json', lambda d: [r.__setitem__('anon', 100.0 + 3 * int(r['itemId'][1:])) for r in d['samples']])), True),
+                                    ('only USS leaks', both(AMENDED, edit('leak.r3.json', lambda d: [r.__setitem__('anon', 100.0) for r in d['samples']])), False),
+                                    ('no anon recorded', AMENDED, False)):
+            with self.subTest(name):
+                write_controls(SCRATCH)
+                mutate(SCRATCH)
+                self.assertEqual(gate.verdict(SCRATCH)['controls']['leak']['holds'], holds)
 
     def test_the_stall_control_needs_both_an_output_underflow_and_a_pacing_lag(self):
         for name, mutate, seen in (('both', lambda out: None, (True, [2.9], 1)),

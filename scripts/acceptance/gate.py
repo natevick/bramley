@@ -5,6 +5,7 @@ REFERENCE = {'binary': os.path.join(ROOT, 'target', 'reference', 'bramley-main-4
 R1_BAR, R2_BAR, R3_BAR, R4_BAR, R5_BAR, DRIFT_BAR, BALLAST_OVER, LANDING_BAND = 200.0, 100.0, 10.0, 5.0, 1.0, 5.0, 15.0, 5.0
 FOOTPRINT_BAND, RECLAIM_MIB = 10.0, 30.0
 HOST_CALM_MIBS, HOST_CALM_S, PAGE_MIB = 10.0, 60, os.sysconf('SC_PAGE_SIZE') / 1048576
+ANON_AMENDMENT = 20
 COVERS, ADVANCE_S, MIN_WINDOW_POLLS, RISE_TOLERANCE, REPS = 50, 50.0, 30, 3.0, 5
 F1_MS, F3_MS, F4_MS, F5_MS, F4_PLAYED_S, FULL_SONG_S, R3_TRACKS = 500, 2000, 3000, 500, 35.0, 300.0, 8
 REFERENCE_RUNS = ('reference', 'reference-after')
@@ -382,6 +383,16 @@ def seek_landing(rows, seek):
     return None
 
 
+def amended(build):
+    return (build or {}).get('amendment', 0) >= ANON_AMENDMENT
+
+
+def anon_growth(rows):
+    pick = lambda lo, hi: median(r['anon'] for r in rows if lo <= r['m'] < hi)
+    start, end = pick(5, 6), pick(29, 30.01)
+    return None if start is None or end is None else round(end - start, 1)
+
+
 def reclaim_drop(rows):
     peak, drop = None, 0.0
     for rss in (r.get('rss') for r in rows):
@@ -391,9 +402,11 @@ def reclaim_drop(rows):
     return round(drop, 1)
 
 
-def r3_rules(ev, fails, sink):
+def r3_rules(ev, fails, sink, anon_rule=False):
     rows = ev.get('samples') or []
     g = growth(rows, 5, 30)
+    on_anon = anon_rule and bool(rows) and all(isinstance(r.get('anon'), (int, float)) for r in rows)
+    grown = anon_growth(rows) if on_anon else None
     played = len({r.get('itemId') for r in rows if r.get('itemId')})
     if not rows or rows[-1]['m'] < 30:
         fails.append(f'soak ended at minute {rows[-1]["m"] if rows else 0} < 30')
@@ -423,7 +436,12 @@ def r3_rules(ev, fails, sink):
     if unlanded:
         fails.append(f'seek landing: {len(unlanded)} of {len(landings)} seeks took over {LANDING_MAX_S} s or never landed: {landings}')
     overrun = position_overruns(rows, fails)
-    if g.get('uss') is not None:
+    if on_anon:
+        if grown is None:
+            fails.append('no samples at minute 5 or minute 30')
+        elif grown > R3_BAR:
+            fails.append(f'Anonymous growth {grown} > {R3_BAR}')
+    elif g.get('uss') is not None:
         if g['uss'] > R3_BAR:
             fails.append(f'USS growth {g["uss"]} > {R3_BAR}')
         elif g['pss'] > R3_BAR:
@@ -431,8 +449,10 @@ def r3_rules(ev, fails, sink):
     elif rows:
         fails.append('no samples at minute 5 or minute 30')
     drop = reclaim_drop(rows)
-    voids = [f'R3 RSS fell {drop} MiB during the soak, a host memory reclaim (bar {RECLAIM_MIB:g})'] if drop >= RECLAIM_MIB and not fails else []
-    return dict(g, voids=voids, reclaimMiB=drop, zone=None if g.get('uss') is None else 1 if g['uss'] > R3_BAR else 3, tracks=played, maxPositionOverrunS=overrun, seekLandingsS=landings,
+    voids = [f'R3 RSS fell {drop} MiB during the soak, a host memory reclaim (bar {RECLAIM_MIB:g})'] if drop >= RECLAIM_MIB and not fails and not on_anon else []
+    voids += ['R3 samples lack anon, which Amendment 20 judges R3 growth on'] if anon_rule and not on_anon and not fails else []
+    zone = None if on_anon or g.get('uss') is None else 1 if g['uss'] > R3_BAR else 3
+    return dict(g, **({'anonGrowth': grown} if on_anon else {}), voids=voids, reclaimMiB=drop, zone=zone, tracks=played, maxPositionOverrunS=overrun, seekLandingsS=landings,
                 outputUnderflows=underflows, readinessDips=dips,
                 changesAfter5=sum(1 for a, b in zip(rows, rows[1:]) if b['m'] >= 5 and a.get('itemId') != b.get('itemId')))
 
@@ -731,7 +751,7 @@ def check(out, name, pre=''):
     if missing:
         return {'verdict': 'FAIL', 'reasons': missing + fails + voids}
     ev = files[EVIDENCE[name][0]] if len(files) == 1 else files
-    extra = r3_rules(ev, fails, sink) if name == 'R3' else f_rules(name, ev, fails)
+    extra = r3_rules(ev, fails, sink, amended(load(out, 'build.json'))) if name == 'R3' else f_rules(name, ev, fails)
     voids += extra.pop('voids', [])
     outcome = 'VOID' if voids else 'FAIL' if fails else 'PASS'
     if name == 'R3':
@@ -815,7 +835,7 @@ def controls(out, build):
     caught = [m for m in moves if m.get('cut') and not m['pass'] and m['skippedS'] > F6_SKIPPED_S and abs(m['landedOff']) <= F6_LAND_S]
     c['cutTail'] = {'F6': cut['verdict'], 'holds': real_fail(cut, '2 of 3 transitions') and len(caught) == 1}
     c['leak'] = {'R3': leak['verdict'], 'zone': leak.get('zone'), 'uss': leak.get('uss'), 'changesAfter5': leak.get('changesAfter5'),
-                 'holds': real_fail(leak, 'USS growth') and (leak.get('changesAfter5') or 0) >= 4 and flagged}
+                 'holds': real_fail(leak, 'Anonymous growth' if amended(build) else 'USS growth') and (leak.get('changesAfter5') or 0) >= 4 and flagged}
     stall = load(out, 'stall.stall.json') or {}
     pair = [dict(stall[k], state='Playing') for k in ('before', 'after') if stall.get(k)]
     caught = lags(pair, []) if len(pair) == 2 else []
