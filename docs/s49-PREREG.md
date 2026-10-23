@@ -48,3 +48,12 @@ Written after reading `playback.rs`, `cli.rs`, and the Swift snapshot code, stil
 - **Mac compile gate before bundling.** On the Air, `cargo clippy -p bramley --all-targets -- -D warnings` and `cargo test -p bramley --no-run` must pass, and the Swift module must build. The Swift and `player.rs` edits cannot compile on Linux, so a bundling failure here is a failed gate, not a Phase B result.
 - **Linux gate evidence.** The container path is macOS-only (`cfg!(target_os = "macos")`). Evidence for keeping Linux on `Queue::Songs`: S9 live-2 (`docs/s9-library-RESULTS.md`), where musickit.js `setQueue({playlist: p.…, startWith: 249})` started at track 1.
 - **Not changed, stated now.** `a.` ids in a `Queue::Songs` queue still route to the catalog batch: nothing shows what MusicKit returns for them in either request, and the container path no longer sends them. Fix 4 (carrying `catalogId`) is not part of this change.
+
+## Amendment 2 (2026-10-23, before any case ran)
+
+- **CONTROL is not the /Applications binary.** The shipped v0.7.1 has no `--click-row`, and driving its UI needs Accessibility grants. CONTROL = a `--features dev` release build of the v0.7.1 source (207757e), Developer ID signed, run from `~/bramley-spike/s49/apps/ctl`. The FIX build is the same flags on 32d5d39's code (0c5df50 differs only in a test file), run from `apps/fix`. /Applications is not touched. Everything else about the control (the bar, the VOID rules) is unchanged.
+- **Driver.** Every UI case launches the app with `--route <playlist:<id>|songs> --click-row N`, which reaches `Library::play_from` through the render hook. FIX-err and its control use `bramley play 0` only.
+- **Signed sha256 of the binaries under test.**
+  - control (207757e, dev): 2643b9c244659b292ffec6cd191d9280fa91e591bda6e53a6421b4ad2f205fc4
+  - fix (32d5d39 code, dev): f74347076d7e59e36c24dc09259c2342502ce49a98856f770de4f19579fbf3e2
+- **Timing.** "Position moving within 10 s" is measured from the first sample where the list has loaded (the click happens on the next frame), and also reported from first Playing. Both are recorded; the first is the bar.
