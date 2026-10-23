@@ -30,6 +30,10 @@ H1 verdict: CONFIRMED. CONTROL reproduces, and FIX-a0 and FIX-aN pass on the rig
 
 VOID checks: other bramley processes during sampling 0 of every case; output muted and built-in speakers confirmed before each launch; control reproduced; volume restored exactly; no bramley process left. Pacing: 5 playing starts in 13 minutes, cases 75 s apart (the bar is at most 20 license actions per 10 minutes).
 
+## Decision
+
+The FIX-i bar was too weak: it checked the start index and motion, not that the clicked row played. FIX-i is a DEFECT, a regression versus v0.7.1 (the container started on a different song than the clicked row), and this build (0c5df50) is NOT shippable. The container approach is dropped; Amendment 4 and a new build replace it.
+
 ## Findings
 
 1. **Container start is the wrong song on the `i.` playlist.** FIX-i played the track that is API row 59, not row 0, with the same `queuePosition` 0. The control, using the Songs path on the same playlist and row, played API row 0. So MusicKit's playlist track order differs from the API order for that playlist, and the index start lands on another song. On the `a.` playlist the order agrees (two indices checked, both match). Not fixed here. The container path now also covers `i.` playlists, where the Songs path worked; a candidate remedy is to use the container only when the clicked row is an `a.` id, but that is untested and mixed playlists were not run.
