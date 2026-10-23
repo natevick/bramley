@@ -420,8 +420,11 @@ fn clicking_a_track_plays_the_playlist_from_that_track() {
     frame(&ctx, &mut lib, &route, 600.0, vec![]);
     lib.lists[List::Tracks as usize].items = (0..10).map(item).collect();
     let (actions, _) = click(&ctx, &mut lib, &route, "Play Secret Song 3 · Secret Artist");
-    let ids = (3..10).map(|i| format!("i.{i}")).collect();
-    assert_eq!(actions, [Action::PlayIn(Queue::Songs(ids), 0)]);
+    let expected = match cfg!(target_os = "macos") {
+        true => Action::PlayIn(Queue::Playlist("p.LIST".into()), 3),
+        false => Action::PlayIn(Queue::Songs((3..10).map(|i| format!("i.{i}")).collect()), 0),
+    };
+    assert_eq!(actions, [expected]);
 }
 
 fn named(ids: &[&str], next: Option<&str>) -> Reply {
@@ -728,25 +731,6 @@ fn a_library_playlist_row_plays_the_playlist_at_that_row_only_where_the_player_t
             panic!("{owner} native={native} queues songs from the click");
         };
         assert_eq!(ids[0], "i.120");
-    }
-}
-
-#[test]
-fn this_platform_plays_a_library_playlist_row_the_way_it_always_did_unless_it_is_macos() {
-    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
-    frame(
-        &ctx,
-        &mut lib,
-        &Route::Playlist("p.1".into()),
-        600.0,
-        vec![],
-    );
-    answer(&mut lib, &ctx, now, page(0..150, None));
-    let played = lib.play_from(List::Tracks, 7);
-    match (cfg!(target_os = "macos"), played) {
-        (true, Some(Action::PlayIn(Queue::Playlist(id), 7))) => assert_eq!(id, "p.1"),
-        (false, Some(Action::PlayIn(Queue::Songs(ids), 0))) => assert_eq!(ids[0], "i.7"),
-        (_, other) => panic!("{other:?}"),
     }
 }
 
