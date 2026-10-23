@@ -45,7 +45,14 @@ fn text_detector() -> TextDetector {
     Box::new(TextRendering::platform_default)
 }
 
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TEXT_APPLIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 fn apply_text(ctx: &egui::Context, rendering: &TextRendering) {
+    #[cfg(test)]
+    TEXT_APPLIES.with(|n| n.set(n.get() + 1));
     let mut fonts = fastframe_fonts::FontSetup::default().definitions();
     rendering.apply_to(&mut fonts);
     ctx.set_fonts(fonts);
@@ -167,6 +174,7 @@ pub struct App {
     frames: u64,
     renderer: Option<String>,
     text: Option<Receiver<TextRendering>>,
+    text_applied: TextRendering,
     #[cfg(feature = "dev")]
     born: Instant,
     status_at: Option<Instant>,
@@ -297,6 +305,7 @@ impl App {
             frames: 0,
             renderer: None,
             text: Some(text),
+            text_applied: TextRendering::platform_default(),
             #[cfg(feature = "dev")]
             born: Instant::now(),
             status_at: None,
@@ -710,11 +719,20 @@ impl App {
     fn apply_detected_text(&mut self, ctx: &egui::Context) {
         let Some(rx) = &self.text else { return };
         match rx.try_recv() {
-            Ok(rendering) => apply_text(ctx, &rendering),
+            Ok(rendering) if rendering != self.text_applied => {
+                apply_text(ctx, &rendering);
+                self.text_applied = rendering;
+            }
+            Ok(_) => {}
             Err(TryRecvError::Empty) => return,
             Err(TryRecvError::Disconnected) => {}
         }
         self.text = None;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn text_settled(&self) -> bool {
+        self.text.is_none()
     }
 
     pub fn tick(&mut self, ctx: &egui::Context) {

@@ -876,6 +876,34 @@ fn a_hung_text_detector_never_blocks_startup_and_its_answer_applies_when_it_arri
 }
 
 #[test]
+fn a_detected_text_rendering_equal_to_the_applied_one_does_not_set_fonts_again() {
+    use fastframe_text::TextRendering;
+    let dir = std::path::PathBuf::from(format!("../../target/c/texteq{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let ctx = egui::Context::default();
+    let spawn = spawning(|| unreachable!("no player may start"));
+    let mut app = crate::app::App::new_detecting_text(
+        &ctx,
+        crate::Args::default(),
+        spawn,
+        (mock_user(&dir), true),
+        (channel().1, true),
+        None,
+        Box::new(TextRendering::platform_default),
+    );
+    let after_startup = crate::app::TEXT_APPLIES.with(std::cell::Cell::get);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !app.text_settled() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+        app.tick(&ctx);
+    }
+    let after_answer = crate::app::TEXT_APPLIES.with(std::cell::Cell::get);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(app.text_settled());
+    assert_eq!((after_startup, after_answer), (1, 1));
+}
+
+#[test]
 fn quitting_right_after_a_volume_change_still_writes_it() {
     let dir = std::path::PathBuf::from(format!("../../target/c/quit{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
