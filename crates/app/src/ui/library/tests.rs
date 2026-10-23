@@ -695,19 +695,59 @@ fn rows_built_counts_both_artist_views_in_the_frame() {
 #[test]
 fn songs_queue_from_the_click_onwards_and_albums_play_whole() {
     let items: Vec<_> = (0..250).map(item).collect();
-    let Some(Action::PlayIn(Queue::Songs(ids), 0)) = super::play(List::Songs, &items, 120) else {
+    let Some(Action::PlayIn(Queue::Songs(ids), 0)) =
+        super::play(List::Songs, &items, 120, "", false)
+    else {
         panic!("a songs queue starting at its first entry");
     };
     assert_eq!((ids.len(), ids[0].as_str()), (super::QUEUE_AHEAD, "i.120"));
-    let Some(Action::PlayIn(Queue::Songs(last), 0)) = super::play(List::Songs, &items, 249) else {
+    let Some(Action::PlayIn(Queue::Songs(last), 0)) =
+        super::play(List::Songs, &items, 249, "", false)
+    else {
         panic!("a songs queue for the last row");
     };
     assert_eq!(last, ["i.249"]);
     assert_eq!(
-        super::play(List::Albums, &items, 4),
+        super::play(List::Albums, &items, 4, "", false),
         Some(Action::PlayIn(Queue::Album("i.4".into()), 0))
     );
-    assert_eq!(super::play(List::Playlists, &items, 4), None);
+    assert_eq!(super::play(List::Playlists, &items, 4, "", false), None);
+}
+
+#[test]
+fn a_library_playlist_row_plays_the_playlist_at_that_row_only_where_the_player_takes_containers() {
+    let items: Vec<_> = (0..250).map(item).collect();
+    assert_eq!(
+        super::play(List::Tracks, &items, 120, "p.1", true),
+        Some(Action::PlayIn(Queue::Playlist("p.1".into()), 120))
+    );
+    for (owner, native) in [("p.1", false), ("l.1", true), ("pl.u-1", true)] {
+        let Some(Action::PlayIn(Queue::Songs(ids), 0)) =
+            super::play(List::Tracks, &items, 120, owner, native)
+        else {
+            panic!("{owner} native={native} queues songs from the click");
+        };
+        assert_eq!(ids[0], "i.120");
+    }
+}
+
+#[test]
+fn this_platform_plays_a_library_playlist_row_the_way_it_always_did_unless_it_is_macos() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    frame(
+        &ctx,
+        &mut lib,
+        &Route::Playlist("p.1".into()),
+        600.0,
+        vec![],
+    );
+    answer(&mut lib, &ctx, now, page(0..150, None));
+    let played = lib.play_from(List::Tracks, 7);
+    match (cfg!(target_os = "macos"), played) {
+        (true, Some(Action::PlayIn(Queue::Playlist(id), 7))) => assert_eq!(id, "p.1"),
+        (false, Some(Action::PlayIn(Queue::Songs(ids), 0))) => assert_eq!(ids[0], "i.7"),
+        (_, other) => panic!("{other:?}"),
+    }
 }
 
 #[test]

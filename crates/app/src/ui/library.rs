@@ -400,7 +400,9 @@ impl Library {
 
 impl Library {
     pub(crate) fn play_from(&mut self, list: List, index: usize) -> Option<Action> {
-        let action = play(list, &self.list(list).items, index);
+        let owner = self.owner(list);
+        let native = cfg!(target_os = "macos");
+        let action = play(list, &self.list(list).items, index, owner, native);
         self.follow = match &action {
             Some(Action::PlayIn(Queue::Songs(ids), _)) => Some(Follow {
                 list,
@@ -536,10 +538,13 @@ fn permanent(e: &Error) -> bool {
     }
 }
 
-pub fn play(list: List, items: &[Item], index: usize) -> Option<Action> {
+pub fn play(list: List, items: &[Item], index: usize, owner: &str, native: bool) -> Option<Action> {
     let item = items.get(index)?;
     Some(match list {
         List::Playlists | List::Artists | List::ArtistName => return None,
+        List::Tracks if native && owner.starts_with("p.") => {
+            Action::PlayIn(Queue::Playlist(owner.to_owned()), index)
+        }
         List::Albums | List::ArtistAlbums => Action::PlayIn(Queue::Album(item.id.clone()), 0),
         List::Songs | List::Tracks | List::ArtistSongs => {
             let ahead = &items[index..items.len().min(index + QUEUE_AHEAD)];

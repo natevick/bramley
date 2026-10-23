@@ -189,3 +189,20 @@ impl Progress {
         }
     }
 }
+
+#[derive(Default)]
+pub struct QueueGate {
+    failed: bool,
+}
+
+impl QueueGate {
+    pub fn permits(&mut self, command: &Command) -> bool {
+        !matches!(command, Command::Play) || !std::mem::take(&mut self.failed)
+    }
+
+    pub fn settle(&mut self, command: &Command, failed: bool) {
+        if matches!(command, Command::SetQueue { .. }) {
+            self.failed = failed;
+        }
+    }
+}

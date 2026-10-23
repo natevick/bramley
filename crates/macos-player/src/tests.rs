@@ -1,7 +1,7 @@
 use bramley_engine::{Command, PlayState, Queue, Repeat};
 use serde_json::json;
 
-use crate::wire::{self, Failure, Progress};
+use crate::wire::{self, Failure, Progress, QueueGate};
 
 const FAILURE: &str =
     r#"{"error":{"type":"MusicTokenRequestError","message":"permission denied"}}"#;
@@ -202,4 +202,40 @@ fn a_top_up_counts_as_background_work_and_every_other_command_as_applied() {
         progress.record(&command);
     }
     assert_eq!((progress.applied, progress.background_done), (3, 2));
+}
+
+#[test]
+fn a_library_playlist_container_goes_to_swift_as_a_library_playlist_at_its_start_row() {
+    let set = |id: &str| {
+        wire::command(&Command::SetQueue {
+            queue: Queue::Playlist(id.into()),
+            start: 7,
+        })
+    };
+    assert_eq!(
+        set("p.abc"),
+        Some(
+            json!({"cmd": "setQueue", "kind": "playlist", "id": "p.abc", "library": true, "start": 7})
+        )
+    );
+    assert_eq!(set("pl.u-abc").unwrap()["library"], false);
+}
+
+#[test]
+fn the_play_after_a_failed_set_queue_is_not_sent_so_the_first_failure_is_the_one_shown() {
+    let set = Command::SetQueue {
+        queue: Queue::Songs(vec!["i.1".into()]),
+        start: 0,
+    };
+    let mut gate = QueueGate::default();
+    assert!(gate.permits(&set));
+    gate.settle(&set, true);
+    assert!(gate.permits(&Command::Shuffle(true)));
+    assert!(!gate.permits(&Command::Play));
+    assert!(gate.permits(&Command::Play), "only the Play that followed");
+    gate.settle(&set, true);
+    gate.settle(&set, false);
+    assert!(gate.permits(&Command::Play), "a good SetQueue clears it");
+    gate.settle(&Command::Seek(1.0), true);
+    assert!(gate.permits(&Command::Play), "only SetQueue arms it");
 }
