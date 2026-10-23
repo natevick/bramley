@@ -625,3 +625,18 @@ R3 stays one of the 16 checks.
 - **c) leak (`s52-cal-3`, `bramley-sabotage` with `BRAMLEY_GATE_LEAK_MIB=3`, no hog).** Pass: R3 FAIL with `Anonymous growth` in the reasons, `anonGrowth` > 10, at least 8 track changes. Without it (a) and (b) prove nothing.
 - **Did it run, every run:** `anon` in all samples (numeric), `len(changes)` in the R3 evidence >= 8 (not the gate's distinct-track count), both reference drifts and `reclaimMiB` recorded, the R3 file not empty, a verdict printed by the new gate. A run that violates any of these is not evidence.
 - **Replay:** the old and the new `gate.py` give byte-identical `verdict.json` on all four `v071-counted-*` directories.
+
+**Amendment 20 calibration results (2026-10-23; the gate of the Amendment 20 commit; evidence in `target/acceptance/s52-cal-N/`, local, with the runner copied to `cal/` in each; `s52-cal-smoke` was a 7-minute plumbing check and is not evidence).** Every run: the v0.7.1 binaries of `v071-counted-4`, null sink, flock held, `--host-calm` passed first, `anon` numeric in all 180 samples, no phase errors.
+
+| Run | What | R3 | anon growth (min 5 → 30) | USS growth | `reclaimMiB` | track changes (after min 5) | reference drifts |
+|---|---|---|---|---|---|---|---|
+| `s52-cal-1` | a) quiet, shipped build | **PASS** | +5.4 (113.0 → 118.4) | +0.7 | 6.0 | 11 (8) | +0.6, +0.4 |
+| `s52-cal-2` | b) 45 GiB hog at soak minute 12.0 | PASS, **inconclusive** | +4.9 | +4.8 | 0.7 | 13 (10) | 0.0, +0.1 |
+| `s52-cal-4` | b) retry, 90 GiB hog at minute 12.0 | PASS, **inconclusive** | +6.5 | +6.4 | 0.7 | 12 (9) | -0.1, -0.4 |
+| `s52-cal-3` | c) leak build, 3 MiB per change | **FAIL** `Anonymous growth 32.8 > 10.0` | +32.8 (130.5 → 163.3) | +32.7 | 0.9 | 13 (10) | +0.3, +0.1 |
+
+- **a) passes** on its pre-registered conditions. Ambient file steal over R3 was 15.9 GiB.
+- **c) passes**: R3 FAIL with `Anonymous growth` in the reasons and `changesAfter5` >= 4, so the leak control holds and (a) is not vacuous.
+- **b) is not shown, twice.** The hog ran as registered and the did-it-run checks hold: it began at soak minute 12.0, `pgsteal_file` advanced 41.7 GiB (45 GiB read in 22 s) in `s52-cal-2` and 88.8 GiB (90 GiB in 59 s) in `s52-cal-4` between the minute-12 and minute-15 samples, swap was full, and R3 PASSed with no VOID. But the app's RSS did not fall (`reclaimMiB` 0.7 both times: 219.0 → 218.9 and 219.5 → 220.2 across the hog), so the pre-registered condition `reclaimMiB >= 30` was not met. The registered retry is used up. What this does show: 133 GiB of file reclaim lost the app nothing, as in the DIAG finding that volume does not decide whether the app's pages go. What it does not show is the gate's behaviour when RSS really falls; that rests on the ANON matrix in `test_gate.py` (anon flat, RSS down 65 MiB, USS and PSS +20: PASS) and not on a live run.
+- **Reference drift** stayed within ±0.7 MiB in all four runs, so the drift exemption changed no verdict here.
+- **Margin:** quiet-host anon growth was +4.9 to +6.5 MiB against the 10 MiB bar over the three non-leak runs.
