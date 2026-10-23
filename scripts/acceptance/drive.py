@@ -122,7 +122,7 @@ def mem(pid):
     total = lambda *keys: round(sum(r.get(k, 0) for r in rolls for k in keys) / 1024, 2)
     split = [{'pid': p, 'shared': round((r.get('Shared_Clean', 0) + r.get('Shared_Dirty', 0)) / 1024, 2), 'private': round((r.get('Private_Clean', 0) + r.get('Private_Dirty', 0)) / 1024, 2)}
              for p, r in zip(procs, rolls)]
-    return {'pss': total('Pss'), 'uss': total('Private_Clean', 'Private_Dirty'), 'rss': total('Rss'), 'procs': len(rolls), 'split': split, 'anon': total('Anonymous'), 'vmstat': gate.vmstat(), 'host': host_memory()}
+    return {'pss': total('Pss'), 'uss': total('Private_Clean', 'Private_Dirty'), 'rss': total('Rss'), 'procs': len(rolls), 'split': split, 'anon': total('Anonymous'), 'swap': total('Swap'), 'vmstat': gate.vmstat(), 'host': host_memory()}
 
 
 def ticks(pid):

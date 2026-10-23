@@ -275,3 +275,9 @@ Amendment 7a supersedes the R3 and stall bullets above. R3 now gates `outputUnde
 - the stall control must show **both** an underflow and a lag;
 - R3 `readinessDips` on main (expected to fall after e11055a); if dips persist with no lag, the coordinator takes the data to Nate;
 - `underflowEvents` must be populated if any underflow occurs.
+
+## S52: R3 reclaim and Amendment 20 (2026-10-23)
+
+- **Cause:** the R3 RSS drops in `v071-counted-3` and `-4` were file-only reclaim (`pgsteal_anon` 0 in the drop intervals). A user-scope `MemoryLow=` did not protect a stand-in under real global reclaim (0 of 3 runs), because root-owned ancestors are at 0. `gate.py --host-calm` now refuses to start on a host already reclaiming file cache above 10 MiB/s; its limit rests on four runs.
+- **Amendment 20:** R3 growth is judged on `Anonymous` (revision 2: plus `Swap`), fail closed, only for runs whose `build.json` has `"amendment": 20`. The four archived `v071-counted-*` verdicts are byte-identical under the new gate.
+- **Calibration:** (a) quiet R3 PASS, anon +5.4; (c) leak build R3 FAIL, anon +32.8, 13 track changes. **(b) is inconclusive:** the hog ran as registered (45 and 90 GiB, `pgsteal_file` +41.7 and +88.8 GiB) but the app's RSS did not fall (0.7 MiB), so live eviction was not reproduced on the now-calmer host. The property rests on the stand-in experiment (file-only reclaim, anon untouched) and the unit matrix, not on a live gate run. Details and numbers: PREREG Amendment 20 and its calibration results.

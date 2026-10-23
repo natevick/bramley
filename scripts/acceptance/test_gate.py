@@ -438,16 +438,21 @@ BALLAST = [
 
 AMENDED = put('build.json', amendment=20)
 r3_edit = lambda fn: edit('r3.json', lambda d: [fn(r) for r in d['samples']])
-anon_rows = lambda value=lambda r: 100.0: both(AMENDED, r3_edit(lambda r: r.__setitem__('anon', value(r))))
+anon_rows = lambda value=lambda r: 100.0, swap=lambda r: 0.0: both(AMENDED, r3_edit(lambda r: r.update(anon=value(r), swap=swap(r))))
 anon_grows = lambda by: anon_rows(lambda r: 100.0 + (by if r['m'] >= 29 else 0))
 reclaimed = r3_edit(lambda r: r.__setitem__('rss', 140.0 if r['m'] >= 15 else 205.0))
 refs_drift = both(*(edit(f'{ref}.json', lambda d: [r.__setitem__('pss', 78.0) for r in d['samples']]) for ref in gate.REFERENCE_RUNS))
 ANON = [
     ('anon flat beside a reclaim and USS growth passes', both(anon_rows(), reclaimed, grow('uss', 20), grow('pss', 20)), 'R3', 'PASS', None),
-    ('anon growth over the bar', anon_grows(10.1), 'R3', 'FAIL', 'Anonymous growth 10.1 > 10.0'),
+    ('anon growth over the bar', anon_grows(10.1), 'R3', 'FAIL', 'Anonymous+Swap growth 10.1 > 10.0'),
     ('anon growth at the bar', anon_grows(10.0), 'R3', 'PASS', None),
     ('anon before minute 5 ignored', anon_rows(lambda r: 60.0 if r['m'] < 5 else 100.0), 'R3', 'PASS', None),
-    ('anon growth beside a reclaim is FAIL, not VOID', both(anon_grows(10.1), reclaimed), 'R3', 'FAIL', 'Anonymous growth'),
+    ('anon growth beside a reclaim is FAIL, not VOID', both(anon_grows(10.1), reclaimed), 'R3', 'FAIL', 'Anonymous+Swap growth'),
+    ('anon falling while swap rises by the same amount is no growth', anon_rows(lambda r: 100.0 - (30.0 if r['m'] >= 15 else 0), lambda r: 5.0 + (30.0 if r['m'] >= 15 else 0)), 'R3', 'PASS', None),
+    ('a leak hidden by a swap-out still fails', anon_rows(lambda r: 100.0 - (20.0 if r['m'] >= 29 else 0), lambda r: 5.0 + (35.0 if r['m'] >= 29 else 0)), 'R3', 'FAIL', 'Anonymous+Swap growth 15.0'),
+    ('swap growth alone over the bar fails', anon_rows(swap=lambda r: 10.1 if r['m'] >= 29 else 0.0), 'R3', 'FAIL', 'Anonymous+Swap growth 10.1'),
+    ('swap missing from one sample is VOID', both(anon_rows(), edit('r3.json', lambda d: d['samples'][90].pop('swap'))), 'R3', 'VOID', 'lack anon or swap'),
+    ('swap null in one sample is VOID', both(anon_rows(), edit('r3.json', lambda d: d['samples'][90].__setitem__('swap', None))), 'R3', 'VOID', 'lack anon or swap'),
     ('no anon at all is VOID', AMENDED, 'R3', 'VOID', 'lack anon'),
     ('anon missing from one sample is VOID', both(anon_rows(), edit('r3.json', lambda d: d['samples'][90].pop('anon'))), 'R3', 'VOID', 'lack anon'),
     ('anon null in one sample is VOID', both(anon_rows(), edit('r3.json', lambda d: d['samples'][90].__setitem__('anon', None))), 'R3', 'VOID', 'lack anon'),
@@ -1322,8 +1327,8 @@ class Controls(unittest.TestCase):
                            'missingArtifact': True}, 'PASS'))
 
     def test_the_leak_control_of_an_amended_run_holds_on_anon_growth_only(self):
-        for name, mutate, holds in (('anon leaks', both(AMENDED, edit('leak.r3.json', lambda d: [r.__setitem__('anon', 100.0 + 3 * int(r['itemId'][1:])) for r in d['samples']])), True),
-                                    ('only USS leaks', both(AMENDED, edit('leak.r3.json', lambda d: [r.__setitem__('anon', 100.0) for r in d['samples']])), False),
+        for name, mutate, holds in (('anon leaks', both(AMENDED, edit('leak.r3.json', lambda d: [r.update(anon=100.0 + 3 * int(r['itemId'][1:]), swap=0.0) for r in d['samples']])), True),
+                                    ('only USS leaks', both(AMENDED, edit('leak.r3.json', lambda d: [r.update(anon=100.0, swap=0.0) for r in d['samples']])), False),
                                     ('no anon recorded', AMENDED, False)):
             with self.subTest(name):
                 write_controls(SCRATCH)

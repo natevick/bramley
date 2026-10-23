@@ -91,6 +91,7 @@ class HarnessApi(unittest.TestCase):
             self.assertTrue(all(p['shared'] >= 0 and p['private'] > 0 for p in row['split']))
             self.assertTrue({'pss', 'uss', 'rss'} <= set(row))
             self.assertTrue(0 < row['anon'] <= row['rss'])
+            self.assertTrue(0 <= row['swap'] and row['anon'] + row['swap'] > 0)
             self.assertEqual(set(row['host']), {'available', 'free', 'swapFree', 'shmem', 'activeFile', 'inactiveFile'})
             self.assertTrue(all(isinstance(v, int) and v >= 0 for v in row['host'].values()))
 

@@ -388,7 +388,7 @@ def amended(build):
 
 
 def anon_growth(rows):
-    pick = lambda lo, hi: median(r['anon'] for r in rows if lo <= r['m'] < hi)
+    pick = lambda lo, hi: median(r['anon'] + r['swap'] for r in rows if lo <= r['m'] < hi)
     start, end = pick(5, 6), pick(29, 30.01)
     return None if start is None or end is None else round(end - start, 1)
 
@@ -405,7 +405,7 @@ def reclaim_drop(rows):
 def r3_rules(ev, fails, sink, anon_rule=False):
     rows = ev.get('samples') or []
     g = growth(rows, 5, 30)
-    on_anon = anon_rule and bool(rows) and all(isinstance(r.get('anon'), (int, float)) for r in rows)
+    on_anon = anon_rule and bool(rows) and all(isinstance(r.get(k), (int, float)) for r in rows for k in ('anon', 'swap'))
     grown = anon_growth(rows) if on_anon else None
     played = len({r.get('itemId') for r in rows if r.get('itemId')})
     if not rows or rows[-1]['m'] < 30:
@@ -440,7 +440,7 @@ def r3_rules(ev, fails, sink, anon_rule=False):
         if grown is None:
             fails.append('no samples at minute 5 or minute 30')
         elif grown > R3_BAR:
-            fails.append(f'Anonymous growth {grown} > {R3_BAR}')
+            fails.append(f'Anonymous+Swap growth {grown} > {R3_BAR}')
     elif g.get('uss') is not None:
         if g['uss'] > R3_BAR:
             fails.append(f'USS growth {g["uss"]} > {R3_BAR}')
@@ -450,7 +450,7 @@ def r3_rules(ev, fails, sink, anon_rule=False):
         fails.append('no samples at minute 5 or minute 30')
     drop = reclaim_drop(rows)
     voids = [f'R3 RSS fell {drop} MiB during the soak, a host memory reclaim (bar {RECLAIM_MIB:g})'] if drop >= RECLAIM_MIB and not fails and not on_anon else []
-    voids += ['R3 samples lack anon, which Amendment 20 judges R3 growth on'] if anon_rule and not on_anon and not fails else []
+    voids += ['R3 samples lack anon or swap, which Amendment 20 judges R3 growth on'] if anon_rule and not on_anon and not fails else []
     zone = None if on_anon or g.get('uss') is None else 1 if g['uss'] > R3_BAR else 3
     return dict(g, **({'anonGrowth': grown} if on_anon else {}), voids=voids, reclaimMiB=drop, zone=zone, tracks=played, maxPositionOverrunS=overrun, seekLandingsS=landings,
                 outputUnderflows=underflows, readinessDips=dips,
@@ -835,7 +835,7 @@ def controls(out, build):
     caught = [m for m in moves if m.get('cut') and not m['pass'] and m['skippedS'] > F6_SKIPPED_S and abs(m['landedOff']) <= F6_LAND_S]
     c['cutTail'] = {'F6': cut['verdict'], 'holds': real_fail(cut, '2 of 3 transitions') and len(caught) == 1}
     c['leak'] = {'R3': leak['verdict'], 'zone': leak.get('zone'), 'uss': leak.get('uss'), 'changesAfter5': leak.get('changesAfter5'),
-                 'holds': real_fail(leak, 'Anonymous growth' if amended(build) else 'USS growth') and (leak.get('changesAfter5') or 0) >= 4 and flagged}
+                 'holds': real_fail(leak, 'Anonymous+Swap growth' if amended(build) else 'USS growth') and (leak.get('changesAfter5') or 0) >= 4 and flagged}
     stall = load(out, 'stall.stall.json') or {}
     pair = [dict(stall[k], state='Playing') for k in ('before', 'after') if stall.get(k)]
     caught = lags(pair, []) if len(pair) == 2 else []
