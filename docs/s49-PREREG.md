@@ -57,3 +57,15 @@ Written after reading `playback.rs`, `cli.rs`, and the Swift snapshot code, stil
   - control (207757e, dev): 2643b9c244659b292ffec6cd191d9280fa91e591bda6e53a6421b4ad2f205fc4
   - fix (32d5d39 code, dev): f74347076d7e59e36c24dc09259c2342502ce49a98856f770de4f19579fbf3e2
 - **Timing.** "Position moving within 10 s" is measured from the first sample where the list has loaded (the click happens on the next frame), and also reported from first Playing. Both are recorded; the first is the bar.
+
+## Amendment 3 (2026-10-23 13:55, before the re-run; after the first run's data)
+
+The first run (13:37 to 13:48) is VOID for fix 2 and fix 3 and kept as report-only for fix 1.
+- **Cause: the FIX binary was a stale build.** Both trees were built into one cargo target dir. `git archive` stamps every file with the commit time, which was older than the control build's outputs, so cargo reused the control's `bramley-macos-player` (Rust `QueueGate` and the Swift library). The FIX app had the container change (library.rs) but not the gate or the Swift skip. Evidence: no `resolved 0 of` string in that binary, and FIX-err showed Code=1 like its control.
+- **Fix.** Each tree is rebuilt in its own target dir (`target-s49-ctl`, `target-s49-fix`) after touching every source file, with a content check: the FIX binary contains `resolved 0 of`, the control does not. The FIX tree is 0c5df50.
+- **Binaries under test (replace Amendment 2's).** Signed sha256, `apps2/`:
+  - control (207757e, dev): 080484be74170018823e17d2a13c3ebfd2b45b3f4c6f0c9284e7fa43688a5808
+  - fix (0c5df50, dev): 0958709098b5f9a29885c123f9f500c05da4b3f36a99461d42c11461661fda0c
+- **"Playing" is redefined.** The app shows an optimistic `Playing` with an empty queue for the first 0 to 2 s after a click. A sample counts as Playing only with `queueLength > 0` and `queuePosition` set. Optimistic samples are counted and reported. This changes no bar; it removes a false positive, and the first run's analysis had it.
+- **Added report-only diagnostic: control-i0.** The control build, row 0 of the all-`i.` playlist. In the first run FIX-i reached index 0 and moved, but its now-playing title did not match the API row (duration did). This case shows whether the old Songs path matches that row. It does not affect any bar.
+- All other cases, bars and VOID rules stand. The whole case set is re-run on the new binaries; the re-run is the counted run.
