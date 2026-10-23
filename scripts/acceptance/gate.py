@@ -4,6 +4,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 REFERENCE = {'binary': os.path.join(ROOT, 'target', 'reference', 'bramley-main-4961e27'), 'sha256': '1a72eb4b2880ac5a', 'pss': 88.6}
 R1_BAR, R2_BAR, R3_BAR, R4_BAR, R5_BAR, DRIFT_BAR, BALLAST_OVER, LANDING_BAND = 200.0, 100.0, 10.0, 5.0, 1.0, 5.0, 15.0, 5.0
 FOOTPRINT_BAND, RECLAIM_MIB = 10.0, 30.0
+HOST_CALM_MIBS, HOST_CALM_S, PAGE_MIB = 10.0, 60, os.sysconf('SC_PAGE_SIZE') / 1048576
 COVERS, ADVANCE_S, MIN_WINDOW_POLLS, RISE_TOLERANCE, REPS = 50, 50.0, 30, 3.0, 5
 F1_MS, F3_MS, F4_MS, F5_MS, F4_PLAYED_S, FULL_SONG_S, R3_TRACKS = 500, 2000, 3000, 500, 35.0, 300.0, 8
 REFERENCE_RUNS = ('reference', 'reference-after')
@@ -45,6 +46,21 @@ def gpu_processes():
             libs = []
         found[int(d[6:])] = (comm, libs)
     return found
+
+
+def vmstat():
+    with open('/proc/vmstat') as f:
+        return {k: int(v) for k, v in (line.split() for line in f) if k.startswith(('pgscan', 'pgsteal'))}
+
+
+def file_reclaim_rate(window_s=HOST_CALM_S, read=vmstat, sleep=time.sleep):
+    before = read()['pgsteal_file']
+    sleep(window_s)
+    return round((read()['pgsteal_file'] - before) * PAGE_MIB / window_s, 1)
+
+
+def host_unquiet(rate):
+    return [f'refusing: the host is reclaiming file cache at {rate:g} MiB/s (limit {HOST_CALM_MIBS:g}); R3 would likely lose pages and end VOID'] if rate > HOST_CALM_MIBS else []
 
 
 def preflight(exclude=lambda pid: False, standing=None):
@@ -868,6 +884,10 @@ if __name__ == '__main__':
         found = preflight()
         print('\n'.join(['refusing: other GPU clients are running:'] + found) if found else 'preflight: no other weston, bramley or GPU client')
         sys.exit(2 if found else 0)
+    if sys.argv[1] == '--host-calm':
+        refused = host_unquiet(file_reclaim_rate())
+        print('\n'.join(refused) if refused else 'host-calm: file reclaim is quiet')
+        sys.exit(2 if refused else 0)
     result = verdict(sys.argv[1])
     save(sys.argv[1], 'verdict.json', result)
     print(json.dumps(brief(result), indent=1))

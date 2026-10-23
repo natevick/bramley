@@ -281,6 +281,11 @@ MUTANTS = [
     ('harness error still a phase error', "k not in harness and not str(e)", "not str(e)"),
     ('harness VOID hides a real FAIL', "if not c.get('harnessApi')]", "]"),
     ('harness error can pass the gate', "if v['gate'] == 'PASS' and harness:", "if False:"),
+    ('host reclaim limit refuses at the limit', "if rate > HOST_CALM_MIBS else []", "if rate >= HOST_CALM_MIBS else []"),
+    ('host reclaim never refused', "if rate > HOST_CALM_MIBS else []", "if False else []"),
+    ('host reclaim limit doubled', "if rate > HOST_CALM_MIBS else []", "if rate > HOST_CALM_MIBS * 2 else []"),
+    ('host reclaim rate ignores the window', "* PAGE_MIB / window_s, 1)", "* PAGE_MIB, 1)"),
+    ('host reclaim rate counts the wrong counter', "before = read()['pgsteal_file']", "before = read()['pgsteal_anon']"),
 ]
 
 

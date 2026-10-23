@@ -34,6 +34,16 @@ Nate delegated the definition of "done" to Norm on 2026-10-10. Bramley v1 on Lin
     Every session read radeonsi in weston's log and in all 20 samples, kept one pid, removed its null sink and left the default sink unchanged. dpkg log: the last entries are 2026-10-10 06:28 (bluez 5.85-4ubuntu0.3, dbus, libc-bin trigger), with no mesa, llvm, libdrm, glibc or weston change; nothing since.
   - A counted run refuses to start while another weston, another Bramley, or any non-standing process mapping the radeonsi/LLVM libraries is running.
 
+## Host memory reclaim (harness only, S52; no PREREG amendment, no judging change)
+
+A host reclaim during R3 drops the app's cold file pages, so R3's RSS falls 50-75 MiB and the guard (Amendment 19) VOIDs the run. In `v071-counted-3` and `-4` the reclaim was file-only (`pgsteal_anon` 0 in the drop intervals), mostly kswapd, on a host with swap full and a 25 GiB `/tmp` tmpfs.
+
+- **`scripts/acceptance.sh` now runs `gate.py --host-calm` after the GPU preflight.** It samples `pgsteal_file` for 60 s and refuses to start above **10 MiB/s**. The app is not changed, run in a different cgroup or protected, so it experiences the same host as before.
+  - **Evidence for the limit (4 runs, weak):** R1's 60 s window read 0.0 and 0.0 MiB/s in `v071-counted-1` and `-2` (no drop in R3) and 36.6 and 18.8 in `-3` and `-4` (drops of 58.0 and 74.2 MiB). R2's window was 0.0 and 0.9 in the quiet runs and 1.8 and 39.7 in the others, so the limit would have caught only one of those at R2. Over R3, file steal was 4.0 and 6.6 GiB in the quiet runs and 61.3 and 46.3 GiB in the others.
+  - **Ceiling:** those windows were measured at R1, after the builds, not at the start where this check runs (about 20 minutes before R3), so its predictive value at the start is unmeasured. R3's own 5-minute windows in the quiet runs reached 11.8 and 15.8 MiB/s, over the limit, and there is no override: a host that would have passed can be refused. Re-measure after more runs. A refusal costs a minute and no Apple traffic.
+- **Every memory sample also records `anon` (smaps `Anonymous`, MiB) and `host`** (`available`, `free`, `swapFree`, `shmem`, `activeFile`, `inactiveFile`, MiB). The gate does not read them.
+- **`MemoryLow=` on a scope does not work here.** Protection needs a matching allocation on every ancestor (`man systemd.resource-control`); `user.slice`, `user-1000.slice` and `user@1000.service` are root-owned and 0. Tested under real global reclaim: a protected scope and a protected slice chain lost 43-96 MiB of 192 MiB mapped, the same as the unprotected ones.
+
 ## Functional checks (end to end)
 
 | # | Check | Pass |

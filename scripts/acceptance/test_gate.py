@@ -1205,6 +1205,28 @@ class Preflight(unittest.TestCase):
         self.assertEqual(sorted(int(f.split()[0]) for f in by_name), [105, 106, 107, 108])
 
 
+class HostCalm(unittest.TestCase):
+    def rate(self, pages, window_s=60):
+        counters = iter([{'pgsteal_file': 1000}, {'pgsteal_file': 1000 + pages}])
+        slept = []
+        got = gate.file_reclaim_rate(window_s, read=lambda: next(counters), sleep=slept.append)
+        return got, slept
+
+    def test_the_rate_is_file_pages_stolen_over_the_window_in_mib_per_second(self):
+        pages_per_mib = 1048576 // os.sysconf('SC_PAGE_SIZE')
+        self.assertEqual(self.rate(600 * pages_per_mib), (10.0, [60]))
+        self.assertEqual(self.rate(0), (0.0, [60]))
+
+    def test_the_v071_runs_that_lost_pages_were_already_over_the_limit_at_r1_and_the_quiet_ones_were_not(self):
+        r1_file_steal_mibs = {'v071-counted-1': 0.0, 'v071-counted-2': 0.0, 'v071-counted-3': 36.6, 'v071-counted-4': 18.8}
+        refused = {run: bool(gate.host_unquiet(rate)) for run, rate in r1_file_steal_mibs.items()}
+        self.assertEqual(refused, {'v071-counted-1': False, 'v071-counted-2': False, 'v071-counted-3': True, 'v071-counted-4': True})
+
+    def test_the_limit_itself_is_quiet_and_the_refusal_names_the_rate(self):
+        self.assertEqual(gate.host_unquiet(gate.HOST_CALM_MIBS), [])
+        self.assertIn('12.5 MiB/s', gate.host_unquiet(12.5)[0])
+
+
 def maps(*libs):
     return [f'7f00 r-xp 00000000 08:01 {i} /usr/lib/x86_64-linux-gnu/{lib}' for i, lib in enumerate(libs)]
 

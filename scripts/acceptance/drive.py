@@ -109,9 +109,11 @@ def guard_fired(out):
     return sorted(f for f in os.listdir(out) if f.endswith('.guard.json') and f != 'guardtest.guard.json' and (gate.load(out, f) or {}).get('killed'))
 
 
-def vmstat():
-    with open('/proc/vmstat') as f:
-        return {k: int(v) for k, v in (line.split() for line in f) if k.startswith(('pgscan', 'pgsteal'))}
+def host_memory():
+    with open('/proc/meminfo') as f:
+        fields = {k: int(v) for k, v in (line.replace(':', '').split()[:2] for line in f)}
+    return {k: round(fields[f] / 1024) for k, f in (('available', 'MemAvailable'), ('free', 'MemFree'), ('swapFree', 'SwapFree'), ('shmem', 'Shmem'),
+                                                    ('activeFile', 'Active(file)'), ('inactiveFile', 'Inactive(file)'))}
 
 
 def mem(pid):
@@ -120,7 +122,7 @@ def mem(pid):
     total = lambda *keys: round(sum(r.get(k, 0) for r in rolls for k in keys) / 1024, 2)
     split = [{'pid': p, 'shared': round((r.get('Shared_Clean', 0) + r.get('Shared_Dirty', 0)) / 1024, 2), 'private': round((r.get('Private_Clean', 0) + r.get('Private_Dirty', 0)) / 1024, 2)}
              for p, r in zip(procs, rolls)]
-    return {'pss': total('Pss'), 'uss': total('Private_Clean', 'Private_Dirty'), 'rss': total('Rss'), 'procs': len(rolls), 'split': split, 'vmstat': vmstat()}
+    return {'pss': total('Pss'), 'uss': total('Private_Clean', 'Private_Dirty'), 'rss': total('Rss'), 'procs': len(rolls), 'split': split, 'anon': total('Anonymous'), 'vmstat': gate.vmstat(), 'host': host_memory()}
 
 
 def ticks(pid):

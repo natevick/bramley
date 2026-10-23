@@ -15,6 +15,7 @@ flock -n 9 || { echo "refusing: another acceptance or weston session holds $LOCK
 export BRAMLEY_GPU_LOCK_HELD=1
 trap 'python3 -I "$ROOT/scripts/acceptance/drive.py" --cleanup "$RUN"' EXIT
 python3 -I "$ROOT/scripts/acceptance/gate.py" --preflight >&2 || exit 2
+python3 -I "$ROOT/scripts/acceptance/gate.py" --host-calm >&2 || exit 2
 mkdir -p "$BIN" "$ROOT/target/tmp"
 export TMPDIR="$ROOT/target/tmp"
 cd "$ROOT"
