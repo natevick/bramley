@@ -102,3 +102,7 @@
   - **Rule:** the macOS budget is at most 100 MB `phys_footprint` at the default window, idle on Home, with at most 2 window-sized IOSurface buffers. See the macOS section of `docs/budget.md`.
   - **Scope:** macOS only. Linux keeps glow, with the same eframe features as before. The macOS build uses wgpu with the Metal backend only, present mode Fifo, maximum frame latency 1, and not the jitter fix. `glRenderer` in `bramley now` shows the wgpu backend and adapter name on macOS.
   - **Cost:** live-resize smoothness is not guaranteed without the jitter fix. `docs/s47b-PREREG.md` M3 defines what jitter looks like; it cannot be driven over ssh, so a human checks it by hand.
+- **2026-10-23: v0.7.1 ships over two consecutive VOIDs and a 0.8 MiB Mac budget miss (Nate).**
+  - At the fixed commit 54c1a7a, `v071-counted-3` and `v071-counted-4` PASSed every check except R3, which Amendment 19's host-reclaim guard voided (RSS −58.0 and −74.2 MiB). The stop rule sent the decision to Nate: "Ship it".
+  - The Mac's registered budget sample was 100.8 MiB against 100. Nate: "Ship it! then we work on memory", and "These are requirements". The memory budgets are hard requirements from v0.7.2. See `docs/v0.7.1-RESULTS.md`.
+  - The default window for the Mac budget is the app's built-in 1100×720, not the AeroSpace-tiled 848×1062 that `docs/s47b-PREREG.md` names.
