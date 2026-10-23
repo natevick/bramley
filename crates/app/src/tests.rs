@@ -891,16 +891,64 @@ fn a_detected_text_rendering_equal_to_the_applied_one_does_not_set_fonts_again()
         None,
         Box::new(TextRendering::platform_default),
     );
-    let after_startup = crate::app::TEXT_APPLIES.with(std::cell::Cell::get);
+    let after_startup = crate::app::FONT_SETS.with(std::cell::Cell::get);
     let deadline = Instant::now() + Duration::from_secs(5);
     while !app.text_settled() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(10));
         app.tick(&ctx);
     }
-    let after_answer = crate::app::TEXT_APPLIES.with(std::cell::Cell::get);
+    let after_answer = crate::app::FONT_SETS.with(std::cell::Cell::get);
     let _ = std::fs::remove_dir_all(&dir);
     assert!(app.text_settled());
     assert_eq!((after_startup, after_answer), (1, 1));
+}
+
+#[test]
+fn a_detected_coverage_only_difference_updates_the_visuals_without_setting_fonts_again() {
+    use fastframe_text::{Coverage, TextRendering};
+    let dir = std::path::PathBuf::from(format!("../../target/c/textcov{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let ctx = egui::Context::default();
+    let spawn = spawning(|| unreachable!("no player may start"));
+    let default = TextRendering::platform_default();
+    let coverage = if default.coverage == Coverage::Linear {
+        Coverage::ThemeDefault
+    } else {
+        Coverage::Linear
+    };
+    let detected = TextRendering {
+        coverage,
+        ..default
+    };
+    let mut app = crate::app::App::new_detecting_text(
+        &ctx,
+        crate::Args::default(),
+        spawn,
+        (mock_user(&dir), true),
+        (channel().1, true),
+        None,
+        Box::new(move || detected),
+    );
+    let transfer = || {
+        ctx.global_style()
+            .visuals
+            .text_options
+            .color_transfer_function
+    };
+    let (before, sets_before) = (transfer(), crate::app::FONT_SETS.with(std::cell::Cell::get));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !app.text_settled() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+        app.tick(&ctx);
+    }
+    let dark = ctx.global_style().visuals.dark_mode;
+    let sets_after = crate::app::FONT_SETS.with(std::cell::Cell::get);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(app.text_settled());
+    assert_eq!((sets_before, sets_after), (1, 1));
+    assert_eq!(before, default.color_transfer_function(dark));
+    assert_eq!(transfer(), detected.color_transfer_function(dark));
+    assert_ne!(before, transfer());
 }
 
 #[test]

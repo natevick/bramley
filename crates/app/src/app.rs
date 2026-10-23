@@ -47,15 +47,23 @@ fn text_detector() -> TextDetector {
 
 #[cfg(test)]
 thread_local! {
-    pub(crate) static TEXT_APPLIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static FONT_SETS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-fn apply_text(ctx: &egui::Context, rendering: &TextRendering) {
-    #[cfg(test)]
-    TEXT_APPLIES.with(|n| n.set(n.get() + 1));
-    let mut fonts = fastframe_fonts::FontSetup::default().definitions();
-    rendering.apply_to(&mut fonts);
-    ctx.set_fonts(fonts);
+fn font_tweak(rendering: &TextRendering) -> egui::FontTweak {
+    let mut tweak = egui::FontTweak::default();
+    rendering.tweak(&mut tweak);
+    tweak
+}
+
+fn apply_text(ctx: &egui::Context, rendering: &TextRendering, applied: Option<&TextRendering>) {
+    if applied.is_none_or(|before| font_tweak(before) != font_tweak(rendering)) {
+        #[cfg(test)]
+        FONT_SETS.with(|n| n.set(n.get() + 1));
+        let mut fonts = fastframe_fonts::FontSetup::default().definitions();
+        rendering.apply_to(&mut fonts);
+        ctx.set_fonts(fonts);
+    }
     ctx.all_styles_mut(|style| rendering.apply_to_visuals(&mut style.visuals));
 }
 
@@ -220,7 +228,7 @@ impl App {
         let file = theme::colors_file(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"));
         let mut theme = Theme::new(choice, file, Instant::now());
         theme.tick(ctx, Instant::now());
-        apply_text(ctx, &TextRendering::platform_default());
+        apply_text(ctx, &TextRendering::platform_default(), None);
         let text = detect_text_in_background(ctx, detect);
         #[cfg(feature = "dev")]
         let actions = args.play.into_iter().map(Action::PlaySong).collect();
@@ -720,7 +728,7 @@ impl App {
         let Some(rx) = &self.text else { return };
         match rx.try_recv() {
             Ok(rendering) if rendering != self.text_applied => {
-                apply_text(ctx, &rendering);
+                apply_text(ctx, &rendering, Some(&self.text_applied));
                 self.text_applied = rendering;
             }
             Ok(_) => {}
