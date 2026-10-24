@@ -426,8 +426,19 @@ fn main() -> Result<()> {
     let user = Credentials::system(&config, developer);
     #[cfg(not(target_os = "macos"))]
     {
-        let prefetch = user.developer().clone();
-        std::thread::spawn(move || prefetch.wait(|| false));
+        let (prefetch, woken) = (user.developer().clone(), waker.clone());
+        std::thread::spawn(move || {
+            let wake = || woken.get().iter().for_each(|ctx| ctx.request_repaint());
+            let last = std::cell::RefCell::new(None);
+            let _ = prefetch.wait(|| {
+                let now = prefetch.missing();
+                if last.replace(now.clone()) != now {
+                    wake();
+                }
+                false
+            });
+            wake();
+        });
     }
     let source = cover_source(&args, &user);
     #[cfg(feature = "dev")]

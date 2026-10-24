@@ -330,6 +330,10 @@ impl Playback {
         shown
     }
 
+    pub fn hold_ends(&self) -> Option<Instant> {
+        self.pending.as_ref().map(|p| p.since + HOLD_LIMIT)
+    }
+
     pub fn banner(&self) -> Option<Banner> {
         if self.signed_out.is_some() || self.snap.preview_only {
             return Some(Banner::SignInNeeded);

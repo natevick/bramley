@@ -202,6 +202,17 @@ impl Library {
         paged.idle(now) && paged.call(list, self.owner_for(list)).is_some()
     }
 
+    pub fn queued(&self, now: Instant, signed_in: bool) -> bool {
+        signed_in && !self.denied && LISTS.iter().any(|list| self.due(*list, now))
+    }
+
+    pub fn next_due(&self) -> Option<Instant> {
+        let busy = self.lists.iter().filter_map(|paged| paged.busy_until);
+        let pending = self.follow.as_ref().filter(|f| !f.previous.is_empty());
+        let retry = pending.and_then(|f| Some(f.sent? + *TOP_UP_RETRIES.get(f.tries)?));
+        busy.chain(retry).min()
+    }
+
     fn more(&self, list: List) -> bool {
         match list {
             List::ArtistSongs => {
@@ -366,7 +377,6 @@ impl Library {
                         _ => RETRY,
                     };
                     (paged.busy_until, paged.failed) = (Some(Instant::now() + wait), true);
-                    ctx.request_repaint_after(wait);
                 }
             }
         }

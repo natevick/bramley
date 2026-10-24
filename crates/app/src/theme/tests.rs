@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use bramley_engine::{QueueItem, Snapshot};
 use egui::{Color32, Shape, Theme as Mode, Visuals};
 
-use super::{Choice, Look, Palette, Theme, colors_file, contrast, install};
+use super::{Choice, GRACE, Look, POLL, Palette, Theme, colors_file, contrast, install};
 use crate::ui::queue_panel;
 
 const TOKYO: &str = include_str!("fixtures/tokyo-night.toml");
@@ -281,6 +281,47 @@ fn a_changed_colors_toml_is_picked_up_on_the_next_poll_and_not_before() {
     let light = ctx.style_of(Mode::Light).visuals.clone();
     assert_eq!(light.selection.bg_fill, rgb(0x1e66f5));
     assert!(!light.dark_mode);
+}
+
+#[test]
+fn a_changed_colors_toml_wakes_the_app_between_polls_and_an_unchanged_one_never_does() {
+    let scratch = Scratch::new("watch");
+    scratch.swap(TOKYO);
+    let (mut theme, ctx, t0) = ticking(Choice::Omarchy, &scratch);
+    theme.tick(&ctx, t0);
+    for _ in 0..3 {
+        ctx.run_ui(egui::RawInput::default(), |_| {})
+            .textures_delta
+            .clear();
+    }
+    let (wake, woken) = std::sync::mpsc::channel();
+    ctx.set_request_repaint_callback(move |_| {
+        let _ = wake.send(());
+    });
+    theme.watch(&ctx);
+    assert!(
+        woken.recv_timeout(POLL * 2).is_err(),
+        "an unchanged file woke the app"
+    );
+    scratch.swap(LATTE);
+    woken
+        .recv_timeout(POLL * 3)
+        .expect("a changed file wakes the app");
+    theme.tick(&ctx, t0 + Duration::from_millis(400));
+    assert_eq!(shown(&ctx), (rgb(0xeff1f5), Mode::Light));
+}
+
+#[test]
+fn only_a_shown_omarchy_look_waits_out_the_grace_for_a_missing_file() {
+    let scratch = Scratch::new("grace");
+    let (mut theme, ctx, t0) = ticking(Choice::Omarchy, &scratch);
+    theme.tick(&ctx, t0);
+    assert_eq!(theme.due(), None);
+    scratch.swap(LATTE);
+    theme.tick(&ctx, t0 + POLL);
+    scratch.remove();
+    theme.tick(&ctx, t0 + POLL * 2);
+    assert_eq!(theme.due(), Some(t0 + POLL * 2 + GRACE));
 }
 
 #[test]

@@ -896,6 +896,10 @@ impl Grid {
         self.start(ctx, source, px, 0);
     }
 
+    pub fn retry_due(&self, visible: bool) -> Option<Instant> {
+        self.retry_at.filter(|_| visible)
+    }
+
     pub fn retry(&mut self, ctx: &egui::Context, now: Instant, visible: bool) -> bool {
         let due = self.retry_at.is_some_and(|at| visible && now >= at);
         let source = self.source.clone().filter(|_| due);
@@ -955,7 +959,6 @@ impl Grid {
                 Loaded::Retry(after) => {
                     let wait = BACKOFF[self.tries.min(BACKOFF.len() - 1)].max(after);
                     (self.retry_at, self.tries) = (Some(Instant::now() + wait), self.tries + 1);
-                    ctx.request_repaint_after(wait);
                 }
                 Loaded::SignInNeeded => self.rejected = true,
                 Loaded::Empty => self.empty = true,

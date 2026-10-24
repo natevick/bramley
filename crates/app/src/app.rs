@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 #[cfg(feature = "dev")]
 use anyhow::{Context, Result};
-use bramley_engine::PlayerError;
+use bramley_engine::{PlayState, PlayerError};
 use fastframe_text::TextRendering;
 use serde_json::{Value, json};
 
@@ -186,6 +186,7 @@ pub struct App {
     #[cfg(feature = "dev")]
     born: Instant,
     status_at: Option<Instant>,
+    status_late: bool,
     #[cfg(feature = "gate-sabotage")]
     leak: crate::Leak,
     #[cfg(feature = "gate-sabotage")]
@@ -228,6 +229,7 @@ impl App {
         let file = theme::colors_file(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"));
         let mut theme = Theme::new(choice, file, Instant::now());
         theme.tick(ctx, Instant::now());
+        theme.watch(ctx);
         apply_text(ctx, &TextRendering::platform_default(), None);
         let text = detect_text_in_background(ctx, detect);
         #[cfg(feature = "dev")]
@@ -317,6 +319,7 @@ impl App {
             #[cfg(feature = "dev")]
             born: Instant::now(),
             status_at: None,
+            status_late: false,
             #[cfg(feature = "gate-sabotage")]
             leak: crate::Leak::from_env(),
             #[cfg(feature = "gate-sabotage")]
@@ -435,6 +438,58 @@ impl App {
         }
         let _ = tx.send(status.to_string());
         self.status_at = Some(Instant::now());
+        self.status_late = false;
+    }
+
+    #[cfg(feature = "dev")]
+    fn driving(&self) -> bool {
+        let (library, search) = (&self.library, &self.search);
+        self.shot.is_some()
+            | self.jump_to.is_some()
+            | self.scroll_end.is_some()
+            | self.click_cover.is_some()
+            | self.queue_fixture
+            | library.click_last
+            | library.click_row.is_some()
+            | !self.detail.clicks.is_empty()
+            | search.click_first_song
+            | search.click_first_playlist
+    }
+
+    #[cfg(not(feature = "dev"))]
+    fn driving(&self) -> bool {
+        false
+    }
+
+    fn schedule(&self, ctx: &egui::Context, now: Instant) {
+        if self.library.queued(now, covers_allowed(&self.playback)) {
+            ctx.request_repaint();
+        }
+        let home = self.shell.route == ui::nav::Route::Home;
+        let status = self.status.as_ref().filter(|_| self.status_late);
+        let due = [
+            self.playback.hold_ends(),
+            self.covers.retry_due(home),
+            self.library.next_due(),
+            self.detail.next_due(),
+            self.search.timeout(),
+            self.search.wait(now).map(|wait| now + wait),
+            self.theme.due(),
+            status.and(self.status_at).map(|at| at + REPAINT_EVERY),
+        ];
+        let state = self.playback.snapshot().state;
+        let ticking = matches!(state, PlayState::Playing | PlayState::Loading)
+            || self.checking.is_some()
+            || self.clearing.is_some()
+            || self.waiting().is_some()
+            || self.driving();
+        let waits = due.into_iter().flatten().filter(|at| *at >= now);
+        let waits = waits
+            .map(|at| at - now)
+            .chain(ticking.then_some(REPAINT_EVERY));
+        if let Some(wait) = waits.min() {
+            ctx.request_repaint_after(wait);
+        }
     }
 
     pub fn pump(&mut self, ctx: &egui::Context) -> bool {
@@ -779,9 +834,6 @@ impl App {
         if let Some(job) = self.search.recent_job(now, signed_in && browsing, wake) {
             self.send_api(job);
         }
-        if let Some(wait) = self.search.wait(now) {
-            ctx.request_repaint_after(wait);
-        }
         let waker = ctx.clone();
         let wake = move || waker.request_repaint();
         for job in (self.library).tick(now, covers_allowed(&self.playback), wake) {
@@ -813,18 +865,19 @@ impl App {
         if std::mem::take(&mut self.library.top_up_failed) {
             self.notice = Some(TOP_UP_FAILED);
         }
-        if changed
-            || self
-                .status_at
-                .is_none_or(|at| at.elapsed() >= REPAINT_EVERY)
-        {
+        let stale = self
+            .status_at
+            .is_none_or(|at| at.elapsed() >= REPAINT_EVERY);
+        if changed || stale {
             self.write_status();
+        } else {
+            self.status_late = true;
         }
         #[cfg(feature = "dev")]
         self.drive_shot(ctx);
         #[cfg(feature = "dev")]
         self.drive_jump();
-        ctx.request_repaint_after(REPAINT_EVERY);
+        self.schedule(ctx, now);
     }
 
     fn overlay_nav(&self, docked: bool, compact: bool) -> Option<Nav> {
@@ -970,6 +1023,7 @@ impl App {
             }
         }
         self.library.started(self.playback.generation());
+        self.schedule(ui.ctx(), Instant::now());
     }
 
     #[cfg(feature = "dev")]

@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use egui::{Color32, Id, Theme as Mode, ThemePreference, Visuals};
@@ -251,6 +253,7 @@ pub struct Theme {
     due: Instant,
     gone: Option<Instant>,
     warned: bool,
+    changed: Arc<AtomicBool>,
 }
 
 pub fn colors_file(state_home: Option<OsString>, home: Option<OsString>) -> Option<PathBuf> {
@@ -270,7 +273,32 @@ impl Theme {
             due: now,
             gone: None,
             warned: false,
+            changed: Arc::default(),
         }
+    }
+
+    pub fn watch(&self, ctx: &egui::Context) {
+        let Some(file) = self.file.clone() else {
+            return;
+        };
+        let (changed, ctx) = (self.changed.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let mut seen = std::fs::read(&file).ok();
+            while Arc::strong_count(&changed) > 1 {
+                std::thread::sleep(POLL);
+                let now = std::fs::read(&file).ok();
+                if now != seen {
+                    seen = now;
+                    changed.store(true, Ordering::SeqCst);
+                    ctx.request_repaint();
+                }
+            }
+        });
+    }
+
+    pub fn due(&self) -> Option<Instant> {
+        let kept = matches!(self.shown, Some(Look::Omarchy(_)));
+        self.gone.filter(|_| kept).map(|gone| gone + GRACE)
     }
 
     fn read(&self) -> Read {
@@ -285,7 +313,8 @@ impl Theme {
     }
 
     pub fn tick(&mut self, ctx: &egui::Context, now: Instant) {
-        if now < self.due {
+        let changed = self.changed.swap(false, Ordering::SeqCst);
+        if now < self.due && !changed {
             return;
         }
         self.due = now + POLL;
