@@ -254,11 +254,14 @@ def guard_voids(out, ev, sink, started):
     return voids, missing
 
 
-def drift_voids(zone, outcome, drifts):
-    if zone != 3:
+def drift_voids(zone, outcome, drifts, pss, bar):
+    if zone != 3 or outcome not in ('PASS', 'FAIL') or not drifts:
         return []
-    suspect = {'FAIL': [d for d in drifts if d > DRIFT_BAR], 'PASS': [d for d in drifts if d < -DRIFT_BAR]}.get(outcome, [])
-    return [f'reference drifted {d:+.1f} MiB from {REFERENCE["pss"]} (bar {DRIFT_BAR}), which voids a {outcome}' for d in suspect]
+    passing = outcome == 'PASS'
+    worst = min(drifts) if passing else max(drifts)
+    corrected = round(pss - worst, 1)
+    suspect, flips = (worst < -DRIFT_BAR, corrected > bar) if passing else (worst > DRIFT_BAR, corrected <= bar)
+    return [f'reference drifted {worst:+.1f} MiB from {REFERENCE["pss"]} (bar {DRIFT_BAR}), so PSS {pss} corrects to {corrected} against {bar:g}, which voids a {outcome}'] if suspect and flips else []
 
 
 def zone_of(m, bar, fails):
@@ -321,7 +324,7 @@ def memory_check(out, name, kind, sink):
         fails.append('not exactly 1 process in every sample')
     zone = zone_of(m, bar, fails)
     outcome = 'VOID' if voids else 'FAIL' if fails else 'PASS'
-    voids += drift_voids(zone, outcome, drifts)
+    voids += drift_voids(zone, outcome, drifts, m.get('pss'), bar)
     return dict(m, verdict='VOID' if voids else outcome, reasons=voids + fails, bar=bar, zone=zone, referenceDrift=max(drifts, key=abs))
 
 
@@ -755,7 +758,7 @@ def check(out, name, pre=''):
     voids += extra.pop('voids', [])
     outcome = 'VOID' if voids else 'FAIL' if fails else 'PASS'
     if name == 'R3':
-        voids += drift_voids(extra.get('zone'), outcome, drifts)
+        voids += drift_voids(extra.get('zone'), outcome, drifts, extra.get('pss'), R3_BAR)
     return dict(extra, verdict='VOID' if voids else outcome, reasons=voids + fails)
 
 
