@@ -4844,8 +4844,10 @@ mod idle {
 
     #[test]
     fn the_status_file_gets_one_trailing_write_within_a_second_of_the_last_frame_and_then_rests() {
-        let dir =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/idle-status");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../target/tmp/idle-status-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let mut rig = Rig::writing_status(&dir.join("status.json"));
         let delays: Vec<_> = (0..4)
@@ -4855,7 +4857,8 @@ mod idle {
         assert!(held > Duration::ZERO && held <= SECOND, "{delays:?}");
         std::thread::sleep(SECOND + Duration::from_millis(50));
         assert_eq!(rig.settle(), Duration::MAX);
-        std::fs::remove_dir_all(&dir).unwrap();
+        drop(rig);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
