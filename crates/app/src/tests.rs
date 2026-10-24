@@ -3151,8 +3151,9 @@ fn a_library_403_shows_sign_in_needed_like_the_covers_do() {
     }
     cover_meshes(&ctx, &mut app);
     cover_meshes(&ctx, &mut app);
-    std::fs::remove_dir_all(&dir).unwrap();
     let status = app.status_json();
+    drop(app);
+    std::fs::remove_dir_all(&dir).unwrap();
     assert_eq!(status["banner"], "SignInNeeded");
     assert_eq!(status["signInReason"], "library-denied");
     assert!(jobs.try_recv().is_err(), "a 403 is not retried");
