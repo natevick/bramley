@@ -682,3 +682,15 @@ R3 stays one of the 16 checks.
 | the other 55 | none recorded | none | | no change, FAIL on missing evidence |
 
 **Tests to be added, with the same fixtures as the existing drift rows.** A PASS over a near-bar PSS that the correction pushes over the bar is VOID; a PASS with headroom is not; a FAIL the correction would bring to or under the bar is VOID; a FAIL that stays over the bar is not; exact boundaries (`corrected` equal to the bar: a PASS stands, a FAIL is VOID); the same for an unamended R3's growth; both-ways readings. The existing drift rows whose PASS has headroom are not edited to a new expectation; near-bar fixtures are added so they keep exercising the VOID path. A mutant that voids on any suspect drift, as before, must turn them red.
+
+**Amendment 21 results (2026-10-24; the gate of the Amendment 21 code commit; the replay is in memory and rewrites no `verdict.json`).**
+- **Replay: the predictions held, 1 of 66 directories changed.** The Amendment 20 gate (the parent commit's `gate.py`) and the Amendment 21 gate agree on every check verdict, the ballast verdict and `holds`, and the gate verdict in 65 directories, and differ in exactly the one predicted.
+
+| Directory | Old | New | Why |
+|---|---|---|---|
+| `v072-cal-1` | R2 VOID, gate VOID | R2 **PASS**, gate **PASS** | worst reading -7.4, PSS 77.0 corrects to 84.4 against 100 |
+| `v071-counted-1` | R1, R2, R3 VOID, gate VOID | same | worst reading -16.7: R1 185.9 corrects to 202.6 (bar 200), R2 88.8 to 105.5 (bar 100), R3 growth 2.0 to 18.7 (bar 10); each still flips, one reason each now instead of two |
+| `v071-counted-2`, `-3`, `-4`, `s52-cal-1` to `-5`, `s52-cal-smoke` and the other 55 | | same | as predicted: inside the bar, upward drift on a PASS, anon-judged R3 (no zone), or no reference evidence |
+- **Tests.** `scripts/acceptance/test_gate.py`: 99 tests, OK (99 before). 14 matrix rows added (headroom stands, exact-boundary PASS and FAIL, worst of two readings both ways, R2's bar, R3 PASS and FAIL); 12 of them fail on the Amendment 20 gate. Five existing rows moved to a PSS of 196.0 (and one R3 row to PSS growth 5.0) so they keep exercising the void path; none changed its expectation.
+- **Mutants.** `mutants.py`: 15 drift mutants, all killed, the no-op survives. They include the always-void revert of this amendment (`drift margin check removed`, plus one per direction), both boundary operators, the sign of the correction, the worst-reading choice, the zone-3 scope and the bar passed for R2 and R3. The full 306-mutant run was not completed in this session (about 2 hours); all 306 anchors apply exactly once.
+- **`v072-cal-1` re-judged (a copy of its directory; `gate.py` exit 0).** F1 to F10, R1 to R6 all PASS, ballast holds, gate **PASS**. It is an uncounted calibration, so this proves the rule and nothing about v0.7.2.
