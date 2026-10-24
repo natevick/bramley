@@ -109,6 +109,13 @@ impl Search {
         Some(due.saturating_duration_since(now))
     }
 
+    pub fn timeout(&self) -> Option<Instant> {
+        match self.state {
+            State::Loading(deadline) => Some(deadline),
+            _ => None,
+        }
+    }
+
     pub fn tick(
         &mut self,
         now: Instant,

@@ -315,6 +315,18 @@ fn a_hung_last_command_releases_the_hold_after_the_limit_without_progress() {
 }
 
 #[test]
+fn a_held_command_names_when_its_hold_ends_and_nothing_once_applied() {
+    let (mut p, ends) = fake(false);
+    assert_eq!(p.hold_ends(), None);
+    let sent = Instant::now();
+    p.apply(Action::PlaySong("42".into()));
+    let ends_at = p.hold_ends().expect("a hold");
+    assert!(ends_at >= sent + HOLD_LIMIT && ends_at <= Instant::now() + HOLD_LIMIT);
+    feed(&mut p, &ends, PlayState::Playing, 0.0, 2);
+    assert_eq!(p.hold_ends(), None);
+}
+
+#[test]
 fn a_lingering_playback_error_does_not_release_a_newer_hold() {
     let (mut p, ends) = fake(false);
     p.apply(Action::PlaySong("42".into()));
@@ -4522,4 +4534,379 @@ fn home_keys_walk_rows_reveal_restore_and_scroll_and_enter_opens_the_focused_cov
         (0..45).for_each(|_| drop(idle()));
     }
     assert!(heading.get().is_some_and(|y| y >= 0.0));
+}
+
+mod idle {
+    use super::*;
+    use crate::app::{App, pace};
+
+    const SECOND: Duration = Duration::from_secs(1);
+
+    struct Rig {
+        ctx: egui::Context,
+        app: App,
+        jobs: Receiver<bramley_api::Job>,
+    }
+
+    impl Rig {
+        fn new(signed_out: bool, spawn: Spawn) -> Self {
+            Rig::sourced(signed_out, spawn, None)
+        }
+
+        fn sourced(signed_out: bool, spawn: Spawn, source: Option<Source>) -> Self {
+            let ctx = egui::Context::default();
+            let dir =
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/idle");
+            let user = (mock_user(&dir), signed_out);
+            let (args, inbox) = (crate::Args::default(), (channel().1, true));
+            let mut app = App::new(&ctx, args, spawn, user, inbox, source);
+            let (api, jobs) = channel();
+            app.api = Some(api);
+            app.pass_floor = Duration::ZERO;
+            Rig { ctx, app, jobs }
+        }
+
+        fn writing_status(path: &std::path::Path) -> Self {
+            let mut rig = Rig::new(true, unreachable_player());
+            let flags = ["--status".to_owned(), path.display().to_string()];
+            let args = crate::parse_args(flags.into_iter()).unwrap();
+            let dir = path.parent().unwrap();
+            let user = (mock_user(dir), true);
+            rig.app = App::new(
+                &rig.ctx,
+                args,
+                unreachable_player(),
+                user,
+                (channel().1, true),
+                None,
+            );
+            rig
+        }
+
+        fn pass(&mut self, mut input: egui::RawInput) -> Duration {
+            eframe::App::raw_input_hook(&mut self.app, &self.ctx, &mut input);
+            let mut out = self.ctx.run_ui(input, |ui| {
+                self.app.tick(ui.ctx());
+                self.app.draw(ui);
+            });
+            out.textures_delta.clear();
+            out.viewport_output[&egui::ViewportId::ROOT].repaint_delay
+        }
+
+        fn settle(&mut self) -> Duration {
+            let mut delay = Duration::ZERO;
+            for _ in 0..300 {
+                for job in self.jobs.try_iter().collect::<Vec<_>>() {
+                    let empty = bramley_api::Page {
+                        items: Vec::new(),
+                        next: None,
+                        total: Some(0),
+                    };
+                    (job.done)(Ok(bramley_api::Reply::Page(empty)));
+                }
+                delay = self.pass(egui::RawInput::default());
+                if delay == Duration::MAX && self.app.text_settled() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            delay
+        }
+    }
+
+    fn winit_key(key: egui::Key, modifiers: egui::Modifiers) -> egui::RawInput {
+        let event = egui::Event::Key {
+            key,
+            physical_key: Some(key),
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        egui::RawInput {
+            events: vec![event],
+            ..egui::RawInput::default()
+        }
+    }
+
+    fn control() -> egui::Modifiers {
+        let mut modifiers = egui::Modifiers::default();
+        (modifiers.command, modifiers.ctrl) = (true, !cfg!(target_os = "macos"));
+        modifiers.mac_cmd = cfg!(target_os = "macos");
+        modifiers
+    }
+
+    fn unreachable_player() -> Spawn {
+        spawning(|| unreachable!("no player may start"))
+    }
+
+    #[test]
+    fn an_app_with_nothing_changing_requests_no_repaint_on_any_page() {
+        for route in [
+            Route::Home,
+            Route::Search,
+            Route::Artists,
+            Route::Playlists,
+            Route::Albums,
+            Route::Songs,
+        ] {
+            for signed_out in [true, false] {
+                let mut rig = Rig::new(signed_out, unreachable_player());
+                rig.app.go(route.clone());
+                let delay = rig.settle();
+                assert_eq!(delay, Duration::MAX, "{route:?} signed_out={signed_out}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_key_press_after_the_app_went_idle_wakes_it() {
+        let mut rig = Rig::new(true, unreachable_player());
+        assert_eq!(rig.settle(), Duration::MAX);
+        let delay = rig.pass(winit_key(egui::Key::L, control()));
+        assert_eq!(delay, Duration::ZERO);
+        assert_eq!(rig.app.status_json()["route"], "Search");
+    }
+
+    #[test]
+    fn a_paused_player_idles_and_a_playing_one_keeps_its_one_second_tick() {
+        let ends: Ends = Rc::default();
+        let spawned = ends.clone();
+        let mut rig = Rig::new(false, spawning(move || live(&spawned)));
+        assert_eq!(rig.settle(), Duration::MAX);
+        rig.app.apply(Action::PlaySong("1".into()));
+        rig.pass(egui::RawInput::default());
+        let send = |state| ends.borrow()[0].1.send(snap(state, 1.0, 2, None)).unwrap();
+        send(PlayState::Playing);
+        let delays: Vec<_> = (0..4)
+            .map(|_| rig.pass(egui::RawInput::default()))
+            .collect();
+        let tick = |d: &Duration| *d > SECOND / 2 && *d <= SECOND;
+        assert!(delays[1..].iter().all(tick), "{delays:?}");
+        send(PlayState::Paused);
+        assert_eq!(rig.settle(), Duration::MAX);
+    }
+
+    #[test]
+    fn a_command_the_engine_never_answers_is_released_by_a_timed_wake() {
+        let ends: Ends = Rc::default();
+        let spawned = ends.clone();
+        let mut rig = Rig::new(false, spawning(move || live(&spawned)));
+        rig.app.apply(Action::PlaySong("1".into()));
+        rig.pass(egui::RawInput::default());
+        ends.borrow()[0]
+            .1
+            .send(snap(PlayState::Paused, 1.0, 2, None))
+            .unwrap();
+        assert_eq!(rig.settle(), Duration::MAX);
+        rig.app.apply(Action::Play);
+        let delays: Vec<_> = (0..4)
+            .map(|_| rig.pass(egui::RawInput::default()))
+            .collect();
+        let held = delays[3];
+        assert!(held > SECOND && held <= HOLD_LIMIT, "{delays:?}");
+    }
+
+    fn shown_by(minimized: Option<bool>, occluded: Option<bool>) -> egui::ViewportInfo {
+        egui::ViewportInfo {
+            minimized,
+            occluded,
+            focused: Some(true),
+            ..egui::ViewportInfo::default()
+        }
+    }
+
+    fn playing() -> (Rig, Ends) {
+        let ends: Ends = Rc::default();
+        let spawned = ends.clone();
+        let mut rig = Rig::new(false, spawning(move || live(&spawned)));
+        rig.app.apply(Action::PlaySong("1".into()));
+        rig.pass(egui::RawInput::default());
+        ends.borrow()[0]
+            .1
+            .send(snap(PlayState::Playing, 1.0, 2, None))
+            .unwrap();
+        for _ in 0..3 {
+            rig.pass(egui::RawInput::default());
+        }
+        (rig, ends)
+    }
+
+    fn logic(rig: &mut Rig, info: egui::ViewportInfo) -> Vec<Duration> {
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let seen = asked.clone();
+        rig.ctx
+            .set_request_repaint_callback(move |info| seen.lock().unwrap().push(info.delay));
+        let mut raw = egui::RawInput::default();
+        raw.viewports.insert(egui::ViewportId::ROOT, info);
+        let _ = rig.ctx.run_logic(&raw, |ctx| rig.app.tick(ctx));
+        std::mem::take(&mut *asked.lock().unwrap())
+    }
+
+    #[test]
+    fn a_hidden_window_asks_for_no_tick_while_playing_yet_its_logic_still_runs() {
+        for (minimized, occluded) in [(Some(true), None), (Some(false), Some(true))] {
+            let (mut rig, ends) = playing();
+            let hidden = shown_by(minimized, occluded);
+            let asked = logic(&mut rig, hidden.clone());
+            assert!(
+                asked.iter().all(|wait| *wait > SECOND),
+                "{hidden:?} {asked:?}"
+            );
+            ends.borrow()[0]
+                .1
+                .send(snap(PlayState::Playing, 7.0, 2, None))
+                .unwrap();
+            logic(&mut rig, hidden);
+            let status = rig.app.status_json();
+            assert_eq!(status["position"].as_f64(), Some(7.0));
+            assert_eq!(status["windowHidden"], true);
+        }
+    }
+
+    #[test]
+    fn every_way_a_window_can_be_visible_or_unknown_keeps_the_playing_tick() {
+        for (minimized, occluded) in [
+            (Some(false), Some(false)),
+            (Some(false), None),
+            (None, None),
+            (None, Some(false)),
+        ] {
+            let (mut rig, _) = playing();
+            let asked = logic(&mut rig, shown_by(minimized, occluded));
+            let ticks = |wait: &Duration| *wait > SECOND / 2 && *wait <= SECOND;
+            assert!(
+                asked.iter().any(ticks),
+                "{minimized:?} {occluded:?} {asked:?}"
+            );
+            assert_eq!(rig.app.status_json()["windowHidden"], false);
+        }
+    }
+
+    #[test]
+    fn pace_returns_what_is_left_below_the_floor_and_nothing_otherwise() {
+        let (floor, now) = (Duration::from_millis(4), Instant::now());
+        let began = |ago: u64| now.checked_sub(Duration::from_millis(ago));
+        assert_eq!(pace(None, now, floor), None);
+        assert_eq!(pace(began(1), now, floor), Some(Duration::from_millis(3)));
+        assert_eq!(pace(began(4), now, floor), None);
+        assert_eq!(pace(began(9), now, floor), None);
+        assert_eq!(pace(Some(now), now, Duration::ZERO), None);
+    }
+
+    #[test]
+    fn back_to_back_passes_wait_out_the_floor_except_the_first() {
+        let floor = Duration::from_millis(4);
+        let mut rig = Rig::new(true, unreachable_player());
+        rig.app.pass_floor = floor;
+        let started = Instant::now();
+        rig.app.pace_pass();
+        assert_eq!(rig.app.status_json()["passesPaced"], 0);
+        rig.app.pace_pass();
+        rig.app.pace_pass();
+        assert!(rig.app.status_json()["passesPaced"].as_u64() >= Some(2));
+        assert!(started.elapsed() >= floor * 2);
+    }
+
+    #[test]
+    fn the_status_names_the_source_lines_that_asked_for_each_pass() {
+        let mut rig = Rig::new(true, unreachable_player());
+        assert_eq!(rig.settle(), Duration::MAX);
+        rig.pass(winit_key(egui::Key::L, control()));
+        rig.pass(egui::RawInput::default());
+        let causes = rig.app.status_json()["repaintCauses"].clone();
+        let named: Vec<_> = causes.as_object().unwrap().keys().collect();
+        assert!(
+            named.iter().any(|cause| cause.contains("app.rs")),
+            "{named:?}"
+        );
+    }
+
+    #[test]
+    fn a_window_becoming_visible_again_repaints_at_once() {
+        let (mut rig, _) = playing();
+        logic(&mut rig, shown_by(Some(true), None));
+        let asked = logic(&mut rig, shown_by(Some(false), Some(false)));
+        assert!(asked.contains(&Duration::ZERO), "{asked:?}");
+    }
+
+    #[test]
+    fn a_failed_home_chart_wakes_the_app_for_its_retry_only_while_home_shows() {
+        let serve = Serve {
+            chart: 503,
+            chart_fails: 4,
+            ..SERVE
+        };
+        let fx = fixture(serve);
+        let (source, config) = fixture_source(&fx, true);
+        let mut rig = Rig::sourced(false, unreachable_player(), Some(source));
+        let waits = Duration::from_secs(1)..=Duration::from_secs(5);
+        let until = Instant::now() + Duration::from_secs(20);
+        let mut delay = Duration::ZERO;
+        while !waits.contains(&delay) && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(10));
+            delay = rig.pass(egui::RawInput::default());
+        }
+        assert!(waits.contains(&delay), "{delay:?}");
+        rig.app.go(Route::Songs);
+        let away: Vec<_> = (0..4)
+            .map(|_| rig.pass(egui::RawInput::default()))
+            .collect();
+        assert!(away[3] > Duration::from_secs(5), "{away:?}");
+        std::fs::remove_dir_all(&config).unwrap();
+    }
+
+    #[test]
+    fn a_page_opened_while_idle_is_fetched_without_another_event() {
+        let mut rig = Rig::new(false, unreachable_player());
+        assert_eq!(rig.settle(), Duration::MAX);
+        rig.app.go(Route::Songs);
+        for _ in 0..5 {
+            if rig.pass(egui::RawInput::default()) == Duration::MAX {
+                break;
+            }
+        }
+        let songs = bramley_api::Call::Library(bramley_api::Shelf::Songs);
+        assert!(rig.jobs.try_iter().any(|job| job.call == songs));
+    }
+
+    #[test]
+    fn the_status_file_gets_one_trailing_write_within_a_second_of_the_last_frame_and_then_rests() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../target/tmp/idle-status-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut rig = Rig::writing_status(&dir.join("status.json"));
+        let delays: Vec<_> = (0..4)
+            .map(|_| rig.pass(egui::RawInput::default()))
+            .collect();
+        let held = delays[3];
+        assert!(held > Duration::ZERO && held <= SECOND, "{delays:?}");
+        std::thread::sleep(SECOND + Duration::from_millis(50));
+        assert_eq!(rig.settle(), Duration::MAX);
+        drop(rig);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failed_page_names_the_end_of_its_backoff_on_every_frame() {
+        let mut rig = Rig::new(false, unreachable_player());
+        rig.app.go(Route::Songs);
+        for _ in 0..3 {
+            rig.pass(egui::RawInput::default());
+        }
+        let failed: Vec<_> = rig.jobs.try_iter().collect();
+        assert!(!failed.is_empty());
+        for job in failed {
+            (job.done)(Err(bramley_api::Error::Network("down".into())));
+        }
+        let delays: Vec<_> = (0..6)
+            .map(|_| rig.pass(egui::RawInput::default()))
+            .collect();
+        let backoff = Duration::from_secs(4)..=Duration::from_secs(5);
+        assert!(
+            delays[3..].iter().all(|d| backoff.contains(d)),
+            "{delays:?}"
+        );
+    }
 }

@@ -653,6 +653,36 @@ fn an_unreadable_album_is_skipped_and_counted_while_a_network_error_is_retried()
 }
 
 #[test]
+fn a_drawn_want_asks_for_a_frame_and_each_pending_page_names_its_deadline() {
+    let (ctx, mut lib) = (egui::Context::default(), Library::default());
+    let now = Instant::now();
+    assert!(!lib.queued(now, true) && lib.next_due().is_none());
+    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+    assert!(
+        lib.queued(now, true),
+        "a want drawn after the tick needs a frame"
+    );
+    assert!(!lib.queued(now, false), "signed out sends nothing");
+    let job = lib.tick(now, true, || {}).remove(0);
+    assert!(!lib.queued(now, true));
+    assert_eq!(lib.next_due(), Some(now + DEADLINE));
+    let before = Instant::now();
+    (job.done)(Err(Error::Network("down".into())));
+    lib.receive(&ctx);
+    let due = lib.next_due().expect("the backoff end");
+    assert!(
+        due >= before + RETRY && due <= Instant::now() + RETRY,
+        "{due:?}"
+    );
+    frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);
+    assert!(!lib.queued(before, true), "no retry inside the backoff");
+    assert!(
+        lib.queued(due, true),
+        "the retry is due when the backoff ends"
+    );
+}
+
+#[test]
 fn a_rate_limit_waits_its_retry_after_but_never_less_than_the_retry() {
     let (ctx, mut lib) = (egui::Context::default(), Library::default());
     frame(&ctx, &mut lib, &Route::Songs, 600.0, vec![]);

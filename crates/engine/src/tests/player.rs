@@ -447,10 +447,27 @@ fn dropping_the_command_sender_stops_the_player() {
 }
 
 #[test]
-fn dropping_the_snapshot_receiver_stops_an_idle_player() {
-    let (tx, rx, _) = spawn_fake(|| Ok(FakeEngine::default()), SNAPSHOT_EVERY);
+fn an_unchanged_state_is_never_resent_so_an_idle_player_wakes_nothing() {
+    let fake = FakeEngine::default();
+    let f = fake.clone();
+    let (tx, rx, wakes) = spawn_fake(move || Ok(f), SNAPSHOT_EVERY);
+    wait_for(&rx, |_| true);
+    std::thread::sleep(Duration::from_millis(1300));
+    tx.send(Command::Shutdown).unwrap();
+    let received = drain_until_stopped(&rx);
+    #[cfg(not(feature = "diagnostics"))]
+    assert_eq!(received, 0, "an idle player resent its state");
+    assert_eq!(wakes.load(Ordering::SeqCst), 1 + received);
+}
+
+#[test]
+fn dropping_the_snapshot_receiver_stops_the_player_at_its_next_snapshot() {
+    let fake = FakeEngine::default();
+    let f = fake.clone();
+    let (tx, rx, _) = spawn_fake(move || Ok(f), SNAPSHOT_EVERY);
     wait_for(&rx, |_| true);
     drop(rx);
+    fake.set(json!({"playbackState": 2, "item": {"id": "1"}}), Some(1.0));
     let deadline = Instant::now() + Duration::from_secs(5);
     while tx.send(Command::Pause).is_ok() {
         assert!(

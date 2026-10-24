@@ -27,8 +27,6 @@ pub const STOREFRONT_BACKOFF: [Duration; 2] =
     [Duration::from_millis(250), Duration::from_millis(750)];
 pub const QUEUE_SHOWN: usize = 50;
 pub const COMMAND_WAIT: Duration = Duration::from_millis(COMMAND_WAIT_MS);
-#[cfg(feature = "runtime")]
-const HEARTBEAT: Duration = Duration::from_secs(1);
 #[cfg(all(feature = "runtime", feature = "diagnostics"))]
 const ENGINE_STATUS_EVERY: Duration = Duration::from_secs(1);
 
@@ -372,7 +370,6 @@ fn run<B: Backend, W: Fn()>(
     let mut last: Option<Snapshot> = None;
     let mut watch = StartWatch::default();
     let mut due = Instant::now();
-    let mut sent_at = Instant::now();
     #[cfg(feature = "diagnostics")]
     let mut engine_due = Instant::now();
     loop {
@@ -407,11 +404,10 @@ fn run<B: Backend, W: Fn()>(
             engine_due = Instant::now() + ENGINE_STATUS_EVERY;
             d.engine = Some(b.status());
         }
-        if last.as_ref() != Some(&snap) || sent_at.elapsed() >= HEARTBEAT {
+        if last.as_ref() != Some(&snap) {
             if !exit.send(snap.clone()) {
                 return;
             }
-            sent_at = Instant::now();
             last = Some(snap);
         }
     }

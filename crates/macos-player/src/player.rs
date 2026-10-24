@@ -1,6 +1,6 @@
 use std::ffi::{CStr, CString, c_char};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use bramley_engine::{Command, PlayerError, QUEUE_SHOWN, Snapshot, Tokens};
@@ -17,7 +17,6 @@ unsafe extern "C" {
 }
 
 const SNAPSHOT_EVERY: Duration = Duration::from_millis(250);
-const HEARTBEAT: Duration = Duration::from_secs(1);
 
 fn take(reply: *mut c_char) -> String {
     let text = unsafe { CStr::from_ptr(reply) }
@@ -69,7 +68,6 @@ pub fn spawn(waker: impl Fn() + Send + 'static) -> Result<(Sender<Command>, Rece
 
 fn run(commands: &Receiver<Command>, snapshots: &Sender<Snapshot>, waker: impl Fn()) {
     let (mut progress, mut error, mut last) = (Progress::default(), None, None);
-    let mut sent_at = Instant::now();
     loop {
         match commands.recv_timeout(SNAPSHOT_EVERY) {
             Ok(Command::Shutdown) | Err(RecvTimeoutError::Disconnected) => return,
@@ -93,12 +91,11 @@ fn run(commands: &Receiver<Command>, snapshots: &Sender<Snapshot>, waker: impl F
             };
         (snap.applied, snap.background_done) = (progress.applied, progress.background_done);
         snap.error = snap.error.or_else(|| error.clone());
-        if last.as_ref() != Some(&snap) || sent_at.elapsed() >= HEARTBEAT {
+        if last.as_ref() != Some(&snap) {
             if snapshots.send(snap.clone()).is_err() {
                 return;
             }
             waker();
-            sent_at = Instant::now();
             last = Some(snap);
         }
     }

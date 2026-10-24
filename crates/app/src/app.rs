@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -7,7 +8,7 @@ use std::time::{Duration, Instant};
 
 #[cfg(feature = "dev")]
 use anyhow::{Context, Result};
-use bramley_engine::PlayerError;
+use bramley_engine::{PlayState, PlayerError};
 use fastframe_text::TextRendering;
 use serde_json::{Value, json};
 
@@ -26,6 +27,8 @@ use crate::{signin, ui};
 
 const VOLUME_FILE: &str = "volume";
 const REPAINT_EVERY: Duration = Duration::from_secs(1);
+const PASS_FLOOR: Duration = Duration::from_millis(4);
+const MAX_CAUSES: usize = 32;
 const MEMORY_ONLY: [&str; 5] = ["title", "artist", "queue", "queuePosition", "queueLength"];
 const QUEUE_FIRST: &str = "Play something first; the queue starts with it.";
 const TOP_UP_FAILED: &str = "More songs from your library could not be added to the queue.";
@@ -180,12 +183,18 @@ pub struct App {
     #[cfg(feature = "dev")]
     queue_fixture: bool,
     frames: u64,
+    pub(crate) pass_floor: Duration,
+    pass_began: Option<Instant>,
+    passes_paced: u64,
     renderer: Option<String>,
     text: Option<Receiver<TextRendering>>,
     text_applied: TextRendering,
     #[cfg(feature = "dev")]
     born: Instant,
     status_at: Option<Instant>,
+    status_late: bool,
+    hidden: bool,
+    causes: BTreeMap<String, u64>,
     #[cfg(feature = "gate-sabotage")]
     leak: crate::Leak,
     #[cfg(feature = "gate-sabotage")]
@@ -228,6 +237,7 @@ impl App {
         let file = theme::colors_file(std::env::var_os("XDG_STATE_HOME"), std::env::var_os("HOME"));
         let mut theme = Theme::new(choice, file, Instant::now());
         theme.tick(ctx, Instant::now());
+        theme.watch(ctx);
         apply_text(ctx, &TextRendering::platform_default(), None);
         let text = detect_text_in_background(ctx, detect);
         #[cfg(feature = "dev")]
@@ -311,12 +321,18 @@ impl App {
             #[cfg(feature = "dev")]
             queue_fixture: args.queue_fixture,
             frames: 0,
+            pass_floor: PASS_FLOOR,
+            pass_began: None,
+            passes_paced: 0,
             renderer: None,
             text: Some(text),
             text_applied: TextRendering::platform_default(),
             #[cfg(feature = "dev")]
             born: Instant::now(),
             status_at: None,
+            status_late: false,
+            hidden: false,
+            causes: BTreeMap::new(),
             #[cfg(feature = "gate-sabotage")]
             leak: crate::Leak::from_env(),
             #[cfg(feature = "gate-sabotage")]
@@ -405,6 +421,9 @@ impl App {
         status["shuffleMode"] = json!(if shown.shuffle { "on" } else { "off" });
         status["repeatMode"] = json!(shown.repeat.as_str());
         status["volume"] = json!(self.volume_percent());
+        status["windowHidden"] = json!(self.hidden);
+        status["passesPaced"] = json!(self.passes_paced);
+        status["repaintCauses"] = json!(self.causes);
         status["loadFailReason"] = match &shown.error {
             Some(PlayerError::LoadFailed(why)) => json!(why),
             _ => Value::Null,
@@ -435,6 +454,62 @@ impl App {
         }
         let _ = tx.send(status.to_string());
         self.status_at = Some(Instant::now());
+        self.status_late = false;
+    }
+
+    #[cfg(feature = "dev")]
+    fn driving(&self) -> bool {
+        let (library, search) = (&self.library, &self.search);
+        self.shot.is_some()
+            | self.jump_to.is_some()
+            | self.scroll_end.is_some()
+            | self.click_cover.is_some()
+            | self.queue_fixture
+            | library.click_last
+            | library.click_row.is_some()
+            | !self.detail.clicks.is_empty()
+            | search.click_first_song
+            | search.click_first_playlist
+    }
+
+    #[cfg(not(feature = "dev"))]
+    fn driving(&self) -> bool {
+        false
+    }
+
+    fn schedule(&mut self, ctx: &egui::Context, now: Instant) {
+        let hidden = ctx.input(|i| i.viewport().visible()) == Some(false);
+        if std::mem::replace(&mut self.hidden, hidden) && !hidden {
+            ctx.request_repaint();
+        }
+        if self.library.queued(now, covers_allowed(&self.playback)) {
+            ctx.request_repaint();
+        }
+        let home = self.shell.route == ui::nav::Route::Home;
+        let status = self.status.as_ref().filter(|_| self.status_late);
+        let due = [
+            self.playback.hold_ends(),
+            self.covers.retry_due(home),
+            self.library.next_due(),
+            self.detail.next_due(),
+            self.search.timeout(),
+            self.search.wait(now).map(|wait| now + wait),
+            self.theme.due(),
+            status.and(self.status_at).map(|at| at + REPAINT_EVERY),
+        ];
+        let state = self.playback.snapshot().state;
+        let ticking = (!hidden && matches!(state, PlayState::Playing | PlayState::Loading))
+            || self.checking.is_some()
+            || self.clearing.is_some()
+            || self.waiting().is_some()
+            || self.driving();
+        let waits = due.into_iter().flatten().filter(|at| *at >= now);
+        let waits = waits
+            .map(|at| at - now)
+            .chain(ticking.then_some(REPAINT_EVERY));
+        if let Some(wait) = waits.min() {
+            ctx.request_repaint_after(wait);
+        }
     }
 
     pub fn pump(&mut self, ctx: &egui::Context) -> bool {
@@ -743,6 +818,14 @@ impl App {
         self.text.is_none()
     }
 
+    pub(crate) fn pace_pass(&mut self) {
+        if let Some(wait) = pace(self.pass_began, Instant::now(), self.pass_floor) {
+            std::thread::sleep(wait);
+            self.passes_paced += 1;
+        }
+        self.pass_began = Some(Instant::now());
+    }
+
     pub fn tick(&mut self, ctx: &egui::Context) {
         self.tick_at(ctx, Instant::now());
     }
@@ -779,9 +862,6 @@ impl App {
         if let Some(job) = self.search.recent_job(now, signed_in && browsing, wake) {
             self.send_api(job);
         }
-        if let Some(wait) = self.search.wait(now) {
-            ctx.request_repaint_after(wait);
-        }
         let waker = ctx.clone();
         let wake = move || waker.request_repaint();
         for job in (self.library).tick(now, covers_allowed(&self.playback), wake) {
@@ -813,18 +893,19 @@ impl App {
         if std::mem::take(&mut self.library.top_up_failed) {
             self.notice = Some(TOP_UP_FAILED);
         }
-        if changed
-            || self
-                .status_at
-                .is_none_or(|at| at.elapsed() >= REPAINT_EVERY)
-        {
+        let stale = self
+            .status_at
+            .is_none_or(|at| at.elapsed() >= REPAINT_EVERY);
+        if changed || stale {
             self.write_status();
+        } else {
+            self.status_late = true;
         }
         #[cfg(feature = "dev")]
         self.drive_shot(ctx);
         #[cfg(feature = "dev")]
         self.drive_jump();
-        ctx.request_repaint_after(REPAINT_EVERY);
+        self.schedule(ctx, now);
     }
 
     fn overlay_nav(&self, docked: bool, compact: bool) -> Option<Nav> {
@@ -835,6 +916,12 @@ impl App {
 
     pub fn draw(&mut self, ui: &mut egui::Ui) {
         self.frames += 1;
+        for cause in ui.ctx().repaint_causes() {
+            let key = format!("{}:{} {}", cause.file, cause.line, cause.reason);
+            if self.causes.len() < MAX_CAUSES || self.causes.contains_key(&key) {
+                *self.causes.entry(key).or_default() += 1;
+            }
+        }
         let (shown, started) = (self.playback.shown(), self.playback.started());
         let volume = self.volume_percent();
         let toggle = started.then(|| play_or_pause(shown.state));
@@ -970,6 +1057,7 @@ impl App {
             }
         }
         self.library.started(self.playback.generation());
+        self.schedule(ui.ctx(), Instant::now());
     }
 
     #[cfg(feature = "dev")]
@@ -1019,6 +1107,7 @@ impl App {
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.pace_pass();
         if self.renderer.is_none() {
             self.renderer = renderer_name(frame);
         }
@@ -1043,6 +1132,12 @@ impl eframe::App for App {
     fn on_exit(&mut self) {
         self.shut_down();
     }
+}
+
+pub(crate) fn pace(prev_start: Option<Instant>, now: Instant, floor: Duration) -> Option<Duration> {
+    floor
+        .checked_sub(now.saturating_duration_since(prev_start?))
+        .filter(|left| !left.is_zero())
 }
 
 #[cfg(not(target_os = "macos"))]

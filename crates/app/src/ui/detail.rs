@@ -180,6 +180,14 @@ impl Detail {
         }
     }
 
+    pub fn next_due(&self) -> Option<Instant> {
+        let loading = match self.state {
+            State::Loading(deadline) => Some(deadline),
+            _ => None,
+        };
+        loading.into_iter().chain(self.more).min()
+    }
+
     pub fn tick(
         &mut self,
         now: Instant,
