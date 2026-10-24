@@ -618,6 +618,14 @@ mod search {
         out.textures_delta.clear();
     }
 
+    fn wait_for_fetch(seen: &Mutex<Vec<String>>, prefix: &str) {
+        let end = Instant::now() + Duration::from_secs(10);
+        let arrived = || seen.lock().unwrap().iter().any(|p| p.starts_with(prefix));
+        while !arrived() && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     #[test]
     fn art_is_fetched_only_for_visible_rows_of_the_current_results() {
         let (base, seen, open) = gated_art_server();
@@ -630,16 +638,13 @@ mod search {
         assert!((1..30).contains(&visible), "{visible}");
         draw_at(&ctx, &mut search, 4000.0);
         assert_eq!(search.art.wanted(), 30);
+        wait_for_fetch(&seen, "/");
         let replaced = results_at(&format!("{base}/new"), 1);
         (ask(&mut search, "b", Instant::now()).done)(Ok(Reply::Search(replaced)));
         search.receive(&ctx);
         draw_at(&ctx, &mut search, 300.0);
         open.send(()).unwrap();
-        let end = Instant::now() + Duration::from_secs(10);
-        let done = || seen.lock().unwrap().iter().any(|p| p.starts_with("/new/"));
-        while !done() && Instant::now() < end {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        wait_for_fetch(&seen, "/new/");
         let mut fetched = seen.lock().unwrap().clone();
         fetched.dedup();
         assert_eq!(fetched.len(), 2, "{fetched:?}");
