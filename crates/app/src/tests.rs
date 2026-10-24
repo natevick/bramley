@@ -4704,6 +4704,104 @@ mod idle {
         assert!(held > SECOND && held <= HOLD_LIMIT, "{delays:?}");
     }
 
+    fn shown_by(minimized: Option<bool>, occluded: Option<bool>) -> egui::ViewportInfo {
+        egui::ViewportInfo {
+            minimized,
+            occluded,
+            focused: Some(true),
+            ..egui::ViewportInfo::default()
+        }
+    }
+
+    fn playing() -> (Rig, Ends) {
+        let ends: Ends = Rc::default();
+        let spawned = ends.clone();
+        let mut rig = Rig::new(false, spawning(move || live(&spawned)));
+        rig.app.apply(Action::PlaySong("1".into()));
+        rig.pass(egui::RawInput::default());
+        ends.borrow()[0]
+            .1
+            .send(snap(PlayState::Playing, 1.0, 2, None))
+            .unwrap();
+        for _ in 0..3 {
+            rig.pass(egui::RawInput::default());
+        }
+        (rig, ends)
+    }
+
+    fn logic(rig: &mut Rig, info: egui::ViewportInfo) -> Vec<Duration> {
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let seen = asked.clone();
+        rig.ctx
+            .set_request_repaint_callback(move |info| seen.lock().unwrap().push(info.delay));
+        let mut raw = egui::RawInput::default();
+        raw.viewports.insert(egui::ViewportId::ROOT, info);
+        let _ = rig.ctx.run_logic(&raw, |ctx| rig.app.tick(ctx));
+        std::mem::take(&mut *asked.lock().unwrap())
+    }
+
+    #[test]
+    fn a_hidden_window_asks_for_no_tick_while_playing_yet_its_logic_still_runs() {
+        for (minimized, occluded) in [(Some(true), None), (Some(false), Some(true))] {
+            let (mut rig, ends) = playing();
+            let hidden = shown_by(minimized, occluded);
+            let asked = logic(&mut rig, hidden.clone());
+            assert!(
+                asked.iter().all(|wait| *wait > SECOND),
+                "{hidden:?} {asked:?}"
+            );
+            ends.borrow()[0]
+                .1
+                .send(snap(PlayState::Playing, 7.0, 2, None))
+                .unwrap();
+            logic(&mut rig, hidden);
+            let status = rig.app.status_json();
+            assert_eq!(status["position"].as_f64(), Some(7.0));
+            assert_eq!(status["windowHidden"], true);
+        }
+    }
+
+    #[test]
+    fn every_way_a_window_can_be_visible_or_unknown_keeps_the_playing_tick() {
+        for (minimized, occluded) in [
+            (Some(false), Some(false)),
+            (Some(false), None),
+            (None, None),
+            (None, Some(false)),
+        ] {
+            let (mut rig, _) = playing();
+            let asked = logic(&mut rig, shown_by(minimized, occluded));
+            let ticks = |wait: &Duration| *wait > SECOND / 2 && *wait <= SECOND;
+            assert!(
+                asked.iter().any(ticks),
+                "{minimized:?} {occluded:?} {asked:?}"
+            );
+            assert_eq!(rig.app.status_json()["windowHidden"], false);
+        }
+    }
+
+    #[test]
+    fn the_status_names_the_source_lines_that_asked_for_each_pass() {
+        let mut rig = Rig::new(true, unreachable_player());
+        assert_eq!(rig.settle(), Duration::MAX);
+        rig.pass(winit_key(egui::Key::L, control()));
+        rig.pass(egui::RawInput::default());
+        let causes = rig.app.status_json()["repaintCauses"].clone();
+        let named: Vec<_> = causes.as_object().unwrap().keys().collect();
+        assert!(
+            named.iter().any(|cause| cause.contains("app.rs")),
+            "{named:?}"
+        );
+    }
+
+    #[test]
+    fn a_window_becoming_visible_again_repaints_at_once() {
+        let (mut rig, _) = playing();
+        logic(&mut rig, shown_by(Some(true), None));
+        let asked = logic(&mut rig, shown_by(Some(false), Some(false)));
+        assert!(asked.contains(&Duration::ZERO), "{asked:?}");
+    }
+
     #[test]
     fn a_failed_home_chart_wakes_the_app_for_its_retry_only_while_home_shows() {
         let serve = Serve {

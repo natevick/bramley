@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -26,6 +27,7 @@ use crate::{signin, ui};
 
 const VOLUME_FILE: &str = "volume";
 const REPAINT_EVERY: Duration = Duration::from_secs(1);
+const MAX_CAUSES: usize = 32;
 const MEMORY_ONLY: [&str; 5] = ["title", "artist", "queue", "queuePosition", "queueLength"];
 const QUEUE_FIRST: &str = "Play something first; the queue starts with it.";
 const TOP_UP_FAILED: &str = "More songs from your library could not be added to the queue.";
@@ -187,6 +189,8 @@ pub struct App {
     born: Instant,
     status_at: Option<Instant>,
     status_late: bool,
+    hidden: bool,
+    causes: BTreeMap<String, u64>,
     #[cfg(feature = "gate-sabotage")]
     leak: crate::Leak,
     #[cfg(feature = "gate-sabotage")]
@@ -320,6 +324,8 @@ impl App {
             born: Instant::now(),
             status_at: None,
             status_late: false,
+            hidden: false,
+            causes: BTreeMap::new(),
             #[cfg(feature = "gate-sabotage")]
             leak: crate::Leak::from_env(),
             #[cfg(feature = "gate-sabotage")]
@@ -408,6 +414,8 @@ impl App {
         status["shuffleMode"] = json!(if shown.shuffle { "on" } else { "off" });
         status["repeatMode"] = json!(shown.repeat.as_str());
         status["volume"] = json!(self.volume_percent());
+        status["windowHidden"] = json!(self.hidden);
+        status["repaintCauses"] = json!(self.causes);
         status["loadFailReason"] = match &shown.error {
             Some(PlayerError::LoadFailed(why)) => json!(why),
             _ => Value::Null,
@@ -461,7 +469,11 @@ impl App {
         false
     }
 
-    fn schedule(&self, ctx: &egui::Context, now: Instant) {
+    fn schedule(&mut self, ctx: &egui::Context, now: Instant) {
+        let hidden = ctx.input(|i| i.viewport().visible()) == Some(false);
+        if std::mem::replace(&mut self.hidden, hidden) && !hidden {
+            ctx.request_repaint();
+        }
         if self.library.queued(now, covers_allowed(&self.playback)) {
             ctx.request_repaint();
         }
@@ -478,7 +490,7 @@ impl App {
             status.and(self.status_at).map(|at| at + REPAINT_EVERY),
         ];
         let state = self.playback.snapshot().state;
-        let ticking = matches!(state, PlayState::Playing | PlayState::Loading)
+        let ticking = (!hidden && matches!(state, PlayState::Playing | PlayState::Loading))
             || self.checking.is_some()
             || self.clearing.is_some()
             || self.waiting().is_some()
@@ -888,6 +900,12 @@ impl App {
 
     pub fn draw(&mut self, ui: &mut egui::Ui) {
         self.frames += 1;
+        for cause in ui.ctx().repaint_causes() {
+            let key = format!("{}:{} {}", cause.file, cause.line, cause.reason);
+            if self.causes.len() < MAX_CAUSES || self.causes.contains_key(&key) {
+                *self.causes.entry(key).or_default() += 1;
+            }
+        }
         let (shown, started) = (self.playback.shown(), self.playback.started());
         let volume = self.volume_percent();
         let toggle = started.then(|| play_or_pause(shown.state));
