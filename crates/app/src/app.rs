@@ -27,6 +27,7 @@ use crate::{signin, ui};
 
 const VOLUME_FILE: &str = "volume";
 const REPAINT_EVERY: Duration = Duration::from_secs(1);
+const PASS_FLOOR: Duration = Duration::from_millis(4);
 const MAX_CAUSES: usize = 32;
 const MEMORY_ONLY: [&str; 5] = ["title", "artist", "queue", "queuePosition", "queueLength"];
 const QUEUE_FIRST: &str = "Play something first; the queue starts with it.";
@@ -182,6 +183,9 @@ pub struct App {
     #[cfg(feature = "dev")]
     queue_fixture: bool,
     frames: u64,
+    pub(crate) pass_floor: Duration,
+    pass_began: Option<Instant>,
+    passes_paced: u64,
     renderer: Option<String>,
     text: Option<Receiver<TextRendering>>,
     text_applied: TextRendering,
@@ -317,6 +321,9 @@ impl App {
             #[cfg(feature = "dev")]
             queue_fixture: args.queue_fixture,
             frames: 0,
+            pass_floor: PASS_FLOOR,
+            pass_began: None,
+            passes_paced: 0,
             renderer: None,
             text: Some(text),
             text_applied: TextRendering::platform_default(),
@@ -415,6 +422,7 @@ impl App {
         status["repeatMode"] = json!(shown.repeat.as_str());
         status["volume"] = json!(self.volume_percent());
         status["windowHidden"] = json!(self.hidden);
+        status["passesPaced"] = json!(self.passes_paced);
         status["repaintCauses"] = json!(self.causes);
         status["loadFailReason"] = match &shown.error {
             Some(PlayerError::LoadFailed(why)) => json!(why),
@@ -810,6 +818,14 @@ impl App {
         self.text.is_none()
     }
 
+    pub(crate) fn pace_pass(&mut self) {
+        if let Some(wait) = pace(self.pass_began, Instant::now(), self.pass_floor) {
+            std::thread::sleep(wait);
+            self.passes_paced += 1;
+        }
+        self.pass_began = Some(Instant::now());
+    }
+
     pub fn tick(&mut self, ctx: &egui::Context) {
         self.tick_at(ctx, Instant::now());
     }
@@ -1091,6 +1107,7 @@ impl App {
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.pace_pass();
         if self.renderer.is_none() {
             self.renderer = renderer_name(frame);
         }
@@ -1115,6 +1132,12 @@ impl eframe::App for App {
     fn on_exit(&mut self) {
         self.shut_down();
     }
+}
+
+pub(crate) fn pace(prev_start: Option<Instant>, now: Instant, floor: Duration) -> Option<Duration> {
+    floor
+        .checked_sub(now.saturating_duration_since(prev_start?))
+        .filter(|left| !left.is_zero())
 }
 
 #[cfg(not(target_os = "macos"))]

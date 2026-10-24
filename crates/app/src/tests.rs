@@ -4537,7 +4537,7 @@ fn home_keys_walk_rows_reveal_restore_and_scroll_and_enter_opens_the_focused_cov
 
 mod idle {
     use super::*;
-    use crate::app::App;
+    use crate::app::{App, pace};
 
     const SECOND: Duration = Duration::from_secs(1);
 
@@ -4561,6 +4561,7 @@ mod idle {
             let mut app = App::new(&ctx, args, spawn, user, inbox, source);
             let (api, jobs) = channel();
             app.api = Some(api);
+            app.pass_floor = Duration::ZERO;
             Rig { ctx, app, jobs }
         }
 
@@ -4778,6 +4779,31 @@ mod idle {
             );
             assert_eq!(rig.app.status_json()["windowHidden"], false);
         }
+    }
+
+    #[test]
+    fn pace_returns_what_is_left_below_the_floor_and_nothing_otherwise() {
+        let (floor, now) = (Duration::from_millis(4), Instant::now());
+        let began = |ago: u64| now.checked_sub(Duration::from_millis(ago));
+        assert_eq!(pace(None, now, floor), None);
+        assert_eq!(pace(began(1), now, floor), Some(Duration::from_millis(3)));
+        assert_eq!(pace(began(4), now, floor), None);
+        assert_eq!(pace(began(9), now, floor), None);
+        assert_eq!(pace(Some(now), now, Duration::ZERO), None);
+    }
+
+    #[test]
+    fn back_to_back_passes_wait_out_the_floor_except_the_first() {
+        let floor = Duration::from_millis(4);
+        let mut rig = Rig::new(true, unreachable_player());
+        rig.app.pass_floor = floor;
+        let started = Instant::now();
+        rig.app.pace_pass();
+        assert_eq!(rig.app.status_json()["passesPaced"], 0);
+        rig.app.pace_pass();
+        rig.app.pace_pass();
+        assert!(rig.app.status_json()["passesPaced"].as_u64() >= Some(2));
+        assert!(started.elapsed() >= floor * 2);
     }
 
     #[test]
