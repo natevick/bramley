@@ -336,11 +336,20 @@ impl Playback {
         }
         match &self.snap.error {
             Some(PlayerError::SignInNeeded(_)) => Some(Banner::SignInNeeded),
-            Some(PlayerError::Playback(e) | PlayerError::LoadFailed(e)) => {
-                Some(Banner::Error(e.clone()))
-            }
+            Some(PlayerError::Playback(e)) => Some(Banner::Error(shown_playback_error(e))),
+            Some(PlayerError::LoadFailed(e)) => Some(Banner::Error(e.clone())),
             Some(other) => Some(Banner::Error(format!("{other:?}"))),
             None => None,
         }
     }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn shown_playback_error(raw: &str) -> String {
+    bramley_macos_player::wire::friendly(raw).into()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn shown_playback_error(raw: &str) -> String {
+    raw.into()
 }

@@ -81,7 +81,10 @@ fn run(commands: &Receiver<Command>, snapshots: &Sender<Snapshot>, waker: impl F
                     .map(|wire| send(&wire));
                 if let (Some(outcome), false) = (outcome, matches!(command, Command::TopUp(_))) {
                     gate.settle(&command, outcome.is_err());
-                    error = outcome.err().map(|e| PlayerError::Playback(e.to_string()));
+                    error = outcome.err().map(|e| {
+                        log::warn!("a MusicKit command failed: {e}");
+                        PlayerError::Playback(e.to_string())
+                    });
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}

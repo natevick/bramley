@@ -1,7 +1,7 @@
 use bramley_engine::{Command, PlayState, Queue, Repeat};
 use serde_json::json;
 
-use crate::wire::{self, Failure, Progress, QueueGate};
+use crate::wire::{self, CANT_PLAY, Failure, NOT_STARTED, NOTHING_PLAYABLE, Progress, QueueGate};
 
 const FAILURE: &str =
     r#"{"error":{"type":"MusicTokenRequestError","message":"permission denied"}}"#;
@@ -221,4 +221,59 @@ fn the_play_after_a_failed_set_queue_is_not_sent_so_the_first_failure_is_the_one
     assert!(gate.permits(&Command::Play), "a good SetQueue clears it");
     gate.settle(&Command::Seek(1.0), true);
     assert!(gate.permits(&Command::Play), "only SetQueue arms it");
+}
+
+fn play_failures() -> [(String, &'static str); 6] {
+    let domain = "Error Domain=MPMusicPlayerControllerErrorDomain";
+    let failure = |kind: &str, message: String| Failure::new(kind, &message).to_string();
+    [
+        (
+            failure(
+                "Command",
+                "no playable items for the queue (resolved 0 of 3 asked)".into(),
+            ),
+            NOTHING_PLAYABLE,
+        ),
+        (
+            failure("NSError", format!("{domain} Code=1 \"(null)\"")),
+            NOT_STARTED,
+        ),
+        (
+            failure("NSError", format!("{domain} Code=10 \"(null)\"")),
+            CANT_PLAY,
+        ),
+        (
+            failure("NSError", "Error Domain=NSURLErrorDomain Code=1".into()),
+            CANT_PLAY,
+        ),
+        (
+            failure(
+                "Timeout",
+                "MusicKit did not answer within 15 seconds".into(),
+            ),
+            CANT_PLAY,
+        ),
+        (
+            failure("MusicDataRequest.Error", "status 404".into()),
+            CANT_PLAY,
+        ),
+    ]
+}
+
+#[test]
+fn each_known_play_failure_gets_its_own_text_and_every_other_one_the_generic_text() {
+    for (raw, want) in play_failures() {
+        assert_eq!(wire::friendly(&raw), want, "{raw}");
+    }
+}
+
+#[test]
+fn the_text_shown_for_a_play_failure_never_carries_its_raw_detail() {
+    for (raw, _) in play_failures() {
+        let shown = wire::friendly(&raw);
+        for leak in ["Code", "Domain", "NSError", "Command:", "resolved", "404"] {
+            assert!(!shown.contains(leak), "{shown} leaks {leak} from {raw}");
+        }
+        assert!(shown.contains("on Apple Music"), "{shown}");
+    }
 }

@@ -627,6 +627,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bramley-engine",
+ "log",
  "serde",
  "serde_json",
 ]

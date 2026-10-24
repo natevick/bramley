@@ -407,6 +407,8 @@ impl App {
         status["volume"] = json!(self.volume_percent());
         status["loadFailReason"] = match &shown.error {
             Some(PlayerError::LoadFailed(why)) => json!(why),
+            #[cfg(target_os = "macos")]
+            Some(PlayerError::Playback(why)) => json!(why),
             _ => Value::Null,
         };
         #[cfg(feature = "dev")]
