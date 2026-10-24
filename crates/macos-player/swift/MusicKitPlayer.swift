@@ -120,10 +120,13 @@ private func resolve(_ c: [String: Any]) async throws -> [Track] {
     switch c["kind"] as? String ?? "" {
     case "songs":
         var found: [MusicItemID: Track] = [:]
+        var failure: Error?
         for batch in c["batches"] as? [[String: Any]] ?? [] {
-            for song in try await songs(batch) { found[song.id] = .song(song) }
+            do { for song in try await songs(batch) { found[song.id] = .song(song) } } catch { failure = failure ?? error }
         }
-        return (c["ids"] as? [String] ?? []).compactMap { found[MusicItemID($0)] }
+        let resolved = (c["ids"] as? [String] ?? []).compactMap { found[MusicItemID($0)] }
+        if resolved.isEmpty, let failure { throw failure }
+        return resolved
     case "album": return try await album(id, library(c))
     case "playlist": return try await playlist(id, library(c))
     default: throw Failure("Command", "unknown item kind")
@@ -147,7 +150,10 @@ private func perform(_ name: String, _ c: [String: Any]) throws {
     switch name {
     case "setQueue":
         let tracks = try items(c)
-        guard !tracks.isEmpty else { throw Failure("Command", "no playable items for the queue") }
+        guard !tracks.isEmpty else {
+            let asked = (c["ids"] as? [String]).map { " (resolved 0 of \($0.count) asked)" } ?? ""
+            throw Failure("Command", "no playable items for the queue\(asked)")
+        }
         player.queue = ApplicationMusicPlayer.Queue(for: tracks, startingAt: tracks[startIndex(c, tracks)])
     case "play": try blocking { try await player.play() }
     case "pause": player.pause()

@@ -23,6 +23,7 @@ fn item(i: usize) -> Item {
         artwork: None,
         track_count: None,
         playable: true,
+        catalog_id: None,
     }
 }
 
@@ -725,19 +726,72 @@ fn rows_built_counts_both_artist_views_in_the_frame() {
 #[test]
 fn songs_queue_from_the_click_onwards_and_albums_play_whole() {
     let items: Vec<_> = (0..250).map(item).collect();
-    let Some(Action::PlayIn(Queue::Songs(ids), 0)) = super::play(List::Songs, &items, 120) else {
+    let Some(Action::PlayIn(Queue::Songs(ids), 0)) = super::play(List::Songs, &items, 120, false)
+    else {
         panic!("a songs queue starting at its first entry");
     };
     assert_eq!((ids.len(), ids[0].as_str()), (super::QUEUE_AHEAD, "i.120"));
-    let Some(Action::PlayIn(Queue::Songs(last), 0)) = super::play(List::Songs, &items, 249) else {
+    let Some(Action::PlayIn(Queue::Songs(last), 0)) = super::play(List::Songs, &items, 249, false)
+    else {
         panic!("a songs queue for the last row");
     };
     assert_eq!(last, ["i.249"]);
     assert_eq!(
-        super::play(List::Albums, &items, 4),
+        super::play(List::Albums, &items, 4, false),
         Some(Action::PlayIn(Queue::Album("i.4".into()), 0))
     );
-    assert_eq!(super::play(List::Playlists, &items, 4), None);
+    assert_eq!(super::play(List::Playlists, &items, 4, false), None);
+}
+
+fn playlist_row(id: &str, catalog: Option<&str>) -> Item {
+    Item {
+        id: id.into(),
+        catalog_id: catalog.map(Into::into),
+        ..item(0)
+    }
+}
+
+#[test]
+fn a_native_queue_swaps_in_the_catalog_id_only_for_a_rows_that_carry_one() {
+    let rows = [
+        playlist_row("i.0", None),
+        playlist_row("a.1", Some("111")),
+        playlist_row("a.2", None),
+        playlist_row("a.3", Some("333")),
+    ];
+    let queued = |index, native| match super::play(List::Tracks, &rows, index, native) {
+        Some(Action::PlayIn(Queue::Songs(ids), 0)) => ids,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(queued(0, true), ["i.0", "111", "a.2", "333"]);
+    assert_eq!(queued(1, true), ["111", "a.2", "333"]);
+    assert_eq!(queued(2, true), ["a.2", "333"]);
+    assert_eq!(queued(0, false), ["i.0", "a.1", "a.2", "a.3"]);
+}
+
+#[test]
+fn a_native_window_clicked_deep_in_an_a_playlist_still_tops_up_in_list_order() {
+    let (ctx, mut lib, now) = (egui::Context::default(), Library::default(), Instant::now());
+    let route = Route::Playlist("p.LIST".into());
+    frame(&ctx, &mut lib, &route, 600.0, vec![]);
+    lib.lists[List::Tracks as usize].items = (0..450)
+        .map(|i| playlist_row(&format!("a.{i}"), Some(&format!("c{i}"))))
+        .collect();
+    let clicked = lib.play_as(List::Tracks, 300, true);
+    let queued: Vec<String> = (300..400).map(|i| format!("c{i}")).collect();
+    assert_eq!(clicked, Some(Action::PlayIn(Queue::Songs(queued), 0)));
+    lib.started(1);
+    let mut snap = Snapshot::default();
+    (snap.queue_position, snap.queue_length) = (Some(89), 100);
+    snap.queue = (389..400)
+        .map(|i| QueueItem {
+            id: format!("c{i}"),
+            title: None,
+            duration: None,
+        })
+        .collect();
+    let batch: Vec<String> = (400..416).map(|i| format!("c{i}")).collect();
+    assert_eq!(lib.top_up(&snap, LIVE, now), Some(Action::TopUp(batch)));
 }
 
 #[test]

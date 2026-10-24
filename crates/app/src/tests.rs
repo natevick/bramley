@@ -2297,8 +2297,27 @@ fn a_playback_error_other_than_sign_in_outranks_the_developer_banner() {
     let (app, _ctx, config) = rejected_then(output);
     let shown = app.status_json()["banner"].clone();
     std::fs::remove_dir_all(&config).unwrap();
-    let want = "Error(\"the audio output could not be opened\")";
-    assert_eq!(shown.as_str(), Some(want));
+    let text = crate::playback::shown_playback_error("the audio output could not be opened");
+    let want = format!("{:?}", Banner::Error(text));
+    assert_eq!(shown.as_str(), Some(want.as_str()));
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_macos_play_failure_shows_plain_text_while_status_keeps_the_raw_reason() {
+    use bramley_macos_player::wire::{Failure, NOTHING_PLAYABLE};
+    let raw = Failure::new(
+        "Command",
+        "no playable items for the queue (resolved 0 of 3 asked)",
+    );
+    let (app, _ctx, config) = rejected_then(PlayerError::Playback(raw.to_string()));
+    let status = app.status_json();
+    std::fs::remove_dir_all(&config).unwrap();
+    let banner = format!("{:?}", Banner::Error(NOTHING_PLAYABLE.into()));
+    assert_eq!(
+        json!([status["banner"], status["loadFailReason"]]),
+        json!([banner, raw.to_string()])
+    );
 }
 
 #[test]

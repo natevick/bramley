@@ -6,7 +6,7 @@ use anyhow::{Result, anyhow};
 use bramley_engine::{Command, PlayerError, QUEUE_SHOWN, Snapshot, Tokens};
 use serde_json::{Value, json};
 
-use crate::wire::{self, Failure, Progress};
+use crate::wire::{self, Failure, Progress, QueueGate};
 
 unsafe extern "C" {
     fn bramley_mk_free(reply: *mut c_char);
@@ -67,15 +67,22 @@ pub fn spawn(waker: impl Fn() + Send + 'static) -> Result<(Sender<Command>, Rece
 }
 
 fn run(commands: &Receiver<Command>, snapshots: &Sender<Snapshot>, waker: impl Fn()) {
-    let (mut progress, mut error, mut last) = (Progress::default(), None, None);
+    let (mut progress, mut gate, mut error, mut last) =
+        (Progress::default(), QueueGate::default(), None, None);
     loop {
         match commands.recv_timeout(SNAPSHOT_EVERY) {
             Ok(Command::Shutdown) | Err(RecvTimeoutError::Disconnected) => return,
             Ok(command) => {
                 progress.record(&command);
-                let outcome = wire::command(&command).map(|wire| send(&wire));
+                let outcome = wire::command(&command)
+                    .filter(|_| gate.permits(&command))
+                    .map(|wire| send(&wire));
                 if let (Some(outcome), false) = (outcome, matches!(command, Command::TopUp(_))) {
-                    error = outcome.err().map(|e| PlayerError::Playback(e.to_string()));
+                    gate.settle(&command, outcome.is_err());
+                    error = outcome.err().map(|e| {
+                        log::warn!("a MusicKit command failed: {e}");
+                        PlayerError::Playback(e.to_string())
+                    });
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}

@@ -28,6 +28,26 @@ impl fmt::Display for Failure {
 
 impl std::error::Error for Failure {}
 
+pub const NOTHING_PLAYABLE: &str =
+    "Bramley couldn't find those songs on Apple Music. Pick another song or playlist.";
+pub const NOT_STARTED: &str =
+    "Bramley couldn't start that song on Apple Music. Try playing it again.";
+pub const CANT_PLAY: &str = "Bramley couldn't play that on Apple Music. Try another song.";
+
+pub fn friendly(raw: &str) -> &'static str {
+    let code_one = raw.split("Code=").skip(1).any(|rest| {
+        let after = rest.strip_prefix('1');
+        after.is_some_and(|after| !after.starts_with(|c: char| c.is_ascii_digit()))
+    });
+    if raw.contains("no playable items for the queue") {
+        NOTHING_PLAYABLE
+    } else if raw.contains("MPMusicPlayerControllerErrorDomain") && code_one {
+        NOT_STARTED
+    } else {
+        CANT_PLAY
+    }
+}
+
 #[derive(Deserialize)]
 struct Row {
     id: String,
@@ -186,6 +206,23 @@ impl Progress {
         match command {
             Command::TopUp(_) => self.background_done += 1,
             _ => self.applied += 1,
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct QueueGate {
+    failed: bool,
+}
+
+impl QueueGate {
+    pub fn permits(&mut self, command: &Command) -> bool {
+        !matches!(command, Command::Play) || !std::mem::take(&mut self.failed)
+    }
+
+    pub fn settle(&mut self, command: &Command, failed: bool) {
+        if matches!(command, Command::SetQueue { .. }) {
+            self.failed = failed;
         }
     }
 }

@@ -28,6 +28,7 @@ pub struct Item {
     pub artwork: Option<String>,
     pub track_count: Option<u32>,
     pub playable: bool,
+    pub catalog_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -48,7 +49,13 @@ struct Attributes {
     duration_in_millis: Option<u64>,
     artwork: Option<Artwork>,
     track_count: Option<u32>,
-    play_params: Option<serde::de::IgnoredAny>,
+    play_params: Option<PlayParams>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlayParams {
+    catalog_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -59,6 +66,8 @@ struct Artwork {
 impl From<Resource> for Item {
     fn from(r: Resource) -> Self {
         let a = r.attributes;
+        let catalog_id = a.play_params.as_ref().and_then(|p| p.catalog_id.clone());
+        let catalog_id = catalog_id.filter(|_| r.id.starts_with("a."));
         Item {
             id: r.id,
             kind: r.kind,
@@ -69,6 +78,7 @@ impl From<Resource> for Item {
             artwork: a.artwork.and_then(|art| art.url),
             track_count: a.track_count,
             playable: a.play_params.is_some(),
+            catalog_id,
         }
     }
 }
