@@ -9,12 +9,12 @@ publish = false
 anyhow = "1"
 bramley-api = { path = "../api" }
 bramley-engine = { path = "../engine", default-features = false }
-eframe = { version = "0.36.1", default-features = false, features = ["accesskit", "default_fonts", "wayland", "x11"] }
-egui = "0.36.1"
-fastframe-fonts = { git = "https://github.com/crmne/fastframe", rev = "4cf12984fca3ade655b214add154828684e3e993" }
-fastframe-log = { git = "https://github.com/crmne/fastframe", rev = "4cf12984fca3ade655b214add154828684e3e993" }
-fastframe-instance = { git = "https://github.com/crmne/fastframe", rev = "4cf12984fca3ade655b214add154828684e3e993" }
-fastframe-text = { git = "https://github.com/crmne/fastframe", rev = "4cf12984fca3ade655b214add154828684e3e993" }
+eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "default_fonts", "wayland", "x11"] }
+egui = "0.36.2"
+fastframe-fonts = { git = "https://github.com/crmne/fastframe", tag = "v0.14.1" }
+fastframe-log = { git = "https://github.com/crmne/fastframe", tag = "v0.14.1" }
+fastframe-instance = { git = "https://github.com/crmne/fastframe", tag = "v0.14.1" }
+fastframe-text = { git = "https://github.com/crmne/fastframe", tag = "v0.14.1" }
 getrandom = "0.3"
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 keyring-core = "1"
@@ -29,7 +29,7 @@ ureq = "3"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 bramley-engine = { path = "../engine" }
-eframe = { version = "0.36.1", default-features = false, features = ["glow"] }
+eframe = { version = "0.36.2", default-features = false, features = ["glow"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus-secret-service-keyring-store = { version = "1.0.1", features = ["rt-async-io-crypto-rust"] }
@@ -38,7 +38,7 @@ zbus = { version = "5", default-features = false, features = ["async-io", "block
 [target.'cfg(target_os = "macos")'.dependencies]
 bramley-macos-player = { path = "../macos-player" }
 apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
-eframe = { version = "0.36.1", default-features = false, features = ["wgpu_no_default_features"] }
+eframe = { version = "0.36.2", default-features = false, features = ["wgpu_no_default_features"] }
 wgpu = { version = "30", default-features = false, features = ["metal"] }
 
 [target.'cfg(windows)'.dependencies]
