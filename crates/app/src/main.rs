@@ -450,7 +450,8 @@ fn main() -> Result<()> {
             .with_inner_size(size)
             .with_min_inner_size(ui::MIN_WINDOW)
             .with_title("Bramley")
-            .with_app_id("bramley"),
+            .with_app_id("bramley")
+            .with_icon(egui::IconData::default()),
         ..renderer_options()
     };
     eframe::run_native(
