@@ -4565,6 +4565,7 @@ mod idle {
         ctx: egui::Context,
         app: App,
         jobs: Receiver<bramley_api::Job>,
+        inbox: Sender<crate::cli::Envelope>,
     }
 
     impl Rig {
@@ -4577,12 +4578,18 @@ mod idle {
             let dir =
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/tmp/idle");
             let user = (mock_user(&dir), signed_out);
-            let (args, inbox) = (crate::Args::default(), (channel().1, true));
-            let mut app = App::new(&ctx, args, spawn, user, inbox, source);
+            let (inbox, requests) = channel();
+            let (args, requests) = (crate::Args::default(), (requests, true));
+            let mut app = App::new(&ctx, args, spawn, user, requests, source);
             let (api, jobs) = channel();
             app.api = Some(api);
             app.pass_floor = Duration::ZERO;
-            Rig { ctx, app, jobs }
+            Rig {
+                ctx,
+                app,
+                jobs,
+                inbox,
+            }
         }
 
         fn writing_status(path: &std::path::Path) -> Self {
@@ -4612,17 +4619,21 @@ mod idle {
             out.viewport_output[&egui::ViewportId::ROOT].repaint_delay
         }
 
+        fn answer_jobs(&self) {
+            for job in self.jobs.try_iter().collect::<Vec<_>>() {
+                let empty = bramley_api::Page {
+                    items: Vec::new(),
+                    next: None,
+                    total: Some(0),
+                };
+                (job.done)(Ok(bramley_api::Reply::Page(empty)));
+            }
+        }
+
         fn settle(&mut self) -> Duration {
             let mut delay = Duration::ZERO;
             for _ in 0..300 {
-                for job in self.jobs.try_iter().collect::<Vec<_>>() {
-                    let empty = bramley_api::Page {
-                        items: Vec::new(),
-                        next: None,
-                        total: Some(0),
-                    };
-                    (job.done)(Ok(bramley_api::Reply::Page(empty)));
-                }
+                self.answer_jobs();
                 delay = self.pass(egui::RawInput::default());
                 if delay == Duration::MAX && self.app.text_settled() {
                     break;
@@ -4837,6 +4848,140 @@ mod idle {
         assert!(
             named.iter().any(|cause| cause.contains("app.rs")),
             "{named:?}"
+        );
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> egui::Rect {
+        egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(w, h))
+    }
+
+    fn nates_displays() -> Vec<egui::Rect> {
+        vec![
+            rect(0.0, 0.0, 2560.0, 1440.0),
+            rect(-1728.0, 0.0, 1728.0, 1117.0),
+        ]
+    }
+
+    fn parked_rect() -> egui::Rect {
+        rect(2559.0, 1408.0, 2550.0, 1399.0)
+    }
+
+    fn placed(window: egui::Rect) -> egui::ViewportInfo {
+        egui::ViewportInfo {
+            outer_rect: Some(window),
+            ..shown_by(Some(false), Some(false))
+        }
+    }
+
+    fn parked_playing() -> (Rig, Ends) {
+        let (mut rig, ends) = playing();
+        rig.app.displays = nates_displays;
+        rig.answer_jobs();
+        rig.pass(egui::RawInput::default());
+        (rig, ends)
+    }
+
+    #[test]
+    fn only_a_window_with_a_sliver_on_every_display_counts_as_parked() {
+        let displays = nates_displays();
+        let cases = [
+            (Some(parked_rect()), true),
+            (Some(rect(1.0, 1.0, 1100.0, 720.0)), false),
+            (Some(rect(2520.0, 100.0, 1100.0, 720.0)), false),
+            (Some(rect(-1700.0, 40.0, 1100.0, 720.0)), false),
+            (Some(rect(-1728.0, 0.0, 1728.0, 1117.0)), false),
+            (Some(rect(-500.0, 100.0, 1100.0, 720.0)), false),
+            (Some(rect(2552.0, 100.0, 1100.0, 720.0)), true),
+            (Some(rect(2559.0, 1408.0, 400.0, 300.0)), true),
+            (Some(rect(5000.0, 5000.0, 1100.0, 720.0)), true),
+            (None, false),
+        ];
+        for (window, parked) in cases {
+            assert_eq!(
+                crate::parked::is_parked(window, &displays),
+                parked,
+                "{window:?}"
+            );
+        }
+        assert!(!crate::parked::is_parked(Some(parked_rect()), &[]));
+    }
+
+    #[test]
+    fn a_parked_window_asks_only_for_the_slow_wake_while_playing_yet_its_logic_still_runs() {
+        let (mut rig, ends) = parked_playing();
+        let released = snap(PlayState::Playing, 7.0, 99, None);
+        ends.borrow()[0].1.send(released).unwrap();
+        let asked = logic(&mut rig, placed(parked_rect()));
+        let slow = |wait: &Duration| *wait > crate::parked::WAKE_EVERY - SECOND;
+        assert!(asked.len() == 1 && asked.iter().all(slow), "{asked:?}");
+        let status = rig.app.status_json();
+        assert_eq!(status["position"].as_f64(), Some(7.0));
+        assert_eq!(status["windowParked"], true);
+        assert_eq!(
+            status["windowRect"],
+            json!([2559.0, 1408.0, 2550.0, 1399.0])
+        );
+    }
+
+    #[test]
+    fn a_window_on_a_display_keeps_the_playing_tick_and_leaving_the_parked_spot_repaints_at_once() {
+        let (mut rig, _) = parked_playing();
+        let asked = logic(&mut rig, placed(rect(-1700.0, 40.0, 1100.0, 720.0)));
+        assert!(
+            asked
+                .iter()
+                .any(|wait| *wait > SECOND / 2 && *wait <= SECOND),
+            "{asked:?}"
+        );
+        assert_eq!(rig.app.status_json()["windowParked"], false);
+        logic(&mut rig, placed(parked_rect()));
+        let asked = logic(&mut rig, placed(rect(100.0, 100.0, 1100.0, 720.0)));
+        assert!(asked.contains(&Duration::ZERO), "{asked:?}");
+    }
+
+    fn woken_by_the_engine(rig: &mut Rig, window: egui::Rect) -> bool {
+        (0..3).for_each(|_| drop(logic(rig, placed(window))));
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let counted = wakes.clone();
+        rig.ctx.set_request_repaint_callback(move |_| {
+            counted.fetch_add(1, Ordering::SeqCst);
+        });
+        crate::parked::wake(&rig.ctx);
+        wakes.load(Ordering::SeqCst) > 0
+    }
+
+    #[test]
+    fn the_engine_waker_is_silent_while_parked_and_wakes_otherwise() {
+        let (mut rig, _) = parked_playing();
+        assert!(woken_by_the_engine(
+            &mut rig,
+            rect(100.0, 100.0, 1100.0, 720.0)
+        ));
+        assert!(!woken_by_the_engine(&mut rig, parked_rect()));
+        assert!(woken_by_the_engine(
+            &mut rig,
+            rect(100.0, 100.0, 1100.0, 720.0)
+        ));
+    }
+
+    #[test]
+    fn a_status_request_is_answered_from_the_current_snapshot_while_parked() {
+        let (mut rig, ends) = parked_playing();
+        logic(&mut rig, placed(parked_rect()));
+        ends.borrow()[0]
+            .1
+            .send(snap(PlayState::Playing, 11.0, 2, None))
+            .unwrap();
+        let (reply, answer) = channel();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        rig.inbox
+            .send((crate::cli::Request::Now, deadline, reply))
+            .unwrap();
+        logic(&mut rig, placed(parked_rect()));
+        let status: Value = serde_json::from_str(&answer.try_recv().unwrap()).unwrap();
+        assert_eq!(
+            (status["position"].as_f64(), status["windowParked"].clone()),
+            (Some(11.0), json!(true))
         );
     }
 
