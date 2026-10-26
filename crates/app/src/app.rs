@@ -496,7 +496,7 @@ impl App {
         let window = parked::window(ctx);
         let parked = parked::is_parked(window, &(self.displays)());
         self.window = window;
-        parked::publish(ctx, parked);
+        parked::publish(ctx, parked && !hidden);
         let shown = std::mem::replace(&mut self.hidden, hidden) && !hidden;
         let unparked = std::mem::replace(&mut self.parked, parked) && !parked;
         if shown || unparked {

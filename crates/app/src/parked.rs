@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use egui::{Context, Id, Rect};
 
@@ -27,12 +27,24 @@ pub(crate) fn publish(ctx: &Context, parked: bool) {
     ctx.data_mut(|data| data.insert_temp(flag(), parked));
 }
 
+fn asked() -> Id {
+    Id::new("bramley-parked-wake-asked")
+}
+
 pub(crate) fn wake(ctx: &Context) {
     if !ctx
         .data(|data| data.get_temp::<bool>(flag()))
         .unwrap_or(false)
     {
         ctx.request_repaint();
+        return;
+    }
+    let due = ctx
+        .data(|data| data.get_temp::<Instant>(asked()))
+        .is_none_or(|at| at.elapsed() >= WAKE_EVERY);
+    if due {
+        ctx.data_mut(|data| data.insert_temp(asked(), Instant::now()));
+        ctx.request_repaint_after(WAKE_EVERY);
     }
 }
 

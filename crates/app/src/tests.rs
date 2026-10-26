@@ -4939,29 +4939,61 @@ mod idle {
         assert!(asked.contains(&Duration::ZERO), "{asked:?}");
     }
 
-    fn woken_by_the_engine(rig: &mut Rig, window: egui::Rect) -> bool {
-        (0..3).for_each(|_| drop(logic(rig, placed(window))));
-        let wakes = Arc::new(AtomicUsize::new(0));
-        let counted = wakes.clone();
-        rig.ctx.set_request_repaint_callback(move |_| {
-            counted.fetch_add(1, Ordering::SeqCst);
-        });
-        crate::parked::wake(&rig.ctx);
-        wakes.load(Ordering::SeqCst) > 0
+    fn engine_wakes(rig: &mut Rig, info: egui::ViewportInfo, calls: usize) -> Vec<Duration> {
+        (0..3).for_each(|_| drop(logic(rig, info.clone())));
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let seen = asked.clone();
+        let record = move |info: egui::RequestRepaintInfo| seen.lock().unwrap().push(info.delay);
+        rig.ctx.set_request_repaint_callback(record);
+        (0..calls).for_each(|_| crate::parked::wake(&rig.ctx));
+        std::mem::take(&mut *asked.lock().unwrap())
+    }
+
+    fn slow(wait: &Duration) -> bool {
+        *wait > crate::parked::WAKE_EVERY - SECOND && *wait <= crate::parked::WAKE_EVERY
     }
 
     #[test]
-    fn the_engine_waker_is_silent_while_parked_and_wakes_otherwise() {
+    fn a_window_on_a_display_gets_every_engine_wake_at_once() {
         let (mut rig, _) = parked_playing();
-        assert!(woken_by_the_engine(
-            &mut rig,
-            rect(100.0, 100.0, 1100.0, 720.0)
-        ));
-        assert!(!woken_by_the_engine(&mut rig, parked_rect()));
-        assert!(woken_by_the_engine(
-            &mut rig,
-            rect(100.0, 100.0, 1100.0, 720.0)
-        ));
+        let info = placed(rect(100.0, 100.0, 1100.0, 720.0));
+        assert!(engine_wakes(&mut rig, info, 1).contains(&Duration::ZERO));
+    }
+
+    #[test]
+    fn a_parked_window_never_gets_more_than_one_slow_engine_wake_however_often_the_engine_calls() {
+        let (mut rig, _) = parked_playing();
+        let asked = engine_wakes(&mut rig, placed(parked_rect()), 5);
+        assert!(asked.len() <= 1 && asked.iter().all(slow), "{asked:?}");
+    }
+
+    #[test]
+    fn a_parked_and_hidden_window_keeps_the_plain_engine_wake() {
+        let (mut rig, _) = parked_playing();
+        let hidden = egui::ViewportInfo {
+            occluded: Some(true),
+            ..placed(parked_rect())
+        };
+        assert!(engine_wakes(&mut rig, hidden, 1).contains(&Duration::ZERO));
+    }
+
+    #[test]
+    fn a_parked_paused_player_still_gets_a_slow_wake_for_playback_resumed_elsewhere() {
+        let (mut rig, ends) = parked_playing();
+        let paused = snap(PlayState::Paused, 7.0, 99, None);
+        ends.borrow()[0].1.send(paused).unwrap();
+        let asked = engine_wakes(&mut rig, placed(parked_rect()), 5);
+        assert!(asked.len() == 1 && asked.iter().all(slow), "{asked:?}");
+    }
+
+    #[test]
+    fn the_window_rect_is_scaled_by_the_zoom_factor_before_it_meets_the_displays() {
+        let (mut rig, _) = parked_playing();
+        rig.ctx.set_zoom_factor(1.5);
+        rig.pass(egui::RawInput::default());
+        logic(&mut rig, placed(parked_rect() / 1.5));
+        let status = rig.app.status_json();
+        assert_eq!(status["windowParked"], true, "{}", status["windowRect"]);
     }
 
     #[test]
