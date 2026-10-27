@@ -24,7 +24,7 @@ document.addEventListener("musickitloaded", async () => {
   } catch (e) { status.textContent = "MusicKit failed to configure: " + e; }
 });
 go.onclick = async () => {
-  go.disabled = true; status.textContent = "Waiting for Apple sign-in…";
+  go.disabled = true; status.textContent = "Waiting for Apple Music sign-in…";
   try {
     const token = await MusicKit.getInstance().authorize();
     const r = await fetch("token", { method: "POST", headers: { "X-Bramley-Sign-In": "1" }, body: token });
