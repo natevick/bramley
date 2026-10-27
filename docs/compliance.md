@@ -1,6 +1,6 @@
 # Compliance guardrails
 
-This project plays Apple Music on Linux and Windows by running Apple's MusicKit JS, unmodified, inside our own small JavaScript runtime. That runtime provides natively implemented media and DRM host objects (media element, Media Source Extensions, Encrypted Media Extensions) backed by the Widevine CDM. Nate chose this direction on 2026-10-09. It is a grey area: the terms below are written with web pages in mind. These rules are what keep it defensible. Breaking any of them takes the project outside the agreement. This is not legal advice.
+On Linux this project plays Apple Music by running Apple's MusicKit JS, unmodified, inside our own small JavaScript runtime (macOS uses Apple's native MusicKit framework instead). That runtime provides natively implemented media and DRM host objects (media element, Media Source Extensions, Encrypted Media Extensions) backed by the Widevine CDM. Nate chose this direction on 2026-10-09. It is a grey area: the terms below are written with web pages in mind. These rules are what keep it defensible. Breaking any of them takes the project outside the agreement. This is not legal advice.
 
 ## Rules
 

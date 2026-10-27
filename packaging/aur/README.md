@@ -25,7 +25,7 @@
 - Optional `gnome-keyring` (or any Secret Service): keeps the Apple Music sign-in in the keyring. Without one, Bramley uses a private file under `~/.config/bramley`.
 - Optional `fontconfig`: Bramley asks `fc-match` for the desktop's text hinting and antialiasing settings, and uses defaults when it is missing.
 
-## After the v0.1.0 release exists
+## Building from a release
 
 The `sha256sums_x86_64` in `bramley-bin/PKGBUILD` is all zeros on purpose, so a build fails until it holds the real value.
 
