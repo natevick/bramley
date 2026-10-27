@@ -16,6 +16,7 @@ use crate::Args;
 use crate::cli::{self, Inbox, Request};
 use crate::covers::{self, Grid, Source};
 use crate::credentials::Credentials;
+use crate::parked;
 use crate::playback::{Action, Banner, Playback, Spawn, play_or_pause};
 use crate::theme::{self, Palette, Theme};
 use crate::ui::cursor::Step;
@@ -194,6 +195,9 @@ pub struct App {
     status_at: Option<Instant>,
     status_late: bool,
     hidden: bool,
+    parked: bool,
+    window: Option<egui::Rect>,
+    pub(crate) displays: fn() -> Vec<egui::Rect>,
     causes: BTreeMap<String, u64>,
     #[cfg(feature = "gate-sabotage")]
     leak: crate::Leak,
@@ -332,6 +336,9 @@ impl App {
             status_at: None,
             status_late: false,
             hidden: false,
+            parked: false,
+            window: None,
+            displays: crate::parked::displays,
             causes: BTreeMap::new(),
             #[cfg(feature = "gate-sabotage")]
             leak: crate::Leak::from_env(),
@@ -422,6 +429,11 @@ impl App {
         status["repeatMode"] = json!(shown.repeat.as_str());
         status["volume"] = json!(self.volume_percent());
         status["windowHidden"] = json!(self.hidden);
+        status["windowParked"] = json!(self.parked);
+        let rect = self
+            .window
+            .map(|r| [r.min.x, r.min.y, r.width(), r.height()]);
+        status["windowRect"] = json!(rect);
         status["passesPaced"] = json!(self.passes_paced);
         status["repaintCauses"] = json!(self.causes);
         status["loadFailReason"] = match &shown.error {
@@ -481,7 +493,13 @@ impl App {
 
     fn schedule(&mut self, ctx: &egui::Context, now: Instant) {
         let hidden = ctx.input(|i| i.viewport().visible()) == Some(false);
-        if std::mem::replace(&mut self.hidden, hidden) && !hidden {
+        let window = parked::window(ctx);
+        let parked = parked::is_parked(window, &(self.displays)());
+        self.window = window;
+        parked::publish(ctx, parked && !hidden);
+        let shown = std::mem::replace(&mut self.hidden, hidden) && !hidden;
+        let unparked = std::mem::replace(&mut self.parked, parked) && !parked;
+        if shown || unparked {
             ctx.request_repaint();
         }
         if self.library.queued(now, covers_allowed(&self.playback)) {
@@ -500,15 +518,21 @@ impl App {
             status.and(self.status_at).map(|at| at + REPAINT_EVERY),
         ];
         let state = self.playback.snapshot().state;
-        let ticking = (!hidden && matches!(state, PlayState::Playing | PlayState::Loading))
-            || self.checking.is_some()
+        let playing = !hidden && matches!(state, PlayState::Playing | PlayState::Loading);
+        let beat = if parked {
+            parked::WAKE_EVERY
+        } else {
+            REPAINT_EVERY
+        };
+        let ticking = self.checking.is_some()
             || self.clearing.is_some()
             || self.waiting().is_some()
             || self.driving();
         let waits = due.into_iter().flatten().filter(|at| *at >= now);
         let waits = waits
             .map(|at| at - now)
-            .chain(ticking.then_some(REPAINT_EVERY));
+            .chain(ticking.then_some(REPAINT_EVERY))
+            .chain(playing.then_some(beat));
         if let Some(wait) = waits.min() {
             ctx.request_repaint_after(wait);
         }

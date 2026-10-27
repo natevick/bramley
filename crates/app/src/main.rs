@@ -5,6 +5,7 @@ mod credentials;
 mod devtoken;
 mod mcp;
 mod musickit;
+mod parked;
 mod playback;
 mod signin;
 #[cfg(test)]
@@ -318,7 +319,7 @@ fn spawner(ctx: egui::Context, output_device: Option<String>, user: Credentials)
         let (ctx, output_device, user) = (ctx.clone(), output_device.clone(), user.clone());
         std::thread::spawn(move || {
             let waker = ctx.clone();
-            let started = launch(&user, output_device, move || waker.request_repaint());
+            let started = launch(&user, output_device, move || parked::wake(&waker));
             let _ = tx.send(started);
             ctx.request_repaint();
         });
