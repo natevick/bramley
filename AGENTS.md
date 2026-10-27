@@ -1,6 +1,6 @@
 # Bramley agent guide
 
-Bramley, a small native player for Apple Music: Rust + egui on crmne/fastframe, modeled on Spotifast. Linux first; Windows and macOS must keep compiling.
+Bramley, a small native player for Apple Music: Rust + egui on crmne/fastframe, modeled on Spotifast. Linux first; macOS must keep compiling.
 
 Read `docs/compliance.md` before touching playback, tokens, networking or anything that loads musickit.js. Its rules are binding. When a task would break one, stop and ask Nate instead of working around it.
 
