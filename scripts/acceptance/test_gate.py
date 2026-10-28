@@ -1258,6 +1258,18 @@ class Preflight(unittest.TestCase):
         self.assertEqual(sorted(int(f.split()[0]) for f in by_name), [105, 106, 107, 108])
 
 
+    def test_the_xwayland_desktop_helpers_are_tolerated_by_their_real_comm_and_an_unknown_client_is_still_refused(self):
+        procs = {201: ('Xwayland', ['libgallium.so']), 202: ('ibus-x11', ['libgallium.so']), 203: ('mutter-x11-fram', ['libgallium.so']),
+                 204: ('cursor-agent', ['libgallium.so'])}
+        real = gate.gpu_processes
+        try:
+            gate.gpu_processes = lambda: procs
+            refused = gate.preflight()
+        finally:
+            gate.gpu_processes = real
+        self.assertEqual([int(f.split()[0]) for f in refused], [204])
+
+
 class HostCalm(unittest.TestCase):
     def rate(self, pages, window_s=60):
         counters = iter([{'pgsteal_file': 1000}, {'pgsteal_file': 1000 + pages}])

@@ -27,7 +27,7 @@ EVIDENCE = {'F1': ('f1',), 'F2': ('f2',), 'F3': ('f3',), 'F4': ('f4',), 'F5': ('
 EVIDENCE_PHASE = {'f3': 'browse', 'f7': 'browse', 'f9': 'browse', 'f10-badid': 'browse'}
 
 
-STANDING_GPU_CLIENTS, GPU_LIBS = ('gnome-shell', 'Xvfb', 'grok-bot'), ('libgallium', 'radeonsi', 'libvulkan_radeon')
+STANDING_GPU_CLIENTS, GPU_LIBS = ('gnome-shell', 'Xvfb', 'grok-bot', 'Xwayland', 'ibus-x11', 'mutter-x11-fram'), ('libgallium', 'radeonsi', 'libvulkan_radeon')
 
 
 def matched_libs(maps):
