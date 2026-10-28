@@ -96,5 +96,76 @@ class HarnessApi(unittest.TestCase):
             self.assertTrue(all(isinstance(v, int) and v >= 0 for v in row['host'].values()))
 
 
+
+class GuardStalls(unittest.TestCase):
+    def setUp(self):
+        import subprocess, time
+        self.time, self.cs = time, drive.cs
+        self.child = subprocess.Popen(['sleep', '30'])
+        self.real, self.stall = self.cs.pw_dump, self.cs.PW_STALL_S
+        self.cs.PW_STALL_S = 1
+
+    def tearDown(self):
+        self.cs.pw_dump, self.cs.PW_STALL_S = self.real, self.stall
+        self.child.kill()
+        self.child.wait()
+
+    def guard(self, answers, seconds):
+        def dump():
+            answer = next(answers)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        self.cs.pw_dump = dump
+        g = self.cs.Guard(self.child.pid, 'bramley-gate-null')
+        started = self.time.time()
+        g.start()
+        g.join(seconds)
+        g.stop = True
+        g.join(2)
+        return g, started
+
+    def timeout(self):
+        import subprocess
+        return subprocess.TimeoutExpired(['pw-dump'], 1)
+
+    def test_one_slow_dump_is_retried_and_does_not_kill_the_app(self):
+        import itertools
+        g, _ = self.guard(itertools.chain([self.timeout()], itertools.repeat([])), 1.5)
+        self.assertIsNone(g.killed)
+        self.assertEqual(len(g.stalls), 1)
+        self.assertGreater(g.polls, 0)
+        self.assertIsNone(self.child.poll())
+
+    def test_a_dump_that_never_answers_kills_the_app_at_the_deadline_not_before(self):
+        import itertools
+        g, started = self.guard(itertools.repeat(self.timeout()), 3)
+        self.assertIn('pw-dump failed for 1 s', g.killed['why'])
+        self.assertGreaterEqual(g.killed['t'] - started, 1)
+        self.assertLess(g.killed['t'] - started, 2)
+        self.assertEqual(self.child.wait(2), -9)
+
+    def test_the_deadline_restarts_at_every_answer(self):
+        import itertools
+        burst = [self.timeout()] * 3 + [[]]
+        g, _ = self.guard(itertools.cycle(burst), 2.5)
+        self.assertIsNone(g.killed)
+        self.assertGreaterEqual(len(g.stalls), 6)
+        self.assertIsNone(self.child.poll())
+
+    def test_a_stream_on_the_wrong_sink_is_still_killed_on_the_first_answer(self):
+        import itertools
+        pid = self.child.pid
+        dump = [{'id': 1, 'type': 'PipeWire:Interface:Node', 'info': {'props': {'application.process.id': pid, 'media.class': 'Stream/Output/Audio'}}},
+                {'id': 2, 'type': 'PipeWire:Interface:Node', 'info': {'props': {'node.name': 'speakers', 'media.class': 'Audio/Sink'}}},
+                {'id': 3, 'type': 'PipeWire:Interface:Link', 'info': {'output-node-id': 1, 'input-node-id': 2}}]
+        g, started = self.guard(itertools.repeat(dump), 1)
+        self.assertEqual(g.killed['why'], "stream linked to ['speakers']")
+        self.assertLess(g.killed['t'] - started, 0.5)
+
+    def test_the_production_deadline_is_five_seconds(self):
+        self.assertEqual(self.stall, 5)
+
+
 if __name__ == '__main__':
     unittest.main(argv=sys.argv[:1] + [a for a in sys.argv[1:] if a.startswith('-')])
