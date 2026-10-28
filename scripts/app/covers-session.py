@@ -4,6 +4,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 SONG = '6781024437'
 REAL_CONFIG = os.path.expanduser('~/.config/bramley')
 REAL_CACHE = os.path.expanduser('~/.cache/bramley')
+PW_STALL_S = 5
 SECRETS = ['gdbus', 'call', '--session', '--dest', 'org.freedesktop.secrets']
 
 
@@ -77,14 +78,21 @@ class Guard(threading.Thread):
         super().__init__(daemon=True)
         self.pid, self.allowed = pid, allowed
         self.stop, self.killed, self.last_clean, self.seen, self.polls, self.log = False, None, None, set(), 0, []
+        self.stalls = []
 
     def run(self):
+        answered = time.monotonic()
         while not self.stop and os.path.exists(f'/proc/{self.pid}'):
             try:
                 ours, targets = routing(self.pid, pw_dump())
             except Exception as e:
-                self.kill(f'pw-dump failed: {e}')
-                return
+                self.stalls.append([round(time.time(), 2), str(e)])
+                if time.monotonic() - answered >= PW_STALL_S:
+                    self.kill(f'pw-dump failed for {PW_STALL_S} s: {e}')
+                    return
+                time.sleep(0.25)
+                continue
+            answered = time.monotonic()
             self.polls += 1
             self.seen |= targets
             self.log.append([round(time.time(), 2), sorted(str(t) for t in targets)])

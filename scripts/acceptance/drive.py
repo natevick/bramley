@@ -203,7 +203,7 @@ class App:
         self.guard.join(2)
         self.log.close()
         gate.save(self.out, f'{self.name}.guard.json', {'pid': self.pid, 'polls': self.guard.polls, 'killed': self.guard.killed and self.guard.killed['why'],
-                                                        'seen': sorted(map(str, self.guard.seen)), 'log': self.guard.log, 'modes': self.modes})
+                                                        'seen': sorted(map(str, self.guard.seen)), 'log': self.guard.log, 'stalls': self.guard.stalls, 'modes': self.modes})
 
 
 @contextlib.contextmanager
