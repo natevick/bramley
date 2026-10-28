@@ -106,7 +106,7 @@ class GuardStalls(unittest.TestCase):
         self.cs.PW_STALL_S = 1
 
     def tearDown(self):
-        self.cs.pw_dump, self.cs.PW_STALL_S = self.real, self.stall
+        self.cs.pw_dump, self.cs.PW_STALL_S, self.cs.time = self.real, self.stall, self.time
         self.child.kill()
         self.child.wait()
 
@@ -162,6 +162,38 @@ class GuardStalls(unittest.TestCase):
         g, started = self.guard(itertools.repeat(dump), 1)
         self.assertEqual(g.killed['why'], "stream linked to ['speakers']")
         self.assertLess(g.killed['t'] - started, 0.5)
+
+    def test_a_clock_stepped_back_during_a_stall_still_kills_at_the_deadline(self):
+        import itertools, types
+        real = self.time
+        stepped = types.SimpleNamespace(time=lambda: real.time() - 3600, monotonic=real.monotonic, sleep=real.sleep)
+        def answers():
+            yield []
+            self.cs.time = stepped
+            yield from itertools.repeat(self.timeout())
+        g, started = self.guard(answers(), 3)
+        self.assertIn('pw-dump failed for 1 s', g.killed['why'])
+        self.assertEqual(self.child.wait(2), -9)
+
+    def test_slow_failures_are_judged_by_elapsed_time_not_by_count(self):
+        import itertools
+        def slow():
+            self.time.sleep(0.6)
+            return self.timeout()
+        g, started = self.guard((slow() for _ in itertools.count()), 4)
+        self.assertLessEqual(len(g.stalls), 2)
+        self.assertGreaterEqual(g.killed['t'] - started, 1)
+        self.assertLess(g.killed['t'] - started, 2.5)
+
+    def test_a_wrong_sink_after_a_stall_is_killed_on_the_first_answer(self):
+        import itertools
+        pid = self.child.pid
+        dump = [{'id': 1, 'type': 'PipeWire:Interface:Node', 'info': {'props': {'application.process.id': pid, 'media.class': 'Stream/Output/Audio'}}},
+                {'id': 2, 'type': 'PipeWire:Interface:Node', 'info': {'props': {'node.name': 'speakers', 'media.class': 'Audio/Sink'}}},
+                {'id': 3, 'type': 'PipeWire:Interface:Link', 'info': {'output-node-id': 1, 'input-node-id': 2}}]
+        g, _ = self.guard(itertools.chain([[]], [self.timeout()] * 2, itertools.repeat(dump)), 2)
+        self.assertEqual(g.killed['why'], "stream linked to ['speakers']")
+        self.assertEqual(len(g.stalls), 2)
 
     def test_the_production_deadline_is_five_seconds(self):
         self.assertEqual(self.stall, 5)

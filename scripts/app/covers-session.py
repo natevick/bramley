@@ -81,18 +81,18 @@ class Guard(threading.Thread):
         self.stalls = []
 
     def run(self):
-        answered = time.time()
+        answered = time.monotonic()
         while not self.stop and os.path.exists(f'/proc/{self.pid}'):
             try:
                 ours, targets = routing(self.pid, pw_dump())
             except Exception as e:
                 self.stalls.append([round(time.time(), 2), str(e)])
-                if time.time() - answered >= PW_STALL_S:
+                if time.monotonic() - answered >= PW_STALL_S:
                     self.kill(f'pw-dump failed for {PW_STALL_S} s: {e}')
                     return
                 time.sleep(0.25)
                 continue
-            answered = time.time()
+            answered = time.monotonic()
             self.polls += 1
             self.seen |= targets
             self.log.append([round(time.time(), 2), sorted(str(t) for t in targets)])
